@@ -1,9 +1,10 @@
 import * as os from "os";
 import * as express from "express";
 import * as cors from 'cors';
-import { ApolloServer } from '@apollo/server';
-import { expressMiddleware } from '@apollo/server/express4';
-const graphqlUploadExpress =require('graphql-upload/graphqlUploadExpress.js');
+import {ApolloServer} from '@apollo/server';
+import {expressMiddleware} from '@apollo/server/express4';
+
+const graphqlUploadExpress = require('graphql-upload/graphqlUploadExpress.js');
 const debug = require("debug")("mnb:sample-api:server");
 
 import {ServiceOptions} from "./options/serviceOptions";
@@ -32,7 +33,11 @@ async function start() {
         ServiceOptions.graphQLEndpoint,
         cors<cors.CorsRequest>(),
         express.json(),
-        expressMiddleware(server),
+        expressMiddleware(server, {
+            context: async ({req, res}) => ({
+                auth: req.headers.authorization,
+            })
+        })
     );
 
     app.listen(ServiceOptions.port, () => debug(`sample api server is now running on http://${os.hostname()}:${ServiceOptions.port}/graphql`));
