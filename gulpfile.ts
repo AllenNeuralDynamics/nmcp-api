@@ -40,6 +40,7 @@ function moveTask() {
     return merge(
         [
             gulp.src("package.json").pipe(gulp.dest("dist")),
+            gulp.src("src/authConfig.json").pipe(gulp.dest("dist")),
             gulp.src("yarn.lock").pipe(gulp.dest("dist")),
             gulp.src("LICENSE").pipe(gulp.dest("dist")),
             gulp.src(".sequelizerc").pipe(gulp.dest("dist")),

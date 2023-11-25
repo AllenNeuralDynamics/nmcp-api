@@ -16,7 +16,7 @@ import {GraphQLError} from "graphql/error";
 import {jwtDecode} from "jwt-decode";
 import moment = require("moment");
 
-const config = require('./authconfig.json');
+const config = require('./authConfig.json');
 
 start().then().catch((err) => debug(err));
 
