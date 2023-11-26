@@ -9,10 +9,12 @@ const debug = require("debug")("mnb:sample-api:database-connector");
 import {SequelizeOptions} from "../options/coreServicesOptions";
 import {ServiceOptions} from "../options/serviceOptions";
 import {BrainArea, IBrainArea} from "../models/brainArea";
-import {Neuron} from "../models/neuron";
 import {Fluorophore} from "../models/fluorophore";
 import {InjectionVirus} from "../models/injectionVirus";
 import {MouseStrain} from "../models/mouseStrain";
+import {Sample} from "../models/sample";
+import {Neuron} from "../models/neuron";
+import {Injection} from "../models/injection";
 
 export class RemoteDatabaseClient {
     public static async Start(options: Options = SequelizeOptions): Promise<RemoteDatabaseClient> {
@@ -32,7 +34,6 @@ export class RemoteDatabaseClient {
         this.createConnection(this._options);
         await this.authenticate("sample");
         await this.seedIfRequired();
-        await this.refreshDoi();
     }
 
     private createConnection(options: Options) {
@@ -88,14 +89,14 @@ export class RemoteDatabaseClient {
         let count = await BrainArea.count();
 
         if (count < 1327) {
-            debug("seeding brain areas");
+            debug("seeding brain structures");
 
             const chunkSize = 250;
 
             const allExisting = (await BrainArea.findAll({attributes: ["id"]}));
             const allExistingId = allExisting.map(b => b.id);
 
-            const items = loadAllenBrainAreas(when);
+            const items = loadBrainStructures(when);
 
             const existing = items.filter(i => allExistingId.includes(i.id));
             const newItems = items.filter(i => !allExistingId.includes(i.id));
@@ -109,19 +110,19 @@ export class RemoteDatabaseClient {
 
             while (newItems.length > chunkSize) {
                 const chunk = newItems.splice(0, chunkSize);
-                await queryInterface.bulkInsert("BrainAreas", chunk, {});
+                await queryInterface.bulkInsert("BrainStructure", chunk, {});
             }
 
             if (newItems.length > 0) {
-                await queryInterface.bulkInsert("BrainAreas", newItems, {});
+                await queryInterface.bulkInsert("BrainStructure", newItems, {});
             }
         } else {
-            debug("skipping brain area seed");
+            debug("skipping brain structure seed");
         }
 
         count = await Fluorophore.count();
         if (count == 0) {
-            debug("seeding brain fluorophores");
+            debug("seeding fluorophores");
             await queryInterface.bulkInsert("Fluorophores", loadFluorophores(when), {});
         } else {
             debug("skipping fluorophore seed");
@@ -129,7 +130,7 @@ export class RemoteDatabaseClient {
 
         count = await MouseStrain.count();
         if (count == 0) {
-            debug("seeding brain mouse strains");
+            debug("seeding mouse strains");
             await queryInterface.bulkInsert("MouseStrains", loadMouseStrains(when), {});
         } else {
             debug("skipping mouse strain seed");
@@ -137,87 +138,139 @@ export class RemoteDatabaseClient {
 
         count = await InjectionVirus.count();
         if (count == 0) {
-            debug("seeding brain injection viruses");
+            debug("seeding injection viruses");
             await queryInterface.bulkInsert("InjectionViruses", loadInjectionViruses(when), {});
         } else {
             debug("skipping injection virus seed");
         }
 
-        debug("seed complete");
-    }
+        if (ServiceOptions.seedUserItems) {
+            debug("seeding user-defined items");
 
-    private async refreshDoi() {
-        try {
-            const c = await Neuron.count();
+            count = await Sample.count();
 
-            if (c === 0) {
-                debug(`skipping doi refresh - empty database`);
-                return;
+            if (count == 0) {
+                debug("seeding samples");
+                await queryInterface.bulkInsert("Samples", loadSamples(when), {});
+            } else {
+                debug("skipping sample seed");
             }
 
-            debug("refreshing neuron doi");
+            count = await Injection.count();
 
-            const filename = path.join(ServiceOptions.fixturePath, "mouselight-neuron-doi.csv");
+            if (count == 0) {
+                debug("seeding injections");
+                await queryInterface.bulkInsert("Injections", loadInjections(when), {});
+            } else {
+                debug("skipping injection seed");
+            }
 
-            const data = fs.readFileSync(filename);
+            count = await Neuron.count();
 
-            const lines = parse(data);
-
-            debug(`refresh ${lines.length} entries`);
-
-            await this.applyDoi(lines);
-
-            debug(`refresh complete`);
-        } catch (err) {
-            debug(err);
+            if (count == 0) {
+                debug("seeding neurons");
+                await queryInterface.bulkInsert("Neurons", loadNeurons(when), {});
+            } else {
+                debug("skipping neuron seed");
+            }
         }
-    }
 
-    private async applyDoi(lines: any) {
-        return await lines.map(async (line: any) => {
-            const neuron = await Neuron.findOne({where: {idString: line[0]}});
-
-            if (neuron && (!neuron.doi || neuron.doi.length === 0)) {
-                await neuron.update({doi: line[1]});
-            }
-        });
+        debug("seed complete");
     }
 }
 
 function loadMouseStrains(when: Date) {
-    return [{id: "e3fda807-f57c-4b14-b4fd-0accfd668017", name: "C57BL/6J", updatedAt: when, createdAt: when}];
+    const fixtureDataPath = path.join(ServiceOptions.fixturePath, "mouseStrains.json");
+
+    const fileData = fs.readFileSync(fixtureDataPath, {encoding: "UTF-8"});
+
+    const areas = JSON.parse(fileData);
+
+    return areas.map(a => {
+        a.updatedAt = when;
+        a.createdAt = a.createdAt ?? when;
+
+        return a;
+    });
 }
 
 function loadInjectionViruses(when: Date) {
-    return [{
-        id: "7c792530-b1b0-47d3-b4c2-c7089523a78d",
-        name: "AAV2/1.FLEX-eGFP",
-        updatedAt: when,
-        createdAt: when
-    }, {
-        id: uuid.v4(),
-        name: "75b6241f-6c5c-4415-a329-e18862e4cc9e",
-        updatedAt: when,
-        createdAt: when
-    }];
+    const fixtureDataPath = path.join(ServiceOptions.fixturePath, "injectionViruses.json");
+
+    const fileData = fs.readFileSync(fixtureDataPath, {encoding: "UTF-8"});
+
+    const areas = JSON.parse(fileData);
+
+    return areas.map(a => {
+        a.updatedAt = when;
+        a.createdAt = a.createdAt ?? when;
+
+        return a;
+    });
 }
 
 function loadFluorophores(when: Date) {
-    return [{
-        id: "47fc1eff-a7e0-4a56-9e4d-5797f8d28d5f",
-        name: "eGFP",
-        updatedAt: when,
-        createdAt: when
-    }, {
-        id: "48fd3c4e-d0ad-4ef7-8a6d-b62248930ddf",
-        name: "tdTomato",
-        updatedAt: when,
-        createdAt: when
-    }];
+    const fixtureDataPath = path.join(ServiceOptions.fixturePath, "fluorophores.json");
+
+    const fileData = fs.readFileSync(fixtureDataPath, {encoding: "UTF-8"});
+
+    const areas = JSON.parse(fileData);
+
+    return areas.map(a => {
+        a.updatedAt = when;
+        a.createdAt = a.createdAt ?? when;
+
+        return a;
+    });
 }
 
-function loadAllenBrainAreas(when: Date): IBrainArea[] {
-    const fixtureDataPath = path.join(ServiceOptions.fixturePath, "compartments.json");
+function loadBrainStructures(when: Date): IBrainArea[] {
+    const fixtureDataPath = path.join(ServiceOptions.fixturePath, "brainStructures.json");
+
+    const fileData = fs.readFileSync(fixtureDataPath, {encoding: "UTF-8"});
+
+    const areas = JSON.parse(fileData);
+
+    return areas.map(a => {
+        a.updatedAt = when;
+        a.createdAt = a.createdAt ?? when;
+
+        return a;
+    });
+}
+
+function loadSamples(when: Date) {
+    const fixtureDataPath = path.join(ServiceOptions.fixturePath, "samples.json");
+
+    const fileData = fs.readFileSync(fixtureDataPath, {encoding: "UTF-8"});
+
+    const areas = JSON.parse(fileData);
+
+    return areas.map(a => {
+        a.updatedAt = when;
+        a.createdAt = a.createdAt ?? when;
+
+        return a;
+    });
+}
+
+function loadInjections(when: Date) {
+    const fixtureDataPath = path.join(ServiceOptions.fixturePath, "injections.json");
+
+    const fileData = fs.readFileSync(fixtureDataPath, {encoding: "UTF-8"});
+
+    const areas = JSON.parse(fileData);
+
+    return areas.map(a => {
+        a.updatedAt = when;
+        a.createdAt = a.createdAt ?? when;
+
+        return a;
+    });
+}
+
+function loadNeurons(when: Date) {
+    const fixtureDataPath = path.join(ServiceOptions.fixturePath, "neurons.json");
 
     const fileData = fs.readFileSync(fixtureDataPath, {encoding: "UTF-8"});
 

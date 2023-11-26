@@ -49,15 +49,15 @@ export interface NeuronInput {
     y?: number;
     z?: number;
     doi?: string;
-    annotationMetadata?: string;
+    metadata?: string;
     consensus?: ConsensusStatus;
-    sharing?: number;
+    visibility?: number;
     brainAreaId?: string;
     injectionId?: string;
 }
 
 export interface IUpdateAnnotationOutput {
-    annotationMetadata: string;
+    metadata: string;
     error: string;
 }
 
@@ -70,11 +70,11 @@ export class Neuron extends BaseModel {
     public y: number;
     public z: number;
     public doi: string;
-    public annotationMetadata?: string;
-    public sharing: number;
+    public metadata?: string;
+    public visibility: number;
     public consensus: ConsensusStatus;
 
-    public metadata?: IAnnotationMetadata;
+    public annotationMetadata?: IAnnotationMetadata;
 
     public getInjection!: BelongsToGetAssociationMixin<Injection>;
     public getBrainArea!: BelongsToGetAssociationMixin<BrainArea>;
@@ -167,7 +167,7 @@ export class Neuron extends BaseModel {
                 x: neuronInput.x || 0,
                 y: neuronInput.y || 0,
                 z: neuronInput.z || 0,
-                sharing: 1,
+                visibility: 1,
                 consensus: neuronInput.consensus || ConsensusStatus.None,
                 brainAreaId: neuronInput.brainAreaId,
                 injectionId: neuronInput.injectionId
@@ -252,8 +252,8 @@ export class Neuron extends BaseModel {
                 neuronInput.z = 0;
             }
 
-            if (neuronInput.sharing === null) {
-                neuronInput.sharing = 1;
+            if (neuronInput.visibility === null) {
+                neuronInput.visibility = 1;
             }
 
             if (neuronInput.consensus === null) {
@@ -456,19 +456,19 @@ export class Neuron extends BaseModel {
 
     public static async updateAnnotationMetadata(neuronId: string, upload: Promise<any>): Promise<IUpdateAnnotationOutput> {
         if (upload == null) {
-            return {annotationMetadata: null, error: "ERROR: File not specified."};
+            return {metadata: null, error: "ERROR: File not specified."};
         }
 
         const file = await upload;
 
         if (file == null) {
-            return {annotationMetadata: null, error: "ERROR: File not specified."};
+            return {metadata: null, error: "ERROR: File not specified."};
         }
 
         const neuron: Neuron = await Neuron.findByPk(neuronId);
 
         if (!neuron) {
-            return {annotationMetadata: null, error: `ERROR: The neuron with id ${neuronId} could not be found.`};
+            return {metadata: null, error: `ERROR: The neuron with id ${neuronId} could not be found.`};
         }
         const stream = file.createReadStream();
 
@@ -490,21 +490,21 @@ export class Neuron extends BaseModel {
                     const data = JSON.parse(buffer) as IAnnotationMetadata;
 
                     if (data != null) {
-                        neuron.metadata = data;
+                        neuron.annotationMetadata = data;
                     } else {
-                        resolve({annotationMetadata: null, error: "ERROR: Could not parse annotation metadata."});
+                        resolve({metadata: null, error: "ERROR: Could not parse annotation metadata."});
                     }
                 } catch (error) {
-                    resolve({annotationMetadata: null, error: "ERROR: Could not parse annotation metadata.\n" + error.toString()});
+                    resolve({metadata: null, error: "ERROR: Could not parse annotation metadata.\n" + error.toString()});
                 }
 
                 try {
                     neuron.save();
                 } catch (error) {
-                    resolve({annotationMetadata: null, error: "ERROR: Changes could not be committed.\n" + error.toString()});
+                    resolve({metadata: null, error: "ERROR: Changes could not be committed.\n" + error.toString()});
                 }
 
-                resolve({annotationMetadata: buffer, error: null});
+                resolve({metadata: buffer, error: null});
             });
         });
     }
@@ -545,7 +545,7 @@ export const modelInit = (sequelize: Sequelize) => {
             type: DataTypes.DOUBLE,
             defaultValue: 0
         },
-        sharing: {
+        visibility: {
             type: DataTypes.INTEGER,
             defaultValue: 1
         },
@@ -555,16 +555,16 @@ export const modelInit = (sequelize: Sequelize) => {
         consensus: {
             type: DataTypes.INTEGER
         },
-        annotationMetadata: {
+        metadata: {
             type: DataTypes.TEXT
         },
-        metadata: {
+        annotationMetadata: {
             type: DataTypes.VIRTUAL,
             get: function (): IAnnotationMetadata {
-                return JSON.parse(this.getDataValue("annotationMetadata")) || [];
+                return JSON.parse(this.getDataValue("metadata")) || [];
             },
             set: function (value: IAnnotationMetadata) {
-                this.setDataValue("annotationMetadata", JSON.stringify(value));
+                this.setDataValue("metadata", JSON.stringify(value));
             }
         }
     }, {

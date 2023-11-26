@@ -28,12 +28,15 @@ async function start() {
     const server = new ApolloServer({
         typeDefs: typeDefinitions,
         resolvers,
-        introspection: true
+        introspection: true,
+        csrfPrevention: false
     });
 
     app.use(graphqlUploadExpress())
 
     await server.start();
+
+    const requireAuthentication = ServiceOptions.requireAuthentication;
 
     app.use(
         ServiceOptions.graphQLEndpoint,
@@ -43,15 +46,17 @@ async function start() {
             context: async ({req, res}) => {
                 const token = req.headers.authorization || "null";
 
-                const scopes = validateToken(token);
+                if (requireAuthentication) {
+                    const scopes = validateToken(token);
 
-                if (scopes == null) {
-                    throw new GraphQLError('User is not authenticated', {
-                        extensions: {
-                            code: 'UNAUTHENTICATED',
-                            http: {status: 401},
-                        },
-                    });
+                    if (scopes == null) {
+                        throw new GraphQLError('User is not authenticated', {
+                            extensions: {
+                                code: 'UNAUTHENTICATED',
+                                http: {status: 401},
+                            },
+                        });
+                    }
                 }
 
                 return token;

@@ -1,0 +1,72 @@
+[
+  {
+    "id": "9b2cf056-1fba-468f-a877-04169dd9f708",
+    "name": "path",
+    "swcName": "undefined",
+    "value": 0,
+    "mutable": false,
+    "createdAt": "2017-05-22 19:17:24.774000 +00:00",
+    "updatedAt": "2017-05-22 19:17:24.774000 +00:00",
+    "deletedAt": null
+  },
+  {
+    "id": "6afcafa5-ec7f-4899-8941-3e1f812682ce",
+    "name": "soma",
+    "swcName": "soma",
+    "value": 1,
+    "mutable": false,
+    "createdAt": "2017-05-22 19:17:24.774000 +00:00",
+    "updatedAt": "2017-05-22 19:17:24.774000 +00:00",
+    "deletedAt": null
+  },
+  {
+    "id": "a1df739e-f4a8-4b88-9a25-2cd6b9a7563c",
+    "name": "axon",
+    "swcName": "axon",
+    "value": 2,
+    "mutable": false,
+    "createdAt": "2017-05-22 19:17:24.774000 +00:00",
+    "updatedAt": "2017-05-22 19:17:24.774000 +00:00",
+    "deletedAt": null
+  },
+  {
+    "id": "d8eb210f-65fe-4983-bdcb-e34de5ca2e13",
+    "name": "(basal) dendrite",
+    "swcName": "(basal) dendrite",
+    "value": 3,
+    "mutable": false,
+    "createdAt": "2017-05-22 19:17:24.774000 +00:00",
+    "updatedAt": "2017-05-22 19:17:24.774000 +00:00",
+    "deletedAt": null
+  },
+  {
+    "id": "a3dec6a1-7484-45a7-bc05-cf3d6014c44d",
+    "name": "apical dendrite",
+    "swcName": "apical dendrite",
+    "value": 4,
+    "mutable": false,
+    "createdAt": "2017-05-22 19:17:24.774000 +00:00",
+    "updatedAt": "2017-05-22 19:17:24.774000 +00:00",
+    "deletedAt": null
+  },
+  {
+    "id": "2a8efa78-1067-4ce8-8e4f-cfcf9cf7d315",
+    "name": "branch point",
+    "swcName": "fork point",
+    "value": 5,
+    "mutable": false,
+    "createdAt": "2017-05-22 19:17:24.774000 +00:00",
+    "updatedAt": "2017-05-22 19:17:24.774000 +00:00",
+    "deletedAt": null
+  },
+  {
+    "id": "c37953e1-a1e9-4b9a-847e-08d9566ced65",
+    "name": "end point",
+    "swcName": "end point",
+    "value": 6,
+    "mutable": false,
+    "createdAt": "2017-05-22 19:17:24.774000 +00:00",
+    "updatedAt": "2017-05-22 19:17:24.774000 +00:00",
+    "deletedAt": null
+  }
+]

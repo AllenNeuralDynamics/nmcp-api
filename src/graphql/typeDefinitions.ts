@@ -79,11 +79,9 @@ let typeDefinitions = gql`
         tag: String
         comment: String
         sampleDate: Date
-        sharing: Int
+        visibility: Int
         mouseStrain: MouseStrain
         injections: [Injection!]!
-        activeRegistrationTransform: RegistrationTransform
-        registrationTransforms: [RegistrationTransform]!
         neuronCount: Int
         createdAt: Date
         updatedAt: Date
@@ -98,10 +96,10 @@ let typeDefinitions = gql`
         x: Float
         y: Float
         z: Float
-        sharing: Int
+        visibility: Int
         doi: String
         consensus: Int
-        annotationMetadata: String
+        metadata: String
         brainAreaId: String
         brainArea: BrainArea
         injection: Injection
@@ -186,7 +184,7 @@ let typeDefinitions = gql`
     }
 
     type UploadAnnotationMetadataOutput {
-        annotationMetadata: String
+        metadata: String
         error: String
     }
 
@@ -318,11 +316,10 @@ let typeDefinitions = gql`
         tag: String
         comment: String
         sampleDate: Date
-        sharing: Int
+        visibility: Int
         mouseStrainId: String
         mouseStrainName: String
         injectionIds: [String]
-        activeRegistrationTransformId: String
     }
 
     input NeuronInput {
@@ -334,7 +331,7 @@ let typeDefinitions = gql`
         x: Float
         y: Float
         z: Float
-        sharing: Int
+        visibility: Int
         doi: String
         consensus: Int
         brainAreaId: String
@@ -390,10 +387,6 @@ let typeDefinitions = gql`
         createInjection(injectionInput: InjectionInput): MutatedInjection!
         updateInjection(injectionInput: InjectionInput): MutatedInjection!
         deleteInjection(id: String!): DeleteOutput!
-
-        createRegistrationTransform(registrationTransform: RegistrationTransformInput, makeActive: Boolean): MutatedRegistrationTransform!
-        updateRegistrationTransform(registrationTransform: RegistrationTransformInput): MutatedRegistrationTransform!
-        deleteRegistrationTransform(id: String!): DeleteOutput!
 
         createSample(sample: SampleInput): MutatedSample!
         updateSample(sample: SampleInput): MutatedSample!

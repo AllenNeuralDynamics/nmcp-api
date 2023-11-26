@@ -4,12 +4,16 @@ export interface IServiceOptions {
     port: number;
     graphQLEndpoint: string;
     fixturePath: string;
+    requireAuthentication: boolean;
+    seedUserItems: boolean;
 }
 
 const configuration: IServiceOptions = {
     port: 5000,
     graphQLEndpoint: "/graphql",
-    fixturePath: "fixtures"
+    fixturePath: "fixtures",
+    requireAuthentication: true,
+    seedUserItems: false
 };
 
 function loadConfiguration() {
@@ -20,6 +24,9 @@ function loadConfiguration() {
 
     const prefix = (!process.env.NODE_ENV || process.env.NODE_ENV === "development") ? ".." : "";
     c.fixturePath =  path.normalize(path.join(__dirname, prefix, "..", c.fixturePath));
+
+    c.requireAuthentication = process.env.NMCP_AUTH_REQUIRED !== "false"
+    c.seedUserItems =  process.env.NMCP_SEED_USER_ITEMS === "true"
 
     return c;
 }

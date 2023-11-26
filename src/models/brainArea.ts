@@ -154,6 +154,7 @@ export const modelInit = (sequelize: Sequelize) => {
             }
         }
     }, {
+        tableName: "BrainStructure",
         timestamps: true,
         paranoid: true,
         sequelize

@@ -42,8 +42,7 @@ export interface SampleInput {
     sampleDate?: number;
     mouseStrainId?: string;
     mouseStrainName?: string;
-    activeRegistrationTransformId: string;
-    sharing?: number;
+    visibility?: number;
 }
 
 export class Sample extends BaseModel {
@@ -52,8 +51,7 @@ export class Sample extends BaseModel {
     public tag: string;
     public comment: string;
     public sampleDate: Date;
-    public activeRegistrationTransformId: string;
-    public sharing: number;
+    public visibility: number;
 
     public getMouseStrain!: BelongsToGetAssociationMixin<MouseStrain>;
     public getInjections!: HasManyGetAssociationsMixin<Injection>;
@@ -123,9 +121,8 @@ export class Sample extends BaseModel {
             const animalId = sampleInput.animalId || "";
             const tag = sampleInput.tag || "";
             const comment = sampleInput.comment || "";
-            const activeRegistrationTransformId = sampleInput.activeRegistrationTransformId || null;
             const mouseStrainId = sampleInput.mouseStrainId || null;
-            const sharing = sampleInput.sharing || 0;
+            const visibility = sampleInput.visibility || 0;
 
             const sample = await Sample.create({
                 idNumber: idNumber,
@@ -133,8 +130,7 @@ export class Sample extends BaseModel {
                 animalId: animalId,
                 tag: tag,
                 comment: comment,
-                sharing: sharing,
-                activeRegistrationTransformId: activeRegistrationTransformId,
+                visibility: visibility,
                 mouseStrainId: mouseStrainId
             });
 
@@ -174,8 +170,8 @@ export class Sample extends BaseModel {
                 sampleInput.comment = "";
             }
 
-            if (sampleInput.sharing === null) {
-                sampleInput.sharing = 0;
+            if (sampleInput.visibility === null) {
+                sampleInput.visibility = 0;
             }
 
             // Ok to be null.
@@ -292,11 +288,7 @@ export const modelInit = (sequelize: Sequelize) => {
             defaultValue: ""
         },
         sampleDate: DataTypes.DATE,
-        activeRegistrationTransformId: {
-            type: DataTypes.TEXT,
-            defaultValue: "",
-        },
-        sharing: {
+        visibility: {
             type: DataTypes.INTEGER,
             defaultValue: 0
         }

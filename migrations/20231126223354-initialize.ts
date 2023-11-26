@@ -1,3 +1,6 @@
+const BrainStructureTableName = "BrainStructure";
+const SyncHistoryTableName = "SyncHistory";
+
 export = {
     up: async (queryInterface: any, Sequelize: any) => {
         await queryInterface.createTable(
@@ -43,7 +46,7 @@ export = {
             });
 
         await queryInterface.createTable(
-            "BrainAreas",
+            BrainStructureTableName,
             {
                 id: {
                     primaryKey: true,
@@ -79,8 +82,8 @@ export = {
                 deletedAt: Sequelize.DATE
             });
 
-        await queryInterface.addIndex("BrainAreas", ["depth"]);
-        await queryInterface.addIndex("BrainAreas", ["parentStructureId"]);
+        await queryInterface.addIndex(BrainStructureTableName, ["depth"]);
+        await queryInterface.addIndex(BrainStructureTableName, ["parentStructureId"]);
 
         await queryInterface.createTable(
             "Samples",
@@ -104,9 +107,6 @@ export = {
                     defaultValue: ""
                 },
                 sampleDate: Sequelize.DATE,
-                activeRegistrationTransformId: {
-                    type: Sequelize.TEXT
-                },
                 mouseStrainId: {
                     type: Sequelize.UUID,
                     references: {
@@ -114,7 +114,7 @@ export = {
                         key: "id"
                     }
                 },
-                sharing: {
+                visibility: {
                     type: Sequelize.INTEGER,
                     defaultValue: 0
                 },
@@ -124,31 +124,6 @@ export = {
             });
 
         await queryInterface.addIndex("Samples", ["mouseStrainId"]);
-
-        await queryInterface.createTable(
-            "RegistrationTransforms",
-            {
-                id: {
-                    primaryKey: true,
-                    type: Sequelize.UUID,
-                    defaultValue: Sequelize.UUIDV4
-                },
-                location: Sequelize.TEXT,
-                name: Sequelize.TEXT,
-                notes: Sequelize.TEXT,
-                sampleId: {
-                    type: Sequelize.UUID,
-                    references: {
-                        model: "Samples",
-                        key: "id"
-                    }
-                },
-                createdAt: Sequelize.DATE,
-                updatedAt: Sequelize.DATE,
-                deletedAt: Sequelize.DATE
-            });
-
-        await queryInterface.addIndex("RegistrationTransforms", ["sampleId"]);
 
         await queryInterface.createTable(
             "Injections",
@@ -161,7 +136,7 @@ export = {
                 brainAreaId: {
                     type: Sequelize.UUID,
                     references: {
-                        model: "BrainAreas",
+                        model: BrainStructureTableName,
                         key: "id"
                     }
                 },
@@ -235,14 +210,22 @@ export = {
                     type: Sequelize.DOUBLE,
                     defaultValue: 0
                 },
-                sharing: {
+                visibility: {
                     type: Sequelize.INTEGER,
                     defaultValue: 1
+                },
+                consensus: {
+                    type: Sequelize.INTEGER,
+                    defaultValue: 1
+                },
+                metadata: {
+                    type: Sequelize.TEXT,
+                    defaultValue: ""
                 },
                 brainAreaId: {
                     type: Sequelize.UUID,
                     references: {
-                        model: "BrainAreas",
+                        model: BrainStructureTableName,
                         key: "id"
                     }
                 },
@@ -260,16 +243,38 @@ export = {
 
         await queryInterface.addIndex("Neurons", ["brainAreaId"]);
         await queryInterface.addIndex("Neurons", ["injectionId"]);
+
+        await queryInterface.createTable(
+            SyncHistoryTableName,
+            {
+                id: {
+                    primaryKey: true,
+                    type: Sequelize.UUID,
+                    defaultValue: Sequelize.UUIDV4
+                },
+                kind: Sequelize.INTEGER,
+                entity: Sequelize.UUID,
+                status: Sequelize.INTEGER,
+                error: Sequelize.TEXT,
+                startedAt:Sequelize.DATE,
+                completedAt: Sequelize.DATE,
+                createdAt: Sequelize.DATE,
+                updatedAt: Sequelize.DATE,
+                deletedAt: Sequelize.DATE
+            });
+
+        await queryInterface.addIndex(SyncHistoryTableName, ["kind"]);
+
     },
 
     down: async (queryInterface: any, Sequelize: any) => {
         await queryInterface.dropTable("Neurons");
         await queryInterface.dropTable("Injections");
-        await queryInterface.dropTable("RegistrationTransforms");
         await queryInterface.dropTable("Samples");
         await queryInterface.dropTable("MouseStrains");
-        await queryInterface.dropTable("BrainAreas");
+        await queryInterface.dropTable(BrainStructureTableName);
         await queryInterface.dropTable("InjectionViruses");
         await queryInterface.dropTable("Fluorophores");
+        await queryInterface.dropTable(SyncHistoryTableName);
     }
 };

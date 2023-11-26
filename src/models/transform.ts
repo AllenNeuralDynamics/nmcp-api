@@ -66,13 +66,6 @@ export class RegistrationTransform extends BaseModel {
                 sampleId: registrationTransform.sampleId
             });
 
-            if (transform && makeActive) {
-                await Sample.updateWith({
-                    id: registrationTransform.sampleId,
-                    activeRegistrationTransformId: transform.id
-                });
-            }
-
             return {source: transform, error: null};
         } catch (error) {
             return {source: null, error: error.message};

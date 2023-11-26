@@ -225,16 +225,6 @@ export const resolvers = {
             return Fluorophore.updateWith(args.fluorophore);
         },
 
-        createRegistrationTransform(_, args: ICreateRegistrationTransformMutateArguments): Promise<EntityMutateOutput<RegistrationTransform>> {
-            return RegistrationTransform.createWith(args.registrationTransform, args.makeActive);
-        },
-        updateRegistrationTransform(_, args: IRegistrationTransformMutateArguments): Promise<EntityMutateOutput<RegistrationTransform>> {
-            return RegistrationTransform.updateWith(args.registrationTransform);
-        },
-        deleteRegistrationTransform(_, args: IIdOnlyArguments): Promise<DeleteOutput> {
-            return RegistrationTransform.deleteFor(args.id);
-        },
-
         createInjection(_, args: IInjectionMutateArguments): Promise<EntityMutateOutput<Injection>> {
             return Injection.createWith(args.injectionInput);
         },
@@ -337,14 +327,8 @@ export const resolvers = {
         mouseStrain(sample: Sample, _, __): Promise<MouseStrain> {
             return sample.getMouseStrain();
         },
-        activeRegistrationTransform(sample: Sample): Promise<RegistrationTransform> {
-            return RegistrationTransform.findByPk(sample.activeRegistrationTransformId);
-        },
         injections(sample: Sample): Promise<Injection[]> {
             return sample.getInjections();
-        },
-        registrationTransforms(sample: Sample): Promise<RegistrationTransform[]> {
-            return sample.getTransforms();
         },
         async neuronCount(sample: Sample): Promise<number> {
             const output = await Sample.neuronCountsPerSample([sample.id]);

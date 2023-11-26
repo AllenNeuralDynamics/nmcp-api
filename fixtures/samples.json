@@ -1,0 +1,28 @@
+[
+  {
+    "id": "18a038ff-5830-487d-ab3a-bace44f87ee3",
+    "idNumber": 1,
+    "animalId": "296680",
+    "tag": "MC-GFP / ALM-tDT",
+    "comment": "",
+    "sampleDate": "2015-06-19T12:00:00Z",
+    "mouseStrainId": "e3fda807-f57c-4b14-b4fd-0accfd668017",
+    "createdAt": "2017-05-22 19:35:37.925000 +00:00",
+    "updatedAt": "2018-07-08 17:10:36.848000 +00:00",
+    "deletedAt": null,
+    "visibility": 4
+  },
+  {
+    "id": "ad1f720a-4e06-4ce4-9d87-2e7dd7a46aad",
+    "idNumber": 2,
+    "animalId": "296679",
+    "tag": "MC-GFP / ALM-tDT",
+    "comment": "",
+    "sampleDate": "2015-07-11T12:00:00Z",
+    "mouseStrainId": "e3fda807-f57c-4b14-b4fd-0accfd668017",
+    "createdAt": "2017-05-23 16:28:49.851000 +00:00",
+    "updatedAt": "2018-07-08 17:10:37.437000 +00:00",
+    "deletedAt": null,
+    "visibility": 4
+  }
+]
