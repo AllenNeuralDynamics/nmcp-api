@@ -1,9 +1,14 @@
-import {Sequelize, DataTypes, BelongsToGetAssociationMixin, HasManyGetAssociationsMixin} from "sequelize";
+import {Sequelize, DataTypes, BelongsToGetAssociationMixin, HasManyGetAssociationsMixin, Op} from "sequelize";
 
 import {BaseModel} from "./baseModel";
 import {TracingStructure} from "./tracingStructure";
-import {TracingNode} from "./tracingNode";
+import {TracingNode, TracingNodeMutationData} from "./tracingNode";
 import {Neuron} from "./neuron";
+import {ITracingPage, ITracingPageInput, IUploadFile, IUploadOutput} from "../graphql/serverResolvers";
+import {swcParse} from "../util/SwcParser";
+import {StructureIdentifier} from "./structureIdentifier";
+
+const debug = require("debug")("mnb:sample-api:tracing");
 
 export interface ITracingInput {
     id?: string;
@@ -29,6 +34,140 @@ export class Tracing extends BaseModel {
     public getTracingStructure!: BelongsToGetAssociationMixin<TracingStructure>;
     public getNeuron!: BelongsToGetAssociationMixin<Neuron>;
     public getNodes!: HasManyGetAssociationsMixin<TracingNode>;
+
+    public static async getTracings(queryInput: ITracingPageInput): Promise<ITracingPage> {
+        let out: ITracingPage = {
+            offset: 0,
+            limit: 0,
+            totalCount: 0,
+            matchCount: 0,
+            tracings: []
+        };
+
+        out.totalCount = await Tracing.count({});
+
+        let options = {where: {}};
+
+        if (queryInput) {
+            if (queryInput.tracingStructureId) {
+                options.where["tracingStructureId"] = queryInput.tracingStructureId;
+            }
+
+            if (queryInput.neuronIds && queryInput.neuronIds.length > 0) {
+                options.where["neuronId"] = {[Op.in]: queryInput.neuronIds}
+            }
+
+            out.matchCount = await Tracing.count(options);
+
+            options["order"] = [["createdAt", "DESC"]];
+
+            if (queryInput.offset) {
+                options["offset"] = queryInput.offset;
+                out.offset = queryInput.offset;
+            }
+
+            if (queryInput.limit) {
+                options["limit"] = queryInput.limit;
+                out.limit = queryInput.limit;
+            }
+        } else {
+            out.matchCount = out.totalCount;
+        }
+
+        if (out.limit === 1) {
+            out.tracings = [await Tracing.findOne(options)];
+        } else {
+            out.tracings = await Tracing.findAll(options);
+        }
+
+        return out;
+    }
+
+    public static async receiveSwcUpload(annotator: string, neuronId: string, tracingStructureId: string, uploadFile: Promise<any>): Promise<IUploadOutput> {
+        if (!uploadFile) {
+            return {
+                tracing: null,
+                transformSubmission: false,
+                error: {name: "UploadSwcError", message: "There are no files attached to parse"}
+            };
+        }
+
+        let file = await uploadFile;
+
+        let tracing: Tracing = null;
+
+        let transformSubmission = false;
+
+        try {
+            const parseOutput = await swcParse(file.createReadStream());
+
+            if (parseOutput.rows.length === 0) {
+                return {
+                    tracing: null,
+                    transformSubmission: false,
+                    error: {name: "UploadSwcError", message: "Could not find any identifiable node rows"}
+                };
+            }
+
+            if (parseOutput.somaCount === 0) {
+                return {
+                    tracing: null,
+                    transformSubmission: false,
+                    error: {name: "UploadSwcError", message: "There are no soma/root/un-parented nodes in the tracing"}
+                };
+            }
+
+            if (parseOutput.somaCount > 1) {
+                return {
+                    tracing: null,
+                    transformSubmission: false,
+                    error: {
+                        name: "UploadSwcError",
+                        message: "There is more than one soma/root/un-parented nodes in the tracing"
+                    }
+                };
+            }
+
+            const tracingData = {
+                annotator,
+                neuronId,
+                tracingStructureId,
+                filename: file.filename,
+                fileComments: parseOutput.comments
+            };
+
+            let nodeData: TracingNodeMutationData[] = parseOutput.rows.map(row => {
+                return {
+                    swcTracingId: null,
+                    sampleNumber: row.sampleNumber,
+                    parentNumber: row.parentNumber,
+                    structureIdentifierId: StructureIdentifier.idForValue(row.structure),
+                    x: row.x,
+                    y: row.y,
+                    z: row.z,
+                    radius: row.radius
+                }
+            });
+
+            await Tracing.sequelize.transaction(async (t) => {
+                tracing = await Tracing.create(tracingData, {transaction: t});
+
+                nodeData = nodeData.map(node => {
+                    node.swcTracingId = tracing.id;
+                    return node;
+                });
+
+                return TracingNode.bulkCreate(nodeData, {transaction: t});
+            });
+
+            debug(`inserted ${nodeData.length} nodes from ${file.filename}`);
+
+        } catch (error) {
+            return {tracing: null, transformSubmission: false, error};
+        }
+
+        return {tracing, transformSubmission, error: null};
+    }
 }
 
 export const modelInit = (sequelize: Sequelize) => {

@@ -17,6 +17,7 @@ import {SwcApiClient} from "../external/swcApiService";
 import {StructureIdentifier} from "../models/structureIdentifier";
 import {GraphQLServerContext} from "@apollo/server";
 import {TracingStructure} from "../models/tracingStructure";
+import {Tracing} from "../models/tracing";
 
 //
 // GraphQL arguments
@@ -36,6 +37,10 @@ export interface IUploadFile {
 //
 // General query
 //
+
+interface IIdsArguments {
+    ids: string[];
+}
 
 interface IBrainAreaQueryArguments {
     input: CompartmentQueryInput;
@@ -65,6 +70,10 @@ interface INeuronQueryArguments {
     input: NeuronQueryInput;
 }
 
+interface SampleIdArguments {
+    sampleId: string;
+}
+
 interface ICountsArguments {
     ids: string[];
 }
@@ -72,6 +81,38 @@ interface ICountsArguments {
 interface IAnnotationUploadArguments {
     neuronId: string;
     file: Promise<IUploadFile>;
+}
+
+interface ITracingUploadArguments {
+    annotator: string;
+    neuronId: string;
+    structureId: string;
+    file: Promise<IUploadFile>;
+}
+
+export interface ITracingPageInput {
+    offset: number;
+    limit: number;
+    neuronIds: string[];
+    tracingStructureId: string;
+}
+
+interface ITracingsArguments {
+    pageInput: ITracingPageInput;
+}
+
+export interface ITracingPage {
+    offset: number;
+    limit: number;
+    totalCount: number;
+    matchCount: number;
+    tracings: Tracing[];
+}
+
+export interface IUploadOutput {
+    tracing: Tracing;
+    transformSubmission: boolean;
+    error: Error;
 }
 
 //
@@ -103,6 +144,17 @@ interface ISampleMutateArguments {
 
 interface INeuronMutateArguments {
     neuron: NeuronInput;
+}
+
+
+export interface ITracingsCount {
+    tracingId: string;
+    count: number;
+}
+
+export interface IQueryTracingsCountOutput {
+    counts: ITracingsCount[];
+    error: Error;
 }
 
 export const resolvers = {
@@ -162,6 +214,9 @@ export const resolvers = {
         neuron(_, args: IIdOnlyArguments): Promise<Neuron> {
             return Neuron.findByPk(args.id);
         },
+        neuronsForSample(_, args: SampleIdArguments, context: GraphQLServerContext): Promise<Neuron[]> {
+            return Neuron.getNeurons(args.sampleId);
+        },
 
         neuronCountsForInjections(_, args: ICountsArguments): Promise<EntityCountOutput> {
             return Injection.neuronCountPerInjection(args.ids);
@@ -179,6 +234,22 @@ export const resolvers = {
         },
         tracingStructures(_, __, context: GraphQLServerContext): Promise<TracingStructure[]> {
             return TracingStructure.findAll({});
+        },
+
+        tracings(_, args: ITracingsArguments, context: GraphQLServerContext): Promise<ITracingPage> {
+            return Tracing.getTracings(args.pageInput);
+        },
+        transformedTracingCounts(_, args: IIdsArguments, context: GraphQLServerContext): IQueryTracingsCountOutput {
+            const counts: ITracingsCount[] = [];
+
+            args.ids.map(id => {
+                counts.push({
+                    tracingId: id,
+                    count: 0
+                });
+            });
+
+            return {counts: counts, error: null};
         },
 
         systemMessage(): String {
@@ -239,6 +310,10 @@ export const resolvers = {
         },
         deleteNeuron(_, args: IIdOnlyArguments): Promise<DeleteOutput> {
             return Neuron.deleteFor(args.id);
+        },
+
+        async  uploadSwc(_, args: ITracingUploadArguments, context: GraphQLServerContext): Promise<IUploadOutput> {
+            return Tracing.receiveSwcUpload(args.annotator, args.neuronId, args.structureId, args.file);
         },
 
         setSystemMessage(_, args: any): boolean {
@@ -328,6 +403,12 @@ export const resolvers = {
         injection(neuron: Neuron): Promise<Injection> {
             return neuron.getInjection();
         }
+    },
+    Tracing: {
+        async tracingStructure(tracing, _, context: GraphQLServerContext): Promise<TracingStructure> {
+            const result: Tracing = await Tracing.findByPk(tracing.id);
+            return result ? result.getTracingStructure() : null;
+        },
     },
     Date: new GraphQLScalarType({
         name: "Date",

@@ -102,6 +102,19 @@ export class Neuron extends BaseModel {
         return {totalCount: count, items: neurons};
     }
 
+    public static async getNeurons(sampleId: string): Promise<Neuron[]> {
+        if (!sampleId || sampleId.length === 0) {
+            return Neuron.findAll({});
+        }
+
+        const injectionIds = (await Injection.findAll({where: {sampleId: sampleId}})).map(obj => obj.id);
+
+        return Neuron.findAll({
+            where: {injectionId: {[Op.in]: injectionIds}},
+            order: [["idString", "ASC"]]
+        });
+    }
+
     public static async isDuplicate(idString: string, injectionId: string, id: string = null): Promise<boolean> {
         if (!injectionId || !idString) {
             return false;
