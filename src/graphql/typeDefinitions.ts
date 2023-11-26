@@ -62,16 +62,6 @@ let typeDefinitions = gql`
         updatedAt: Date
     }
 
-    type RegistrationTransform {
-        id: String!
-        location: String
-        name: String
-        notes: String
-        sample: Sample
-        createdAt: Date
-        updatedAt: Date
-    }
-
     type Sample {
         id: String
         idNumber: Int
@@ -107,6 +97,23 @@ let typeDefinitions = gql`
         updatedAt: Date
     }
 
+    type StructureIdentifier {
+        id: String!
+        name: String
+        value: Int
+        mutable: Boolean
+        createdAt: Date
+        updatedAt: Date
+    }
+
+    type TracingStructure {
+        id: String!
+        name: String
+        value: Int
+        createdAt: Date
+        updatedAt: Date
+    }
+    
     type QueryBrainAreas {
         totalCount: Int!
         items: [BrainArea!]!
@@ -155,11 +162,6 @@ let typeDefinitions = gql`
 
     type MutatedInjection {
         source: Injection
-        error: String
-    }
-
-    type MutatedRegistrationTransform {
-        source : RegistrationTransform
         error: String
     }
 
@@ -238,22 +240,10 @@ let typeDefinitions = gql`
         limit: Int
     }
 
-    input RegistrationTransformQueryInput {
-        ids: [String!]
-        sampleIds: [String!]
-        sampleAsActiveIds: [String!]
-        sortField: String
-        sortOrder: String
-        offset: Int
-        limit: Int
-    }
-
     input SampleQueryInput {
         ids: [String!]
         mouseStrainIds: [String!]
         injectionIds: [String!]
-        registrationTransformIds: [String!]
-        asActiveRegistrationTransformIds: [String!]
         sortField: String
         sortOrder: String
         offset: Int
@@ -298,14 +288,6 @@ let typeDefinitions = gql`
         injectionVirusName: String
         fluorophoreId: String
         fluorophoreName: String
-        sampleId: String
-    }
-
-    input RegistrationTransformInput {
-        id: String
-        location: String
-        name: String
-        notes: String
         sampleId: String
     }
 
@@ -355,19 +337,20 @@ let typeDefinitions = gql`
         injections(input: InjectionQueryInput): [Injection!]!
         injection(id: String!): Injection
 
-        registrationTransforms(input: RegistrationTransformQueryInput): [RegistrationTransform!]!
-        registrationTransform(id: String!): RegistrationTransform
-
         samples(input: SampleQueryInput): QuerySamples
         sample(id: String!): Sample
 
         neurons(input: NeuronQueryInput): QueryNeurons
         neuron(id: String!): Neuron
 
-        tracingCountsForRegistrations(ids: [String!]): EntityCountOutput
         neuronCountsForInjections(ids: [String!]): EntityCountOutput
         neuronCountsForSamples(ids: [String!]): EntityCountOutput
         tracingCountsForNeurons(ids: [String!]): EntityCountOutput
+
+        structureIdentifiers: [StructureIdentifier!]!
+        structureIdentifier(id: String): StructureIdentifier!
+
+        tracingStructures: [TracingStructure!]!
 
         systemMessage: String
     }

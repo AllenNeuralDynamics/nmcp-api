@@ -123,6 +123,7 @@ export = {
                 deletedAt: Sequelize.DATE
             });
 
+        await queryInterface.addIndex("Samples", ["visibility"]);
         await queryInterface.addIndex("Samples", ["mouseStrainId"]);
 
         await queryInterface.createTable(
@@ -241,6 +242,7 @@ export = {
                 deletedAt: Sequelize.DATE
             });
 
+        await queryInterface.addIndex("Neurons", ["visibility"]);
         await queryInterface.addIndex("Neurons", ["brainAreaId"]);
         await queryInterface.addIndex("Neurons", ["injectionId"]);
 
@@ -265,6 +267,155 @@ export = {
 
         await queryInterface.addIndex(SyncHistoryTableName, ["kind"]);
 
+        await queryInterface.createTable(
+            "StructureIdentifiers",
+            {
+                id: {
+                    primaryKey: true,
+                    type: Sequelize.UUID,
+                    defaultValue: Sequelize.UUIDV4
+                },
+                name: Sequelize.TEXT,
+                swcName: Sequelize.TEXT,
+                value: Sequelize.INTEGER,
+                mutable: {type: Sequelize.BOOLEAN, defaultValue: true},
+                createdAt: Sequelize.DATE,
+                updatedAt: Sequelize.DATE,
+                deletedAt: Sequelize.DATE
+            });
+
+        await queryInterface.createTable(
+            "TracingStructures",
+            {
+                id: {
+                    primaryKey: true,
+                    type: Sequelize.UUID,
+                    defaultValue: Sequelize.UUIDV4
+                },
+                name: Sequelize.TEXT,
+                value: Sequelize.INTEGER,
+                createdAt: Sequelize.DATE,
+                updatedAt: Sequelize.DATE,
+                deletedAt: Sequelize.DATE
+            });
+
+        await queryInterface.createTable(
+            "Tracing",
+            {
+                id: {
+                    primaryKey: true,
+                    type: Sequelize.UUID,
+                    defaultValue: Sequelize.UUIDV4
+                },
+                filename: {
+                    type: Sequelize.TEXT,
+                    defaultValue: ""
+                },
+                // comment lines found in SWC file
+                fileComments: {
+                    type: Sequelize.TEXT,
+                    defaultValue: ""
+                },
+                annotator: {
+                    type: Sequelize.TEXT,
+                    defaultValue: ""
+                },
+                registration: {
+                    type: Sequelize.INTEGER,
+                    defaultValue: 0
+                },
+                nodeCount: {
+                    type: Sequelize.INTEGER,
+                    defaultValue: 0
+                },
+                pathCount: {
+                    type: Sequelize.INTEGER,
+                    defaultValue: 0
+                },
+                branchCount: {
+                    type: Sequelize.INTEGER,
+                    defaultValue: 0
+                },
+                endCount: {
+                    type: Sequelize.INTEGER,
+                    defaultValue: 0
+                },
+                visibility: {
+                    type: Sequelize.INTEGER,
+                    defaultValue: 0
+                },
+                nodeLookupAt: Sequelize.DATE,
+                searchTransformAt: Sequelize.DATE,
+                tracingStructureId: {
+                    type: Sequelize.UUID,
+                    references: {
+                        model: "TracingStructures",
+                        key: "id"
+                    }
+                },
+                somaNodeId: {
+                    type: Sequelize.UUID
+                },
+                neuronId:  {
+                    type: Sequelize.UUID,
+                    references: {
+                        model: "Neurons",
+                        key: "id"
+                    }
+                },
+                createdAt: Sequelize.DATE,
+                updatedAt: Sequelize.DATE,
+                deletedAt: Sequelize.DATE
+            });
+
+        await queryInterface.addIndex("Tracing", ["registration"]);
+        await queryInterface.addIndex("Tracing", ["visibility"]);
+        await queryInterface.addIndex("Tracing", ["neuronId"]);
+        await queryInterface.addIndex("Tracing", ["tracingStructureId"]);
+
+        await queryInterface.createTable(
+            "TracingNode",
+            {
+                id: {
+                    primaryKey: true,
+                    type: Sequelize.UUID,
+                    defaultValue: Sequelize.UUIDV4
+                },
+                sampleNumber: Sequelize.INTEGER,
+                parentNumber: Sequelize.INTEGER,
+                x: Sequelize.DOUBLE,
+                y: Sequelize.DOUBLE,
+                z: Sequelize.DOUBLE,
+                radius: Sequelize.DOUBLE,
+                lengthToParent: Sequelize.DOUBLE,
+                structureIdentifierId: {
+                    type: Sequelize.UUID,
+                    references: {
+                        model: "StructureIdentifiers",
+                        key: "id"
+                    }
+                },
+                brainStructureId: {
+                    type: Sequelize.UUID,
+                    references: {
+                        model: BrainStructureTableName,
+                        key: "id"
+                    }
+                },
+                tracingId: {
+                    type: Sequelize.UUID,
+                    references: {
+                        model: "Tracing",
+                        key: "id"
+                    }
+                },
+                createdAt: Sequelize.DATE,
+                updatedAt: Sequelize.DATE,
+                deletedAt: Sequelize.DATE
+            });
+
+        await queryInterface.addIndex("TracingNode", ["tracingId"]);
+        await queryInterface.addIndex("TracingNode", ["structureIdentifierId"]);
     },
 
     down: async (queryInterface: any, Sequelize: any) => {
@@ -276,5 +427,9 @@ export = {
         await queryInterface.dropTable("InjectionViruses");
         await queryInterface.dropTable("Fluorophores");
         await queryInterface.dropTable(SyncHistoryTableName);
+        await queryInterface.dropTable("StructureIdentifiers");
+        await queryInterface.dropTable("TracingStructures");
+        await queryInterface.dropTable("Tracing");
+        await queryInterface.dropTable("TracingNode");
     }
 };

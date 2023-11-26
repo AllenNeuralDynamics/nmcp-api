@@ -15,22 +15,18 @@ import {
 } from "./baseModel";
 import {
     optionsIncludeInjectionIds,
-    optionsIncludeRegistrationTransformIds,
     optionsWhereIds,
     optionsWhereMouseStrainIds,
     optionsWhereSampleIds,
     WithInjectionsQueryInput,
-    WithMouseStrainQueryInput,
-    WithRegistrationTransformQueryInput
+    WithMouseStrainQueryInput
 } from "./findOptions";
 import {MouseStrain} from "./mouseStrain";
-import {RegistrationTransform} from "./transform";
 import {Injection} from "./injection";
 
 export type SampleQueryInput =
     EntityQueryInput
     & WithMouseStrainQueryInput
-    & WithRegistrationTransformQueryInput
     & WithInjectionsQueryInput;
 
 export interface SampleInput {
@@ -55,7 +51,6 @@ export class Sample extends BaseModel {
 
     public getMouseStrain!: BelongsToGetAssociationMixin<MouseStrain>;
     public getInjections!: HasManyGetAssociationsMixin<Injection>;
-    public getTransforms!: HasManyGetAssociationsMixin<RegistrationTransform>;
 
     public readonly Injections?: Injection[];
 
@@ -77,7 +72,6 @@ export class Sample extends BaseModel {
         let options: FindOptions = optionsWhereIds(input, {where: null, include: []});
 
         options = optionsIncludeInjectionIds(input, options);
-        options = optionsIncludeRegistrationTransformIds(input, options);
         options = optionsWhereMouseStrainIds(input, options);
 
         const count = await this.setSortAndLimiting(options, input);
@@ -301,6 +295,5 @@ export const modelInit = (sequelize: Sequelize) => {
 
 export const modelAssociate = () => {
     Sample.belongsTo(MouseStrain, {foreignKey: "mouseStrainId"});
-    Sample.hasMany(RegistrationTransform, {foreignKey: "sampleId", as: "transforms"});
     Sample.hasMany(Injection, {foreignKey: "sampleId"});
 };

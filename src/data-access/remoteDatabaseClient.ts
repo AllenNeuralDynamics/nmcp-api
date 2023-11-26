@@ -15,6 +15,8 @@ import {MouseStrain} from "../models/mouseStrain";
 import {Sample} from "../models/sample";
 import {Neuron} from "../models/neuron";
 import {Injection} from "../models/injection";
+import {StructureIdentifier} from "../models/structureIdentifier";
+import {TracingStructure} from "../models/tracingStructure";
 
 export class RemoteDatabaseClient {
     public static async Start(options: Options = SequelizeOptions): Promise<RemoteDatabaseClient> {
@@ -144,6 +146,22 @@ export class RemoteDatabaseClient {
             debug("skipping injection virus seed");
         }
 
+        count = await StructureIdentifier.count();
+        if (count == 0) {
+            debug("seeding structure identifiers");
+            await queryInterface.bulkInsert("StructureIdentifiers", loadStructureIdentifiers(when), {});
+        } else {
+            debug("skipping structure identifier seed");
+        }
+
+        count = await TracingStructure.count();
+        if (count == 0) {
+            debug("seeding tracing structures");
+            await queryInterface.bulkInsert("TracingStructures", loadTracingStructures(when), {});
+        } else {
+            debug("skipping structure seed");
+        }
+
         if (ServiceOptions.seedUserItems) {
             debug("seeding user-defined items");
 
@@ -177,6 +195,21 @@ export class RemoteDatabaseClient {
 
         debug("seed complete");
     }
+}
+
+function loadBrainStructures(when: Date): IBrainArea[] {
+    const fixtureDataPath = path.join(ServiceOptions.fixturePath, "brainStructures.json");
+
+    const fileData = fs.readFileSync(fixtureDataPath, {encoding: "UTF-8"});
+
+    const areas = JSON.parse(fileData);
+
+    return areas.map(a => {
+        a.updatedAt = when;
+        a.createdAt = a.createdAt ?? when;
+
+        return a;
+    });
 }
 
 function loadMouseStrains(when: Date) {
@@ -224,8 +257,23 @@ function loadFluorophores(when: Date) {
     });
 }
 
-function loadBrainStructures(when: Date): IBrainArea[] {
-    const fixtureDataPath = path.join(ServiceOptions.fixturePath, "brainStructures.json");
+function loadStructureIdentifiers(when: Date) {
+    const fixtureDataPath = path.join(ServiceOptions.fixturePath, "structureIdentifiers.json");
+
+    const fileData = fs.readFileSync(fixtureDataPath, {encoding: "UTF-8"});
+
+    const areas = JSON.parse(fileData);
+
+    return areas.map(a => {
+        a.updatedAt = when;
+        a.createdAt = a.createdAt ?? when;
+
+        return a;
+    });
+}
+
+function loadTracingStructures(when: Date) {
+    const fixtureDataPath = path.join(ServiceOptions.fixturePath, "tracingStructures.json");
 
     const fileData = fs.readFileSync(fixtureDataPath, {encoding: "UTF-8"});
 

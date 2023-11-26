@@ -4,7 +4,6 @@ import {Injection} from "./injection";
 import {Neuron} from "./neuron";
 import {Sample} from "./sample"
 import {EntityQueryInput} from "./baseModel";
-import {RegistrationTransform} from "./transform";
 
 export type WithCompartmentQueryInput = {
     brainAreaIds?: string[];
@@ -24,10 +23,6 @@ export type WithFluorophoreQueryInput = {
 
 export type WithSamplesQueryInput = {
     sampleIds?: string[];
-}
-
-export type WithRegistrationTransformQueryInput = {
-    registrationTransformIds?: string[];
 }
 
 export type WithInjectionsQueryInput = {
@@ -68,18 +63,6 @@ export function optionsIncludeSampleIds(input: WithSamplesQueryInput, options: F
         options.include.push({
             model: Sample,
             where: {id: {[Op.in]: input.sampleIds}}
-        });
-    }
-
-    return options;
-}
-
-export function optionsIncludeRegistrationTransformIds(input: WithRegistrationTransformQueryInput, options: FindOptions): FindOptions {
-    if (input && input.registrationTransformIds && input.registrationTransformIds.length > 0) {
-        // @ts-ignore
-        options.include.push({
-            model: RegistrationTransform,
-            where: {id: {[Op.in]: input.registrationTransformIds}}
         });
     }
 

@@ -3,7 +3,6 @@ import {Kind} from "graphql/language";
 const GraphQLUpload = require('graphql-upload/GraphQLUpload.js');
 
 import {InjectionVirus, InjectionVirusInput, InjectionVirusQueryInput} from "../models/injectionVirus";
-import {RegistrationTransform, RegistrationTransformInput, RegistrationTransformQueryInput} from "../models/transform";
 import {Injection, InjectionInput, InjectionQueryInput} from "../models/injection";
 import {IUpdateAnnotationOutput, Neuron, NeuronInput, NeuronQueryInput} from "../models/neuron";
 
@@ -15,6 +14,9 @@ import {SyncHistory} from "../models/syncHistory";
 import {DeleteOutput, EntityCountOutput, EntityMutateOutput, EntityQueryOutput} from "../models/baseModel";
 import {TransformApiClient} from "../external/transformApiService";
 import {SwcApiClient} from "../external/swcApiService";
+import {StructureIdentifier} from "../models/structureIdentifier";
+import {GraphQLServerContext} from "@apollo/server";
+import {TracingStructure} from "../models/tracingStructure";
 
 //
 // GraphQL arguments
@@ -55,10 +57,6 @@ interface IInjectionQueryArguments {
     input: InjectionQueryInput;
 }
 
-interface IRegistrationTransformQueryArguments {
-    input: RegistrationTransformQueryInput;
-}
-
 interface ISampleQueryArguments {
     input: SampleQueryInput;
 }
@@ -97,15 +95,6 @@ interface IFluorophoreMutateArguments {
 
 interface IInjectionMutateArguments {
     injectionInput: InjectionInput;
-}
-
-interface ICreateRegistrationTransformMutateArguments {
-    registrationTransform: RegistrationTransformInput;
-    makeActive: boolean;
-}
-
-interface IRegistrationTransformMutateArguments {
-    registrationTransform: RegistrationTransformInput;
 }
 
 interface ISampleMutateArguments {
@@ -160,13 +149,6 @@ export const resolvers = {
             return Sample.findByPk(args.id);
         },
 
-        registrationTransforms(_, args: IRegistrationTransformQueryArguments): Promise<RegistrationTransform[]> {
-            return RegistrationTransform.getAll(args.input);
-        },
-        registrationTransform(_, args: IIdOnlyArguments): Promise<RegistrationTransform> {
-            return RegistrationTransform.findByPk(args.id);
-        },
-
         injections(_, args: IInjectionQueryArguments): Promise<Injection[]> {
             return Injection.getAll(args.input);
         },
@@ -188,11 +170,15 @@ export const resolvers = {
             return Sample.neuronCountsPerSample(args.ids);
         },
 
-        tracingCountsForRegistrations(_, args: ICountsArguments): Promise<EntityCountOutput> {
-            return TransformApiClient.queryTracingsForTransforms(args.ids);
-        },
         tracingCountsForNeurons(_, args: ICountsArguments): Promise<EntityCountOutput> {
             return SwcApiClient.tracingCountsForNeurons(args.ids);
+        },
+
+        structureIdentifiers(_, __, context: GraphQLServerContext): Promise<StructureIdentifier[]> {
+            return StructureIdentifier.findAll({});
+        },
+        tracingStructures(_, __, context: GraphQLServerContext): Promise<TracingStructure[]> {
+            return TracingStructure.findAll({});
         },
 
         systemMessage(): String {
@@ -316,11 +302,6 @@ export const resolvers = {
         },
         neurons(injection: Injection): Promise<Neuron[]> {
             return injection.getNeurons();
-        }
-    },
-    RegistrationTransform: {
-        sample(registrationTransform: RegistrationTransform): Promise<Sample> {
-            return registrationTransform.getSample();
         }
     },
     Sample: {
