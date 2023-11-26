@@ -17,7 +17,7 @@ import {SwcApiClient} from "../external/swcApiService";
 import {StructureIdentifier} from "../models/structureIdentifier";
 import {GraphQLServerContext} from "@apollo/server";
 import {TracingStructure} from "../models/tracingStructure";
-import {Tracing} from "../models/tracing";
+import {ITracingInput, Tracing} from "../models/tracing";
 
 //
 // GraphQL arguments
@@ -112,6 +112,15 @@ export interface ITracingPage {
 export interface IUploadOutput {
     tracing: Tracing;
     transformSubmission: boolean;
+    error: Error;
+}
+
+interface IUpdateTracingArguments {
+    tracing: ITracingInput;
+}
+
+export interface IUpdateTracingOutput {
+    tracing: Tracing;
     error: Error;
 }
 
@@ -312,6 +321,9 @@ export const resolvers = {
             return Neuron.deleteFor(args.id);
         },
 
+        updateTracing(_, args: IUpdateTracingArguments, context: GraphQLServerContext): Promise<IUpdateTracingOutput> {
+            return Tracing.updateTracing(args.tracing);
+        },
         async  uploadSwc(_, args: ITracingUploadArguments, context: GraphQLServerContext): Promise<IUploadOutput> {
             return Tracing.receiveSwcUpload(args.annotator, args.neuronId, args.structureId, args.file);
         },
@@ -409,6 +421,9 @@ export const resolvers = {
             const result: Tracing = await Tracing.findByPk(tracing.id);
             return result ? result.getTracingStructure() : null;
         },
+        neuron(tracing, _, context: GraphQLServerContext): Promise<Neuron> {
+            return Neuron.findByPk(tracing.neuronId);
+        }
     },
     Date: new GraphQLScalarType({
         name: "Date",

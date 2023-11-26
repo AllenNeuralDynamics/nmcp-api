@@ -4,7 +4,7 @@ import {BaseModel} from "./baseModel";
 import {TracingStructure} from "./tracingStructure";
 import {TracingNode, TracingNodeMutationData} from "./tracingNode";
 import {Neuron} from "./neuron";
-import {ITracingPage, ITracingPageInput, IUploadFile, IUploadOutput} from "../graphql/serverResolvers";
+import {ITracingPage, ITracingPageInput, IUpdateTracingOutput, IUploadFile, IUploadOutput} from "../graphql/serverResolvers";
 import {swcParse} from "../util/SwcParser";
 import {StructureIdentifier} from "./structureIdentifier";
 
@@ -81,6 +81,27 @@ export class Tracing extends BaseModel {
         }
 
         return out;
+    }
+
+    public static async updateTracing(tracingInput: ITracingInput): Promise<IUpdateTracingOutput> {
+        try {
+            let tracing = await Tracing.findByPk(tracingInput.id);
+
+            if (!tracing) {
+                return {
+                    tracing: null,
+                    error: {name: "UpdateTracingError", message: "The tracing could not be found"}
+                };
+            }
+
+            await tracing.update(tracingInput);
+
+            const updatedTracing = await Tracing.findByPk(tracingInput.id);
+
+            return {tracing: updatedTracing, error: null};
+        } catch (error) {
+            return {tracing: null, error}
+        }
     }
 
     public static async receiveSwcUpload(annotator: string, neuronId: string, tracingStructureId: string, uploadFile: Promise<any>): Promise<IUploadOutput> {

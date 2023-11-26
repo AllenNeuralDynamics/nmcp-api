@@ -245,7 +245,11 @@ let typeDefinitions = gql`
         tracing: Tracing
         error: Error
     }
-
+    type UpdateTracingOutput {
+        tracing: Tracing
+        error: Error
+    }
+    
     input BrainAreaQueryInput {
         ids: [String!]
         injectionIds: [String!]
@@ -382,7 +386,14 @@ let typeDefinitions = gql`
         neuronIds: [String!]
         tracingStructureId: String
     }
-
+    
+    input TracingInput {
+        id: String!
+        annotator: String
+        neuronId: String
+        tracingStructureId: String
+    }
+    
     type Query {
         brainAreas(input: BrainAreaQueryInput): [BrainArea!]!
         brainAreaItems(input: BrainAreaQueryInput): QueryBrainAreas!
@@ -424,6 +435,7 @@ let typeDefinitions = gql`
 
     type Mutation {
         updateBrainArea(brainArea: BrainAreaInput): MutatedBrainArea!
+        syncCompartments: String
 
         createMouseStrain(mouseStrain: MouseStrainInput): MutatedMouseStrain!
         updateMouseStrain(mouseStrain: MouseStrainInput): MutatedMouseStrain!
@@ -448,13 +460,11 @@ let typeDefinitions = gql`
 
         setSystemMessage(message: String): Boolean
         clearSystemMessage: Boolean
-
-        syncCompartments: String
-
+        
         uploadNeurons(file: Upload!): UploadNeuronsOutput
-
         uploadAnnotationMetadata(neuronId: String, file: Upload): UploadAnnotationMetadataOutput!
 
+        updateTracing(tracing: TracingInput): UpdateTracingOutput!
         uploadSwc(annotator: String, neuronId: String, structureId: String, file: Upload): TracingUploadOutput!
     }
 
