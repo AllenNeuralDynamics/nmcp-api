@@ -1,5 +1,7 @@
 import * as byline from "byline";
 import * as fs from "fs";
+import {StructureIdentifier, StructureIdentifiers} from "../models/structureIdentifier";
+import {parse} from "csv/lib/sync";
 
 export interface ISwcRow {
     sampleNumber: number;
@@ -15,6 +17,9 @@ export interface ISwcParseResult {
     somaCount: number;
     forcedSomaCount: number;
     rows: Array<ISwcRow>;
+    pathCount,
+    branchCount,
+    endCount,
     comments: string;
 }
 
@@ -25,6 +30,9 @@ export async function swcParse(stream1: fs.ReadStream): Promise<any> {
 
     let parseOutput: ISwcParseResult = {
         somaCount: 0,
+        pathCount: 0,
+        branchCount: 0,
+        endCount: 0,
         forcedSomaCount: 0,
         rows: [],
         comments: ""
@@ -64,22 +72,36 @@ function onData(line, parseOutput) {
                 if (parentNumber === -1) {
                     parseOutput.somaCount += 1;
 
-                    if (structure !== SOMA_STRUCTURE_IDENTIFIER_INDEX) {
+                    if (structure !== StructureIdentifiers.soma) {
                         parseOutput.forcedSomaCount += 1;
-                        parseOutput.comments += `# Un-parented (root) sample ${sampleNumber} converted from ${structure} to soma (${SOMA_STRUCTURE_IDENTIFIER_INDEX})`;
-                        structure = SOMA_STRUCTURE_IDENTIFIER_INDEX;
+                        parseOutput.comments += `# Un-parented (root) sample ${sampleNumber} converted from ${structure} to soma (${StructureIdentifiers.soma})`;
+                        structure = StructureIdentifiers.soma;
+                    }
+                } else {
+                    switch (structure) {
+                        case StructureIdentifiers.forkPoint:
+                            parseOutput.branchCount++;
+                            break;
+                        case StructureIdentifiers.endPoint:
+                            parseOutput.endCount++;
+                            break;
+                        default:
+                            parseOutput.pathCount++;
                     }
                 }
 
-                parseOutput.rows.push({
+                const row = {
                     sampleNumber: sampleNumber,
+                    parentNumber: parentNumber,
                     structure: structure,
                     x: parseFloat(data[2]),
                     y: parseFloat(data[3]),
                     z: parseFloat(data[4]),
-                    radius: parseFloat(data[5]),
-                    parentNumber: parseInt(data[6])
-                });
+                    radius: parseFloat(data[5])
+                };
+
+
+                parseOutput.rows.push(row);
             }
         }
     }

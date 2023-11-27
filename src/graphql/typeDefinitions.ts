@@ -119,7 +119,11 @@ let typeDefinitions = gql`
         filename: String
         fileComments: String
         annotator: String
+        registration: Int
         nodeCount: Int
+        pathCount: Int
+        branchCount: Int
+        endCount: Int
         tracingStructure: TracingStructure
         neuron: Neuron
         createdAt: Date

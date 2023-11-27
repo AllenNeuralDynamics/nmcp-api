@@ -150,11 +150,16 @@ export class Tracing extends BaseModel {
             }
 
             const tracingData = {
-                annotator,
-                neuronId,
-                tracingStructureId,
                 filename: file.filename,
-                fileComments: parseOutput.comments
+                fileComments: parseOutput.comments,
+                annotator,
+                registration: 2, // TODO
+                nodeCount: parseOutput.rows.length,
+                pathCount: parseOutput.pathCount,
+                branchCount: parseOutput.branchCount,
+                endCount: parseOutput.endCount,
+                neuronId,
+                tracingStructureId
             };
 
             let nodeData: TracingNodeMutationData[] = parseOutput.rows.map(row => {
