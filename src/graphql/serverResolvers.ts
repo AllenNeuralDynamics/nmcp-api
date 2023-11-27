@@ -1,5 +1,6 @@
 import {GraphQLScalarType} from "graphql";
 import {Kind} from "graphql/language";
+
 const GraphQLUpload = require('graphql-upload/GraphQLUpload.js');
 
 import {InjectionVirus, InjectionVirusInput, InjectionVirusQueryInput} from "../models/injectionVirus";
@@ -11,7 +12,7 @@ import {MouseStrain, MouseStrainInput, MouseStrainQueryInput} from "../models/mo
 import {Fluorophore, FluorophoreInput, FluorophoreQueryInput} from "../models/fluorophore";
 import {SampleInput, Sample, SampleQueryInput} from "../models/sample";
 import {SyncHistory} from "../models/syncHistory";
-import {DeleteOutput, EntityCountOutput, EntityMutateOutput, EntityQueryOutput} from "../models/baseModel";
+import {DeleteOutput, EntityCount, EntityCountOutput, EntityMutateOutput, EntityQueryOutput, EntityType} from "../models/baseModel";
 import {TransformApiClient} from "../external/transformApiService";
 import {SwcApiClient} from "../external/swcApiService";
 import {StructureIdentifier} from "../models/structureIdentifier";
@@ -87,6 +88,7 @@ interface ITracingUploadArguments {
     annotator: string;
     neuronId: string;
     structureId: string;
+    registrationKind: number;
     file: Promise<IUploadFile>;
 }
 
@@ -111,7 +113,6 @@ export interface ITracingPage {
 
 export interface IUploadOutput {
     tracing: Tracing;
-    transformSubmission: boolean;
     error: Error;
 }
 
@@ -234,8 +235,19 @@ export const resolvers = {
             return Sample.neuronCountsPerSample(args.ids);
         },
 
-        tracingCountsForNeurons(_, args: ICountsArguments): Promise<EntityCountOutput> {
-            return SwcApiClient.tracingCountsForNeurons(args.ids);
+        async tracingCountsForNeurons(_, args: ICountsArguments): Promise<EntityCountOutput> {
+            const counts: EntityCount[] = await Promise.all(args.ids.map(async (id) => {
+                return {
+                    id: id,
+                    count: await Tracing.getCountForNeuron(id)
+                }
+            }));
+
+            return {
+                entityType: EntityType.Tracing,
+                counts: counts,
+                error: null
+            }
         },
 
         structureIdentifiers(_, __, context: GraphQLServerContext): Promise<StructureIdentifier[]> {
@@ -324,8 +336,8 @@ export const resolvers = {
         updateTracing(_, args: IUpdateTracingArguments, context: GraphQLServerContext): Promise<IUpdateTracingOutput> {
             return Tracing.updateTracing(args.tracing);
         },
-        async  uploadSwc(_, args: ITracingUploadArguments, context: GraphQLServerContext): Promise<IUploadOutput> {
-            return Tracing.receiveSwcUpload(args.annotator, args.neuronId, args.structureId, args.file);
+        async uploadSwc(_, args: ITracingUploadArguments, context: GraphQLServerContext): Promise<IUploadOutput> {
+            return Tracing.receiveSwcUpload(args.annotator, args.neuronId, args.structureId, args.registrationKind, args.file);
         },
 
         setSystemMessage(_, args: any): boolean {

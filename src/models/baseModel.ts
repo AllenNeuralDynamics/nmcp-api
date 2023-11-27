@@ -8,7 +8,8 @@ export enum EntityType {
     RegistrationTransform,
     Sample,
     Injection,
-    Neuron
+    Neuron,
+    Tracing
 }
 
 export type SortOrder = "ASC" | "DESC";

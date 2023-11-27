@@ -469,7 +469,7 @@ let typeDefinitions = gql`
         uploadAnnotationMetadata(neuronId: String, file: Upload): UploadAnnotationMetadataOutput!
 
         updateTracing(tracing: TracingInput): UpdateTracingOutput!
-        uploadSwc(annotator: String, neuronId: String, structureId: String, file: Upload): TracingUploadOutput!
+        uploadSwc(annotator: String, neuronId: String, structureId: String, registrationKind: Int, file: Upload): TracingUploadOutput!
     }
 
     schema {

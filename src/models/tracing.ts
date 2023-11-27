@@ -83,6 +83,18 @@ export class Tracing extends BaseModel {
         return out;
     }
 
+    public static async getCountForNeuron(neuronId: string): Promise<number> {
+        if (!neuronId || neuronId.length === 0) {
+            return 0;
+        }
+
+        let options = {where: {}};
+
+        options.where["neuronId"] = {[Op.eq]: neuronId}
+
+        return Tracing.count(options);
+    }
+
     public static async updateTracing(tracingInput: ITracingInput): Promise<IUpdateTracingOutput> {
         try {
             let tracing = await Tracing.findByPk(tracingInput.id);
@@ -104,11 +116,10 @@ export class Tracing extends BaseModel {
         }
     }
 
-    public static async receiveSwcUpload(annotator: string, neuronId: string, tracingStructureId: string, uploadFile: Promise<any>): Promise<IUploadOutput> {
+    public static async receiveSwcUpload(annotator: string, neuronId: string, tracingStructureId: string, registrationKind: number, uploadFile: Promise<any>): Promise<IUploadOutput> {
         if (!uploadFile) {
             return {
                 tracing: null,
-                transformSubmission: false,
                 error: {name: "UploadSwcError", message: "There are no files attached to parse"}
             };
         }
@@ -125,7 +136,6 @@ export class Tracing extends BaseModel {
             if (parseOutput.rows.length === 0) {
                 return {
                     tracing: null,
-                    transformSubmission: false,
                     error: {name: "UploadSwcError", message: "Could not find any identifiable node rows"}
                 };
             }
@@ -133,7 +143,6 @@ export class Tracing extends BaseModel {
             if (parseOutput.somaCount === 0) {
                 return {
                     tracing: null,
-                    transformSubmission: false,
                     error: {name: "UploadSwcError", message: "There are no soma/root/un-parented nodes in the tracing"}
                 };
             }
@@ -141,7 +150,6 @@ export class Tracing extends BaseModel {
             if (parseOutput.somaCount > 1) {
                 return {
                     tracing: null,
-                    transformSubmission: false,
                     error: {
                         name: "UploadSwcError",
                         message: "There is more than one soma/root/un-parented nodes in the tracing"
@@ -153,7 +161,7 @@ export class Tracing extends BaseModel {
                 filename: file.filename,
                 fileComments: parseOutput.comments,
                 annotator,
-                registration: 2, // TODO
+                registration: registrationKind,
                 nodeCount: parseOutput.rows.length,
                 pathCount: parseOutput.pathCount,
                 branchCount: parseOutput.branchCount,
@@ -189,10 +197,10 @@ export class Tracing extends BaseModel {
             debug(`inserted ${nodeData.length} nodes from ${file.filename}`);
 
         } catch (error) {
-            return {tracing: null, transformSubmission: false, error};
+            return {tracing: null, error};
         }
 
-        return {tracing, transformSubmission, error: null};
+        return {tracing, error: null};
     }
 }
 
