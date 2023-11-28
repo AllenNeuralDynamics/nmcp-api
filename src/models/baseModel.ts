@@ -48,7 +48,7 @@ export interface EntityMutateOutput<T> {
 
 export interface DeleteOutput {
     id: string;
-    error: string;
+    error?: string;
 }
 
 export type RawEntityCount = Map<string, number>;

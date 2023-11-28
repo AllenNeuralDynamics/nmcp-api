@@ -1,50 +1,18 @@
 const BrainStructureTableName = "BrainStructure";
-const SyncHistoryTableName = "SyncHistory";
+const GenotypeTableName = "Genotype";
+const FluorophoreTableName = "Fluorophore";
+const InjectionVirusTableName = "InjectionVirus";
+const SampleTableName = "Sample";
+const InjectionTableName = "Injection";
+const NeuronTableName = "Neuron";
+
+const StructureIdentifierTableName = "StructureIdentifier";
+const TracingStructureTableName = "TracingStructure";
+const TracingTableName = "Tracing";
+const TracingNodeTableName = "TracingNode";
 
 export = {
     up: async (queryInterface: any, Sequelize: any) => {
-        await queryInterface.createTable(
-            "InjectionViruses",
-            {
-                id: {
-                    primaryKey: true,
-                    type: Sequelize.UUID,
-                    defaultValue: Sequelize.UUIDV4
-                },
-                name: Sequelize.TEXT,
-                createdAt: Sequelize.DATE,
-                updatedAt: Sequelize.DATE,
-                deletedAt: Sequelize.DATE
-            });
-
-        await queryInterface.createTable(
-            "Fluorophores",
-            {
-                id: {
-                    primaryKey: true,
-                    type: Sequelize.UUID,
-                    defaultValue: Sequelize.UUIDV4
-                },
-                name: Sequelize.TEXT,
-                createdAt: Sequelize.DATE,
-                updatedAt: Sequelize.DATE,
-                deletedAt: Sequelize.DATE
-            });
-
-        await queryInterface.createTable(
-            "MouseStrains",
-            {
-                id: {
-                    primaryKey: true,
-                    type: Sequelize.UUID,
-                    defaultValue: Sequelize.UUIDV4
-                },
-                name: Sequelize.TEXT,
-                createdAt: Sequelize.DATE,
-                updatedAt: Sequelize.DATE,
-                deletedAt: Sequelize.DATE
-            });
-
         await queryInterface.createTable(
             BrainStructureTableName,
             {
@@ -86,7 +54,49 @@ export = {
         await queryInterface.addIndex(BrainStructureTableName, ["parentStructureId"]);
 
         await queryInterface.createTable(
-            "Samples",
+            GenotypeTableName,
+            {
+                id: {
+                    primaryKey: true,
+                    type: Sequelize.UUID,
+                    defaultValue: Sequelize.UUIDV4
+                },
+                name: Sequelize.TEXT,
+                createdAt: Sequelize.DATE,
+                updatedAt: Sequelize.DATE,
+                deletedAt: Sequelize.DATE
+            });
+
+        await queryInterface.createTable(
+            InjectionVirusTableName,
+            {
+                id: {
+                    primaryKey: true,
+                    type: Sequelize.UUID,
+                    defaultValue: Sequelize.UUIDV4
+                },
+                name: Sequelize.TEXT,
+                createdAt: Sequelize.DATE,
+                updatedAt: Sequelize.DATE,
+                deletedAt: Sequelize.DATE
+            });
+
+        await queryInterface.createTable(
+            FluorophoreTableName,
+            {
+                id: {
+                    primaryKey: true,
+                    type: Sequelize.UUID,
+                    defaultValue: Sequelize.UUIDV4
+                },
+                name: Sequelize.TEXT,
+                createdAt: Sequelize.DATE,
+                updatedAt: Sequelize.DATE,
+                deletedAt: Sequelize.DATE
+            });
+
+        await queryInterface.createTable(
+            SampleTableName,
             {
                 id: {
                     primaryKey: true,
@@ -97,8 +107,11 @@ export = {
                     type: Sequelize.INTEGER,
                     defaultValue: -1
                 },
-                animalId: Sequelize.TEXT,
                 tag: {
+                    type: Sequelize.TEXT,
+                    defaultValue: ""
+                },
+                animalId: {
                     type: Sequelize.TEXT,
                     defaultValue: ""
                 },
@@ -107,27 +120,27 @@ export = {
                     defaultValue: ""
                 },
                 sampleDate: Sequelize.DATE,
-                mouseStrainId: {
-                    type: Sequelize.UUID,
-                    references: {
-                        model: "MouseStrains",
-                        key: "id"
-                    }
-                },
                 visibility: {
                     type: Sequelize.INTEGER,
                     defaultValue: 0
+                },
+                mouseStrainId: {
+                    type: Sequelize.UUID,
+                    references: {
+                        model: GenotypeTableName,
+                        key: "id"
+                    }
                 },
                 createdAt: Sequelize.DATE,
                 updatedAt: Sequelize.DATE,
                 deletedAt: Sequelize.DATE
             });
 
-        await queryInterface.addIndex("Samples", ["visibility"]);
-        await queryInterface.addIndex("Samples", ["mouseStrainId"]);
+        await queryInterface.addIndex(SampleTableName, ["visibility"]);
+        await queryInterface.addIndex(SampleTableName, ["mouseStrainId"]);
 
         await queryInterface.createTable(
-            "Injections",
+            InjectionTableName,
             {
                 id: {
                     primaryKey: true,
@@ -144,21 +157,21 @@ export = {
                 fluorophoreId: {
                     type: Sequelize.UUID,
                     references: {
-                        model: "Fluorophores",
+                        model: FluorophoreTableName,
                         key: "id"
                     }
                 },
                 injectionVirusId: {
                     type: Sequelize.UUID,
                     references: {
-                        model: "InjectionViruses",
+                        model: InjectionVirusTableName,
                         key: "id"
                     }
                 },
                 sampleId: {
                     type: Sequelize.UUID,
                     references: {
-                        model: "Samples",
+                        model: SampleTableName,
                         key: "id"
                     }
                 },
@@ -167,12 +180,12 @@ export = {
                 deletedAt: Sequelize.DATE
             });
 
-        await queryInterface.addIndex("Injections", ["fluorophoreId"]);
-        await queryInterface.addIndex("Injections", ["injectionVirusId"]);
-        await queryInterface.addIndex("Injections", ["sampleId"]);
+        await queryInterface.addIndex(InjectionTableName, ["fluorophoreId"]);
+        await queryInterface.addIndex(InjectionTableName, ["injectionVirusId"]);
+        await queryInterface.addIndex(InjectionTableName, ["sampleId"]);
 
         await queryInterface.createTable(
-            "Neurons",
+            NeuronTableName,
             {
                 id: {
                     primaryKey: true,
@@ -223,17 +236,17 @@ export = {
                     type: Sequelize.TEXT,
                     defaultValue: ""
                 },
-                brainAreaId: {
+                brainStructureId: {
                     type: Sequelize.UUID,
                     references: {
                         model: BrainStructureTableName,
                         key: "id"
                     }
                 },
-                injectionId: {
+                sampleId: {
                     type: Sequelize.UUID,
                     references: {
-                        model: "Injections",
+                        model: SampleTableName,
                         key: "id"
                     }
                 },
@@ -242,33 +255,13 @@ export = {
                 deletedAt: Sequelize.DATE
             });
 
-        await queryInterface.addIndex("Neurons", ["visibility"]);
-        await queryInterface.addIndex("Neurons", ["brainAreaId"]);
-        await queryInterface.addIndex("Neurons", ["injectionId"]);
+        await queryInterface.addIndex(NeuronTableName, ["consensus"]);
+        await queryInterface.addIndex(NeuronTableName, ["visibility"]);
+        await queryInterface.addIndex(NeuronTableName, ["brainStructureId"]);
+        await queryInterface.addIndex(NeuronTableName, ["sampleId"]);
 
         await queryInterface.createTable(
-            SyncHistoryTableName,
-            {
-                id: {
-                    primaryKey: true,
-                    type: Sequelize.UUID,
-                    defaultValue: Sequelize.UUIDV4
-                },
-                kind: Sequelize.INTEGER,
-                entity: Sequelize.UUID,
-                status: Sequelize.INTEGER,
-                error: Sequelize.TEXT,
-                startedAt:Sequelize.DATE,
-                completedAt: Sequelize.DATE,
-                createdAt: Sequelize.DATE,
-                updatedAt: Sequelize.DATE,
-                deletedAt: Sequelize.DATE
-            });
-
-        await queryInterface.addIndex(SyncHistoryTableName, ["kind"]);
-
-        await queryInterface.createTable(
-            "StructureIdentifiers",
+            StructureIdentifierTableName,
             {
                 id: {
                     primaryKey: true,
@@ -285,7 +278,7 @@ export = {
             });
 
         await queryInterface.createTable(
-            "TracingStructures",
+            TracingStructureTableName,
             {
                 id: {
                     primaryKey: true,
@@ -300,7 +293,7 @@ export = {
             });
 
         await queryInterface.createTable(
-            "Tracing",
+            TracingTableName,
             {
                 id: {
                     primaryKey: true,
@@ -346,20 +339,20 @@ export = {
                 },
                 nodeLookupAt: Sequelize.DATE,
                 searchTransformAt: Sequelize.DATE,
-                tracingStructureId: {
-                    type: Sequelize.UUID,
-                    references: {
-                        model: "TracingStructures",
-                        key: "id"
-                    }
-                },
                 somaNodeId: {
                     type: Sequelize.UUID
                 },
-                neuronId:  {
+                tracingStructureId: {
                     type: Sequelize.UUID,
                     references: {
-                        model: "Neurons",
+                        model: TracingStructureTableName,
+                        key: "id"
+                    }
+                },
+                neuronId: {
+                    type: Sequelize.UUID,
+                    references: {
+                        model: NeuronTableName,
                         key: "id"
                     }
                 },
@@ -368,13 +361,13 @@ export = {
                 deletedAt: Sequelize.DATE
             });
 
-        await queryInterface.addIndex("Tracing", ["registration"]);
-        await queryInterface.addIndex("Tracing", ["visibility"]);
-        await queryInterface.addIndex("Tracing", ["neuronId"]);
-        await queryInterface.addIndex("Tracing", ["tracingStructureId"]);
+        await queryInterface.addIndex(TracingTableName, ["registration"]);
+        await queryInterface.addIndex(TracingTableName, ["visibility"]);
+        await queryInterface.addIndex(TracingTableName, ["neuronId"]);
+        await queryInterface.addIndex(TracingTableName, ["tracingStructureId"]);
 
         await queryInterface.createTable(
-            "TracingNode",
+            TracingNodeTableName,
             {
                 id: {
                     primaryKey: true,
@@ -391,7 +384,7 @@ export = {
                 structureIdentifierId: {
                     type: Sequelize.UUID,
                     references: {
-                        model: "StructureIdentifiers",
+                        model: StructureIdentifierTableName,
                         key: "id"
                     }
                 },
@@ -411,25 +404,22 @@ export = {
                 },
                 createdAt: Sequelize.DATE,
                 updatedAt: Sequelize.DATE,
-                deletedAt: Sequelize.DATE
             });
 
-        await queryInterface.addIndex("TracingNode", ["tracingId"]);
-        await queryInterface.addIndex("TracingNode", ["structureIdentifierId"]);
+        await queryInterface.addIndex(TracingNodeTableName, ["tracingId"]);
+        await queryInterface.addIndex(TracingNodeTableName, ["brainStructureId"]);
+        await queryInterface.addIndex(TracingNodeTableName, ["structureIdentifierId"]);
     },
 
     down: async (queryInterface: any, Sequelize: any) => {
-        await queryInterface.dropTable("Neurons");
-        await queryInterface.dropTable("Injections");
-        await queryInterface.dropTable("Samples");
-        await queryInterface.dropTable("MouseStrains");
+        await queryInterface.dropTable(NeuronTableName);
+        await queryInterface.dropTable(SampleTableName);
+        await queryInterface.dropTable(GenotypeTableName);
         await queryInterface.dropTable(BrainStructureTableName);
-        await queryInterface.dropTable("InjectionViruses");
-        await queryInterface.dropTable("Fluorophores");
-        await queryInterface.dropTable(SyncHistoryTableName);
-        await queryInterface.dropTable("StructureIdentifiers");
-        await queryInterface.dropTable("TracingStructures");
-        await queryInterface.dropTable("Tracing");
-        await queryInterface.dropTable("TracingNode");
+
+        await queryInterface.dropTable(StructureIdentifierTableName);
+        await queryInterface.dropTable(TracingStructureTableName);
+        await queryInterface.dropTable(TracingTableName);
+        await queryInterface.dropTable(TracingNodeTableName);
     }
 };

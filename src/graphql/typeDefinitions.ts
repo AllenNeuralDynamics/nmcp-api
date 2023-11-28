@@ -21,7 +21,6 @@ let typeDefinitions = gql`
         geometryFile: String
         geometryColor: String
         geometryEnable: Boolean
-        injections: [Injection!]
         neurons: [Neuron!]
         createdAt: Date
         updatedAt: Date
@@ -72,6 +71,7 @@ let typeDefinitions = gql`
         visibility: Int
         mouseStrain: MouseStrain
         injections: [Injection!]!
+        neurons: [Neuron!]!
         neuronCount: Int
         createdAt: Date
         updatedAt: Date
@@ -90,9 +90,9 @@ let typeDefinitions = gql`
         doi: String
         consensus: Int
         metadata: String
-        brainAreaId: String
+        brainStructureId: String
         brainArea: BrainArea
-        injection: Injection
+        sample: Sample
         createdAt: Date
         updatedAt: Date
     }
@@ -126,6 +126,7 @@ let typeDefinitions = gql`
         endCount: Int
         tracingStructure: TracingStructure
         neuron: Neuron
+        soma: TracingNode
         createdAt: Date
         updatedAt: Date
     }
@@ -141,6 +142,8 @@ let typeDefinitions = gql`
         lengthToParent: Float
         structureIdentifier: StructureIdentifier
         structureIdValue: Int
+        brainStructureId: String
+        brainStructure: BrainArea
         tracing: Tracing
         createdAt: Date
         updatedAt: Date
@@ -303,7 +306,7 @@ let typeDefinitions = gql`
         offset: Int
         limit: Int
     }
-
+    
     input SampleQueryInput {
         ids: [String!]
         mouseStrainIds: [String!]
@@ -365,7 +368,7 @@ let typeDefinitions = gql`
         visibility: Int
         mouseStrainId: String
         mouseStrainName: String
-        injectionIds: [String]
+        neuronIds: [String]
     }
 
     input NeuronInput {
@@ -380,8 +383,8 @@ let typeDefinitions = gql`
         visibility: Int
         doi: String
         consensus: Int
-        brainAreaId: String
-        injectionId: String
+        brainStructureId: String
+        sampleId: String
     }
 
     input TracingPageInput {
@@ -432,7 +435,7 @@ let typeDefinitions = gql`
         tracingStructures: [TracingStructure!]!
 
         tracings(pageInput: TracingPageInput): TracingPage!
-        transformedTracingCounts(ids: [String!]): TracingsForTracingsOutput
+        candidateTracings(pageInput: TracingPageInput): TracingPage!
 
         systemMessage: String
     }
@@ -465,11 +468,11 @@ let typeDefinitions = gql`
         setSystemMessage(message: String): Boolean
         clearSystemMessage: Boolean
         
-        uploadNeurons(file: Upload!): UploadNeuronsOutput
         uploadAnnotationMetadata(neuronId: String, file: Upload): UploadAnnotationMetadataOutput!
 
-        updateTracing(tracing: TracingInput): UpdateTracingOutput!
         uploadSwc(annotator: String, neuronId: String, structureId: String, registrationKind: Int, file: Upload): TracingUploadOutput!
+        updateTracing(tracing: TracingInput): UpdateTracingOutput!
+        deleteTracing(id: String!): DeleteOutput!
     }
 
     schema {

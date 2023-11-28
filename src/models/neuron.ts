@@ -14,16 +14,15 @@ import {BaseModel, DeleteOutput, EntityMutateOutput, EntityQueryInput, EntityQue
 import {
     optionsWhereCompartmentIds,
     optionsWhereIds,
-    optionsWhereInjectionIds,
-    optionsWhereSampleIds, WithCompartmentQueryInput, WithInjectionsQueryInput, WithSamplesQueryInput
+    optionsWhereSampleIds, WithCompartmentQueryInput, WithSamplesQueryInput
 } from "./findOptions";
 import {BrainArea} from "./brainArea";
-import {Injection} from "./injection";
-import {swcApiClient} from "../external/swcApiService";
 import {Sample} from "./sample";
-import {Fluorophore} from "./fluorophore";
-import {InjectionVirus} from "./injectionVirus";
 import {IAnnotationMetadata} from "./annotationMetadata";
+import {RegistrationKind} from "./registrationKind";
+import {Tracing} from "./tracing";
+import {StructureIdentifier, StructureIdentifiers} from "./structureIdentifier";
+import {TracingNode} from "./tracingNode";
 
 export enum ConsensusStatus {
     Full,
@@ -36,7 +35,6 @@ export enum ConsensusStatus {
 export type NeuronQueryInput =
     EntityQueryInput
     & WithSamplesQueryInput
-    & WithInjectionsQueryInput
     & WithCompartmentQueryInput;
 
 export interface NeuronInput {
@@ -52,8 +50,8 @@ export interface NeuronInput {
     metadata?: string;
     consensus?: ConsensusStatus;
     visibility?: number;
-    brainAreaId?: string;
-    injectionId?: string;
+    brainStructureId?: string;
+    sampleId?: string;
 }
 
 export interface IUpdateAnnotationOutput {
@@ -73,26 +71,17 @@ export class Neuron extends BaseModel {
     public metadata?: string;
     public visibility: number;
     public consensus: ConsensusStatus;
+    public brainStructureId?: string;
 
     public annotationMetadata?: IAnnotationMetadata;
 
-    public getInjection!: BelongsToGetAssociationMixin<Injection>;
+    public getSample!: BelongsToGetAssociationMixin<Sample>;
     public getBrainArea!: BelongsToGetAssociationMixin<BrainArea>;
 
     public static async getAll(input: NeuronQueryInput): Promise<EntityQueryOutput<Neuron>> {
         let options: FindOptions = optionsWhereIds(input, {where: null, include: []});
 
-        if (input && input.sampleIds && input.sampleIds.length > 0) {
-            const injectionIds = (await Injection.findAll(optionsWhereSampleIds(input))).map((obj: Injection) => obj.id);
-
-            if (injectionIds.length === 0) {
-                return {totalCount: 0, items: []};
-            }
-
-            input.injectionIds = injectionIds.concat(input.injectionIds || []);
-        }
-
-        options = optionsWhereInjectionIds(input, options);
+        options = optionsWhereSampleIds(input, options);
         options = optionsWhereCompartmentIds(input, options);
 
         const count = await this.setSortAndLimiting(options, input);
@@ -107,65 +96,49 @@ export class Neuron extends BaseModel {
             return Neuron.findAll({});
         }
 
-        const injectionIds = (await Injection.findAll({where: {sampleId: sampleId}})).map(obj => obj.id);
-
         return Neuron.findAll({
-            where: {injectionId: {[Op.in]: injectionIds}},
+            where: {sampleId: {[Op.eq]: sampleId}},
             order: [["idString", "ASC"]]
         });
     }
 
-    public static async isDuplicate(idString: string, injectionId: string, id: string = null): Promise<boolean> {
-        if (!injectionId || !idString) {
+    public static async isDuplicate(idString: string, sampleId: string, id: string = null): Promise<boolean> {
+        if (!sampleId || !idString) {
             return false;
         }
 
-        const injection = await Injection.findByPk(injectionId);
-
-        if (!injection) {
-            return false;
-        }
-
-        const sample = await injection.getSample();
+        const sample = await Sample.findByPk(sampleId);
 
         if (!sample) {
             return false;
         }
 
-        // Now get all injections for this sample.
-        const injectionIds = (await Injection.findAll({where: {sampleId: sample.id}})).map((i: Injection) => i.id);
-
-        if (injectionIds.length === 0) {
-            return false;
-        }
-
-        // All neurons for sample (via injections) that have the same idString
-        const dupes = await Neuron.findAll({where: {injectionId: {[Op.in]: injectionIds}, idString}});
+        // All neurons for sample  that have the same idString
+        const dupes = await Neuron.findAll({where: {sampleId: {[Op.eq]: sampleId}, idString}});
 
         return dupes.length > 0 && (!id || (id !== dupes[0].id));
     }
 
     public static async isDuplicateNeuronObj(neuron: NeuronInput): Promise<boolean> {
-        return Neuron.isDuplicate(neuron.idString, neuron.injectionId, neuron.id);
+        return Neuron.isDuplicate(neuron.idString, neuron.sampleId, neuron.id);
     }
 
     public static async createWith(neuronInput: NeuronInput): Promise<EntityMutateOutput<Neuron>> {
         try {
-            const injection = await Injection.findByPk(neuronInput.injectionId);
+            const sample = await Sample.findByPk(neuronInput.sampleId);
 
-            if (!injection) {
-                return {source: null, error: "The injection can not be found"};
+            if (!sample) {
+                return {source: null, error: "The sample can not be found"};
             }
 
-            if (neuronInput.brainAreaId) {
-                const brainArea = await BrainArea.findByPk(neuronInput
-                    .brainAreaId);
+            if (neuronInput.brainStructureId) {
+                const brainArea = await BrainArea.findByPk(neuronInput.brainStructureId);
                 if (!brainArea) {
                     return {source: null, error: "The brain area can not be found"};
                 }
-            } else if (neuronInput.brainAreaId !== null) {
+            } else if (neuronInput.brainStructureId !== null) {
                 // Zero-length string or undefined
-                neuronInput.brainAreaId = null;
+                neuronInput.brainStructureId = null;
             }
 
             if (await Neuron.isDuplicateNeuronObj(neuronInput)) {
@@ -182,9 +155,11 @@ export class Neuron extends BaseModel {
                 z: neuronInput.z || 0,
                 visibility: 1,
                 consensus: neuronInput.consensus || ConsensusStatus.None,
-                brainAreaId: neuronInput.brainAreaId,
-                injectionId: neuronInput.injectionId
+                brainStructureId: neuronInput.brainStructureId,
+                sampleId: neuronInput.sampleId
             });
+
+            await Tracing.createCandidateTracing(neuron);
 
             return {source: neuron, error: null};
         } catch (error) {
@@ -200,9 +175,9 @@ export class Neuron extends BaseModel {
                 return {source: null, error: "The neuron could not be found"};
             }
 
-            const injection = await row.getInjection();
+            const sample = await row.getSample();
 
-            const isDupe = await Neuron.isDuplicate(neuronInput.idString || row.idString, neuronInput.injectionId || injection.id, row.id);
+            const isDupe = await Neuron.isDuplicate(neuronInput.idString || row.idString, neuronInput.sampleId || sample.id, row.id);
 
             if (isDupe) {
                 return {source: null, error: `A neuron id "${neuronInput.idString}" already exists on this sample`};
@@ -215,29 +190,29 @@ export class Neuron extends BaseModel {
                 neuronInput.idString = neuronInput.idString.trim();
             }
 
-            if (this.isNullOrEmpty(neuronInput.injectionId)) {
-                return {source: null, error: "Injection id cannot be empty"};
+            if (this.isNullOrEmpty(neuronInput.sampleId)) {
+                return {source: null, error: "Sample id cannot be empty"};
             }
 
-            if (neuronInput.injectionId) {
-                const injection = await Injection.findByPk(neuronInput.injectionId);
+            if (neuronInput.sampleId) {
+                const sample = await Sample.findByPk(neuronInput.sampleId);
 
-                if (!injection) {
-                    return {source: null, error: "The injection can not be found"};
+                if (!sample) {
+                    return {source: null, error: "The sample can not be found"};
                 }
             }
 
             // Null is ok (inherited),  Undefined is ok (no change).  Id of length zero treated as null.  Otherwise, must
             // find brain area.
-            if (neuronInput.brainAreaId) {
-                const brainArea = await BrainArea.findByPk(neuronInput.brainAreaId);
+            if (neuronInput.brainStructureId) {
+                const brainArea = await BrainArea.findByPk(neuronInput.brainStructureId);
 
                 if (!brainArea) {
                     return {source: null, error: "The brain area can not be found"};
                 }
-            } else if (neuronInput.brainAreaId !== undefined && neuronInput.brainAreaId !== null) {
+            } else if (neuronInput.brainStructureId !== undefined && neuronInput.brainStructureId !== null) {
                 // Zero-length string
-                neuronInput.brainAreaId = null;
+                neuronInput.brainStructureId = null;
             }
 
             // Undefined is ok (no update) - but prefer not null
@@ -275,6 +250,32 @@ export class Neuron extends BaseModel {
 
             const neuron = await row.update(neuronInput);
 
+            const tracing = await Tracing.getCandidateTracing(neuron.id);
+
+            const soma = await TracingNode.findByPk(tracing.somaNodeId);
+
+            const somaUpdates = {};
+
+            if (neuron.x != soma.x) {
+                somaUpdates["x"] = neuron.x;
+            }
+
+            if (neuron.y != soma.y) {
+                somaUpdates["y"] = neuron.y;
+            }
+
+            if (neuron.z != soma.z) {
+                somaUpdates["z"] = neuron.z;
+            }
+
+            if (neuron.brainStructureId != soma.brainStructureId) {
+                somaUpdates["brainStructureId"] = neuron.brainStructureId;
+            }
+
+            if (Object.keys(somaUpdates).length > 0) {
+                await soma.update(somaUpdates);
+            }
+
             return {source: neuron, error: null};
         } catch (error) {
             return {source: null, error: error.message};
@@ -288,24 +289,20 @@ export class Neuron extends BaseModel {
         }
 
         try {
-            const out = await swcApiClient.deleteTracingsForNeurons([id]);
-
-            const errors = out.data.deleteTracingsForNeurons.filter(r => r.error !== null);
-
-            if (errors.length > 0) {
-                return {id, error: errors[0].error};
-            }
-        } catch (err) {
-            return {
-                id,
-                error: "Could not reach the swc tracing server to verify or remove associated tracings"
-            };
-        }
-
-        try {
             const count = await Neuron.destroy({where: {id}});
 
             if (count > 0) {
+                const candidateTracing = await Tracing.findOne({
+                    where: {
+                        neuronId: id,
+                        registration: RegistrationKind.Candidate
+                    }
+                });
+
+                if (candidateTracing) {
+                    await Tracing.deleteTracing(candidateTracing.id);
+                }
+
                 return {id, error: null}
             }
 
@@ -313,158 +310,6 @@ export class Neuron extends BaseModel {
         } catch (error) {
             return {id, error: error.message};
         }
-    }
-
-    public static async updateWithFile(upload: Promise<any>) {
-        if (upload == null) {
-            return {
-                neurons: [],
-                error: "ERROR: File not specified"
-            }
-        }
-
-        const file = await upload;
-
-        if (file == null) {
-            return {
-                neurons: [],
-                error: "ERROR: File not specified"
-            }
-        }
-
-        const stream = file.createReadStream();
-
-        return new Promise((resolve) => {
-            let buffer = "";
-
-            stream.on("data", (buf) => {
-                const str = buf.toString().trim();
-                const lines = str.split(/\r?\n/g);
-                lines.map(line => {
-                    if (line.length > 0 && !line.startsWith("#")) {
-                        buffer += line + "\n";
-                    }
-                });
-            });
-
-            stream.on("end", () => {
-                console.log(buffer);
-
-                parse(buffer.trim(), {columns: true, comment: "#", ltrim: true}, async (err, output) => {
-                    if (err) {
-                        resolve({
-                            neurons: [],
-                            error: "ERROR PARSING CSV" + err.toString()
-                        });
-
-                        return;
-                    }
-
-                    const neuronInputs: NeuronInput[] = await Promise.all<NeuronInput>(output.map(async (o): Promise<NeuronInput> => {
-                        let neurons = await Neuron.findAll({where: {idString: o.idString.trim()}});
-
-                        if (neurons.length > 0) {
-                            return null;
-                        }
-
-                        let brainAreaId = await BrainArea.findId(o.brainArea) || await BrainArea.findIdWithAnyNameOrAcronym(o.brainArea) || null;
-
-                        let injectionId = await Injection.findId(o.injectionUuid);
-
-                        if (injectionId == null && o.sampleId.length > 0) {
-                            let sampleId = await Sample.findId(o.sampleId) || await Sample.findIdWithIdNumber(o.sampleId) || null;
-
-                            if (sampleId != null) {
-                                let injections = await Injection.findAll({where: {sampleId}});
-
-                                if (injections.length == 1) {
-                                    injectionId = injections[0].id;
-                                } else if (injections.length > 0) {
-                                    // console.log(o);
-                                    let injectionBrainAreaId = await BrainArea.findId(o.injectionBrainArea) || await BrainArea.findIdWithAnyNameOrAcronym(o.injectionBrainArea) || null;
-                                    // console.log(o.idString + " " + injectionBrainAreaId);
-                                    let fluorophoreId = await Fluorophore.findId(o.injectionFluorophore) || await Fluorophore.findIdWithName(o.injectionFluorophore) || null;
-                                    // console.log(o.idString + " " + fluorophoreId);
-                                    let virusId = await InjectionVirus.findId(o.injectionVirus) || await InjectionVirus.findIdWithName(o.injectionVirus) || null;
-                                    // console.log(o.idString + " " + virusId);
-
-                                    if (injectionBrainAreaId != null || fluorophoreId != null || virusId != null) {
-                                        const where = {
-                                            [Op.and]: {sampleId}
-                                        };
-
-                                        if (injectionBrainAreaId != null) {
-                                            where[Op.and]["brainAreaId"] = injectionBrainAreaId;
-                                        }
-
-                                        if (fluorophoreId != null) {
-                                            where[Op.and]["fluorophoreId"] = fluorophoreId;
-                                        }
-
-                                        if (virusId != null) {
-                                            where[Op.and]["injectionVirusId"] = virusId;
-                                        }
-
-                                        injections = await Injection.findAll({where});
-
-                                        if (injections.length == 1) {
-                                            injectionId = injections[0].id;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        if (injectionId == null) {
-                            return null;
-                        }
-
-                        return {
-                            idString: o.idString.trim(),
-                            idNumber: 0,
-                            tag: o.tag,
-                            x: parseFloat(o.x),
-                            y: parseFloat(o.y),
-                            z: parseFloat(o.z),
-                            injectionId,
-                            brainAreaId
-                        }
-                    }));
-
-                    const inputs = neuronInputs.filter(n => n != null);
-
-                    if (inputs.length != neuronInputs.length) {
-                        resolve({
-                            neurons: [],
-                            error: "ERROR: Some neurons could not be defined with the input - one or more injections not located correctly and/or one or more neurons has a duplicate idString"
-                        });
-
-                        return;
-                    }
-
-                    try {
-                        const neurons = await Neuron.sequelize.transaction(async (t: Transaction) => {
-                            // @ts-ignore
-                            return Neuron.bulkCreate(neuronInputs);
-                        });
-
-                        resolve({
-                            neurons: neurons,
-                            error: null
-                        });
-
-                    } catch (error) {
-
-                        resolve({
-                            neurons: [],
-                            error: "ERROR COMMITTING CHANGES" + error.toString()
-                        });
-                    }
-                });
-            });
-
-            stream.read();
-        });
     }
 
     public static async updateAnnotationMetadata(neuronId: string, upload: Promise<any>): Promise<IUpdateAnnotationOutput> {
@@ -581,6 +426,7 @@ export const modelInit = (sequelize: Sequelize) => {
             }
         }
     }, {
+        tableName: "Neuron",
         timestamps: true,
         paranoid: true,
         sequelize
@@ -588,6 +434,6 @@ export const modelInit = (sequelize: Sequelize) => {
 };
 
 export const modelAssociate = () => {
-    Neuron.belongsTo(Injection, {foreignKey: "injectionId"});
-    Neuron.belongsTo(BrainArea, {foreignKey: {name: "brainAreaId", allowNull: true}});
+    Neuron.belongsTo(Sample, {foreignKey: "sampleId"});
+    Neuron.belongsTo(BrainArea, {foreignKey: {name: "brainStructureId", allowNull: true}});
 };

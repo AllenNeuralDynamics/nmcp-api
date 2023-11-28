@@ -7,7 +7,7 @@ import {BrainArea} from "./brainArea";
 
 export type TracingNodeMutationData = {
     id?: string;
-    swcTracingId: string | null;
+    tracingId: string | null;
     sampleNumber: number;
     parentNumber: number;
     x: number;
@@ -15,6 +15,7 @@ export type TracingNodeMutationData = {
     z: number;
     radius: number;
     lengthToParent: number;
+    brainStructureId: string | null;
 }
 
 export class TracingNode extends BaseModel {
@@ -25,6 +26,7 @@ export class TracingNode extends BaseModel {
     public z: number;
     public radius: number;
     public lengthToParent: number;
+    public brainStructureId: string | null;
 
     public getStructureIdentifier!: BelongsToGetAssociationMixin<StructureIdentifier>;
     public getTracing!: BelongsToGetAssociationMixin<Tracing>;

@@ -9,12 +9,9 @@ const debug = require("debug")("mnb:sample-api:database-connector");
 import {SequelizeOptions} from "../options/coreServicesOptions";
 import {ServiceOptions} from "../options/serviceOptions";
 import {BrainArea, IBrainArea} from "../models/brainArea";
-import {Fluorophore} from "../models/fluorophore";
-import {InjectionVirus} from "../models/injectionVirus";
 import {MouseStrain} from "../models/mouseStrain";
 import {Sample} from "../models/sample";
 import {Neuron} from "../models/neuron";
-import {Injection} from "../models/injection";
 import {StructureIdentifier} from "../models/structureIdentifier";
 import {TracingStructure} from "../models/tracingStructure";
 
@@ -122,34 +119,18 @@ export class RemoteDatabaseClient {
             debug("skipping brain structure seed");
         }
 
-        count = await Fluorophore.count();
-        if (count == 0) {
-            debug("seeding fluorophores");
-            await queryInterface.bulkInsert("Fluorophores", loadFluorophores(when), {});
-        } else {
-            debug("skipping fluorophore seed");
-        }
-
         count = await MouseStrain.count();
         if (count == 0) {
             debug("seeding mouse strains");
-            await queryInterface.bulkInsert("MouseStrains", loadMouseStrains(when), {});
+            await queryInterface.bulkInsert("Genotype", loadMouseStrains(when), {});
         } else {
             debug("skipping mouse strain seed");
-        }
-
-        count = await InjectionVirus.count();
-        if (count == 0) {
-            debug("seeding injection viruses");
-            await queryInterface.bulkInsert("InjectionViruses", loadInjectionViruses(when), {});
-        } else {
-            debug("skipping injection virus seed");
         }
 
         count = await StructureIdentifier.count();
         if (count == 0) {
             debug("seeding structure identifiers");
-            await queryInterface.bulkInsert("StructureIdentifiers", loadStructureIdentifiers(when), {});
+            await queryInterface.bulkInsert("StructureIdentifier", loadStructureIdentifiers(when), {});
         } else {
             debug("skipping structure identifier seed");
         }
@@ -157,7 +138,7 @@ export class RemoteDatabaseClient {
         count = await TracingStructure.count();
         if (count == 0) {
             debug("seeding tracing structures");
-            await queryInterface.bulkInsert("TracingStructures", loadTracingStructures(when), {});
+            await queryInterface.bulkInsert("TracingStructure", loadTracingStructures(when), {});
         } else {
             debug("skipping structure seed");
         }
@@ -169,25 +150,16 @@ export class RemoteDatabaseClient {
 
             if (count == 0) {
                 debug("seeding samples");
-                await queryInterface.bulkInsert("Samples", loadSamples(when), {});
+                await queryInterface.bulkInsert("Sample", loadSamples(when), {});
             } else {
                 debug("skipping sample seed");
-            }
-
-            count = await Injection.count();
-
-            if (count == 0) {
-                debug("seeding injections");
-                await queryInterface.bulkInsert("Injections", loadInjections(when), {});
-            } else {
-                debug("skipping injection seed");
             }
 
             count = await Neuron.count();
 
             if (count == 0) {
                 debug("seeding neurons");
-                await queryInterface.bulkInsert("Neurons", loadNeurons(when), {});
+                await queryInterface.bulkInsert("Neuron", loadNeurons(when), {});
             } else {
                 debug("skipping neuron seed");
             }
@@ -214,36 +186,6 @@ function loadBrainStructures(when: Date): IBrainArea[] {
 
 function loadMouseStrains(when: Date) {
     const fixtureDataPath = path.join(ServiceOptions.fixturePath, "mouseStrains.json");
-
-    const fileData = fs.readFileSync(fixtureDataPath, {encoding: "UTF-8"});
-
-    const areas = JSON.parse(fileData);
-
-    return areas.map(a => {
-        a.updatedAt = when;
-        a.createdAt = a.createdAt ?? when;
-
-        return a;
-    });
-}
-
-function loadInjectionViruses(when: Date) {
-    const fixtureDataPath = path.join(ServiceOptions.fixturePath, "injectionViruses.json");
-
-    const fileData = fs.readFileSync(fixtureDataPath, {encoding: "UTF-8"});
-
-    const areas = JSON.parse(fileData);
-
-    return areas.map(a => {
-        a.updatedAt = when;
-        a.createdAt = a.createdAt ?? when;
-
-        return a;
-    });
-}
-
-function loadFluorophores(when: Date) {
-    const fixtureDataPath = path.join(ServiceOptions.fixturePath, "fluorophores.json");
 
     const fileData = fs.readFileSync(fixtureDataPath, {encoding: "UTF-8"});
 
@@ -289,21 +231,6 @@ function loadTracingStructures(when: Date) {
 
 function loadSamples(when: Date) {
     const fixtureDataPath = path.join(ServiceOptions.fixturePath, "samples.json");
-
-    const fileData = fs.readFileSync(fixtureDataPath, {encoding: "UTF-8"});
-
-    const areas = JSON.parse(fileData);
-
-    return areas.map(a => {
-        a.updatedAt = when;
-        a.createdAt = a.createdAt ?? when;
-
-        return a;
-    });
-}
-
-function loadInjections(when: Date) {
-    const fixtureDataPath = path.join(ServiceOptions.fixturePath, "injections.json");
 
     const fileData = fs.readFileSync(fixtureDataPath, {encoding: "UTF-8"});
 

@@ -1,12 +1,13 @@
 import {Sequelize, DataTypes, BelongsToGetAssociationMixin, HasManyGetAssociationsMixin, Op} from "sequelize";
 
-import {BaseModel} from "./baseModel";
+import {BaseModel, DeleteOutput} from "./baseModel";
 import {TracingStructure} from "./tracingStructure";
 import {TracingNode, TracingNodeMutationData} from "./tracingNode";
 import {Neuron} from "./neuron";
 import {ITracingPage, ITracingPageInput, IUpdateTracingOutput, IUploadFile, IUploadOutput} from "../graphql/serverResolvers";
 import {swcParse} from "../util/SwcParser";
-import {StructureIdentifier} from "./structureIdentifier";
+import {StructureIdentifier, StructureIdentifiers} from "./structureIdentifier";
+import {RegistrationKind} from "./registrationKind";
 
 const debug = require("debug")("mnb:sample-api:tracing");
 
@@ -30,6 +31,7 @@ export class Tracing extends BaseModel {
     public branchCount?: number;
     public endCount?: number;
     public somaNodeId: string;
+    public neuronId: string;
 
     public getTracingStructure!: BelongsToGetAssociationMixin<TracingStructure>;
     public getNeuron!: BelongsToGetAssociationMixin<Neuron>;
@@ -44,9 +46,11 @@ export class Tracing extends BaseModel {
             tracings: []
         };
 
-        out.totalCount = await Tracing.count({});
-
         let options = {where: {}};
+
+        options.where["registration"] = {[Op.ne]: RegistrationKind.Candidate}
+
+        out.totalCount = await Tracing.count(options);
 
         if (queryInput) {
             if (queryInput.tracingStructureId) {
@@ -83,6 +87,57 @@ export class Tracing extends BaseModel {
         return out;
     }
 
+    public static async getCandidateTracings(queryInput: ITracingPageInput): Promise<ITracingPage> {
+        let out: ITracingPage = {
+            offset: 0,
+            limit: 0,
+            totalCount: 0,
+            matchCount: 0,
+            tracings: []
+        };
+
+        let options = {where: {}};
+
+        options.where["registration"] = {[Op.eq]: RegistrationKind.Candidate}
+
+        out.totalCount = await Tracing.count(options);
+
+        if (queryInput) {
+            out.matchCount = await Tracing.count(options);
+
+            options["order"] = [["createdAt", "DESC"]];
+
+            if (queryInput.offset) {
+                options["offset"] = queryInput.offset;
+                out.offset = queryInput.offset;
+            }
+
+            if (queryInput.limit) {
+                options["limit"] = queryInput.limit;
+                out.limit = queryInput.limit;
+            }
+        } else {
+            out.matchCount = out.totalCount;
+        }
+
+        if (out.limit === 1) {
+            out.tracings = [await Tracing.findOne(options)];
+        } else {
+            out.tracings = await Tracing.findAll(options);
+        }
+
+        return out;
+    }
+
+    public static async getCandidateTracing(neuronId: string): Promise<Tracing> {
+        let options = {where: {}};
+
+        options.where["neuronId"] = {[Op.eq]: neuronId}
+        options.where["registration"] = {[Op.eq]: RegistrationKind.Candidate}
+
+        return await Tracing.findOne(options);
+    }
+
     public static async getCountForNeuron(neuronId: string): Promise<number> {
         if (!neuronId || neuronId.length === 0) {
             return 0;
@@ -91,8 +146,45 @@ export class Tracing extends BaseModel {
         let options = {where: {}};
 
         options.where["neuronId"] = {[Op.eq]: neuronId}
+        options.where["registration"] = {[Op.ne]: RegistrationKind.Candidate}
 
         return Tracing.count(options);
+    }
+
+    public static async createCandidateTracing(neuron: Neuron): Promise<Tracing> {
+        const tracingData = {
+            filename: "N/A",
+            fileComments: "Placeholder tracing for candidate neuron",
+            annotator: "System",
+            registration: RegistrationKind.Candidate,
+            nodeCount: 1,
+            pathCount: 0,
+            branchCount: 0,
+            endCount: 0,
+            neuronId: neuron.id,
+            tracingStructureId: "68e76074-1777-42b6-bbf9-93a6a5f02fa4"
+        };
+
+        const tracing = await Tracing.create(tracingData);
+
+        const nodeData = {
+            tracingId: tracing.id,
+            sampleNumber: 1,
+            parentNumber: -1,
+            structureIdentifierId: StructureIdentifier.idForValue(StructureIdentifiers.soma),
+            x: neuron.x,
+            y: neuron.y,
+            z: neuron.z,
+            radius: 1,
+            lengthToParent: 0,
+            brainStructureId: neuron.brainStructureId
+        }
+
+        const soma = await TracingNode.create(nodeData);
+
+        await tracing.update({somaNodeId: soma.id});
+
+        return tracing;
     }
 
     public static async updateTracing(tracingInput: ITracingInput): Promise<IUpdateTracingOutput> {
@@ -116,6 +208,44 @@ export class Tracing extends BaseModel {
         }
     }
 
+    public static async deleteTracing(id: string): Promise<DeleteOutput> {
+        let tracing = await Tracing.findByPk(id);
+
+        if (!tracing) {
+            return {id, error: "A tracing with that id does not exist"};
+        }
+
+        const isCandidate = tracing.registration == RegistrationKind.Candidate;
+
+        try {
+            await TracingNode.sequelize.transaction(async (t) => {
+                await TracingNode.destroy({where: {tracingId: id}, transaction: t});
+
+                await Tracing.destroy({where: {id: id}, transaction: t});
+            });
+
+            debug(`destroyed tracing ${tracing.id}`)
+
+            const tracingCount = await Tracing.count({
+                where: {
+                    neuronId: tracing.neuronId
+                }
+            });
+
+            if (tracingCount == 0) {
+                const neuron = await Neuron.findByPk(tracing.neuronId);
+
+                await Tracing.createCandidateTracing(neuron);
+            }
+
+        } catch (err) {
+            debug(err);
+            return {id, error: err.message};
+        }
+
+        return {id, error: null};
+    }
+
     public static async receiveSwcUpload(annotator: string, neuronId: string, tracingStructureId: string, registrationKind: number, uploadFile: Promise<any>): Promise<IUploadOutput> {
         if (!uploadFile) {
             return {
@@ -127,8 +257,6 @@ export class Tracing extends BaseModel {
         let file = await uploadFile;
 
         let tracing: Tracing = null;
-
-        let transformSubmission = false;
 
         try {
             const parseOutput = await swcParse(file.createReadStream());
@@ -172,7 +300,7 @@ export class Tracing extends BaseModel {
 
             let nodeData: TracingNodeMutationData[] = parseOutput.rows.map(row => {
                 return {
-                    swcTracingId: null,
+                    tracingId: null,
                     sampleNumber: row.sampleNumber,
                     parentNumber: row.parentNumber,
                     structureIdentifierId: StructureIdentifier.idForValue(row.structure),
@@ -187,7 +315,7 @@ export class Tracing extends BaseModel {
                 tracing = await Tracing.create(tracingData, {transaction: t});
 
                 nodeData = nodeData.map(node => {
-                    node.swcTracingId = tracing.id;
+                    node.tracingId = tracing.id;
                     return node;
                 });
 
@@ -195,6 +323,17 @@ export class Tracing extends BaseModel {
             });
 
             debug(`inserted ${nodeData.length} nodes from ${file.filename}`);
+
+            const candidateTracing = await Tracing.findOne({
+                where: {
+                    neuronId: tracingData.neuronId,
+                    registration: RegistrationKind.Candidate
+                }
+            });
+
+            if (candidateTracing) {
+                await Tracing.deleteTracing(candidateTracing.id);
+            }
 
         } catch (error) {
             return {tracing: null, error};

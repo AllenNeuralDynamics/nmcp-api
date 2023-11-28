@@ -21,6 +21,7 @@ export const modelInit = (sequelize: Sequelize) => {
         name: DataTypes.TEXT,
         value: DataTypes.INTEGER
     }, {
+        tableName: "TracingStructure",
         timestamps: true,
         paranoid: true,
         sequelize

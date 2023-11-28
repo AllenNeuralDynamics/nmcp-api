@@ -118,6 +118,7 @@ export const modelInit = (sequelize: Sequelize) => {
         },
         name: DataTypes.TEXT
     }, {
+        tableName: "Genotype",
         timestamps: true,
         paranoid: true,
         sequelize

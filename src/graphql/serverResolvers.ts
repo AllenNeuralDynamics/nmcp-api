@@ -3,22 +3,20 @@ import {Kind} from "graphql/language";
 
 const GraphQLUpload = require('graphql-upload/GraphQLUpload.js');
 
-import {InjectionVirus, InjectionVirusInput, InjectionVirusQueryInput} from "../models/injectionVirus";
-import {Injection, InjectionInput, InjectionQueryInput} from "../models/injection";
 import {IUpdateAnnotationOutput, Neuron, NeuronInput, NeuronQueryInput} from "../models/neuron";
 
 import {BrainArea, CompartmentMutationData, CompartmentQueryInput} from "../models/brainArea";
 import {MouseStrain, MouseStrainInput, MouseStrainQueryInput} from "../models/mouseStrain";
-import {Fluorophore, FluorophoreInput, FluorophoreQueryInput} from "../models/fluorophore";
 import {SampleInput, Sample, SampleQueryInput} from "../models/sample";
-import {SyncHistory} from "../models/syncHistory";
 import {DeleteOutput, EntityCount, EntityCountOutput, EntityMutateOutput, EntityQueryOutput, EntityType} from "../models/baseModel";
-import {TransformApiClient} from "../external/transformApiService";
-import {SwcApiClient} from "../external/swcApiService";
 import {StructureIdentifier} from "../models/structureIdentifier";
 import {GraphQLServerContext} from "@apollo/server";
 import {TracingStructure} from "../models/tracingStructure";
 import {ITracingInput, Tracing} from "../models/tracing";
+import {TracingNode} from "../models/tracingNode";
+import {Injection, InjectionInput, InjectionQueryInput} from "../models/injection";
+import {Fluorophore, FluorophoreInput, FluorophoreQueryInput} from "../models/fluorophore";
+import {InjectionVirus, InjectionVirusInput, InjectionVirusQueryInput} from "../models/injectionVirus";
 
 //
 // GraphQL arguments
@@ -148,6 +146,7 @@ interface IInjectionMutateArguments {
     injectionInput: InjectionInput;
 }
 
+
 interface ISampleMutateArguments {
     sample: SampleInput;
 }
@@ -204,18 +203,18 @@ export const resolvers = {
             return Fluorophore.findByPk(args.id);
         },
 
-        samples(_, args: ISampleQueryArguments): Promise<EntityQueryOutput<Sample>> {
-            return Sample.getAll(args.input);
-        },
-        sample(_, args: IIdOnlyArguments): Promise<Sample> {
-            return Sample.findByPk(args.id);
-        },
-
         injections(_, args: IInjectionQueryArguments): Promise<Injection[]> {
             return Injection.getAll(args.input);
         },
         injection(_, args: IIdOnlyArguments): Promise<Injection> {
             return Injection.findByPk(args.id);
+        },
+
+        samples(_, args: ISampleQueryArguments): Promise<EntityQueryOutput<Sample>> {
+            return Sample.getAll(args.input);
+        },
+        sample(_, args: IIdOnlyArguments): Promise<Sample> {
+            return Sample.findByPk(args.id);
         },
 
         neurons(_, args: INeuronQueryArguments): Promise<EntityQueryOutput<Neuron>> {
@@ -228,9 +227,6 @@ export const resolvers = {
             return Neuron.getNeurons(args.sampleId);
         },
 
-        neuronCountsForInjections(_, args: ICountsArguments): Promise<EntityCountOutput> {
-            return Injection.neuronCountPerInjection(args.ids);
-        },
         neuronCountsForSamples(_, args: ICountsArguments): Promise<EntityCountOutput> {
             return Sample.neuronCountsPerSample(args.ids);
         },
@@ -260,17 +256,9 @@ export const resolvers = {
         tracings(_, args: ITracingsArguments, context: GraphQLServerContext): Promise<ITracingPage> {
             return Tracing.getTracings(args.pageInput);
         },
-        transformedTracingCounts(_, args: IIdsArguments, context: GraphQLServerContext): IQueryTracingsCountOutput {
-            const counts: ITracingsCount[] = [];
 
-            args.ids.map(id => {
-                counts.push({
-                    tracingId: id,
-                    count: 0
-                });
-            });
-
-            return {counts: counts, error: null};
+        candidateTracings(_, args: ITracingsArguments, context: GraphQLServerContext): Promise<ITracingPage> {
+            return Tracing.getCandidateTracings(args.pageInput);
         },
 
         systemMessage(): String {
@@ -333,11 +321,14 @@ export const resolvers = {
             return Neuron.deleteFor(args.id);
         },
 
+        async uploadSwc(_, args: ITracingUploadArguments, context: GraphQLServerContext): Promise<IUploadOutput> {
+            return Tracing.receiveSwcUpload(args.annotator, args.neuronId, args.structureId, args.registrationKind, args.file);
+        },
         updateTracing(_, args: IUpdateTracingArguments, context: GraphQLServerContext): Promise<IUpdateTracingOutput> {
             return Tracing.updateTracing(args.tracing);
         },
-        async uploadSwc(_, args: ITracingUploadArguments, context: GraphQLServerContext): Promise<IUploadOutput> {
-            return Tracing.receiveSwcUpload(args.annotator, args.neuronId, args.structureId, args.registrationKind, args.file);
+        deleteTracing(_, args: IIdOnlyArguments, context: GraphQLServerContext): Promise<DeleteOutput> {
+            return Tracing.deleteTracing(args.id);
         },
 
         setSystemMessage(_, args: any): boolean {
@@ -351,22 +342,11 @@ export const resolvers = {
             return true;
         },
 
-        syncCompartments(): Promise<string> {
-            return SyncHistory.syncCompartments();
-        },
-
-        async uploadNeurons(_, args: any): Promise<any> {
-            return Neuron.updateWithFile(args.file);
-        },
-
         async uploadAnnotationMetadata(_, args: IAnnotationUploadArguments): Promise<IUpdateAnnotationOutput> {
             return Neuron.updateAnnotationMetadata(args.neuronId, args.file);
         },
     },
     BrainArea: {
-        injections(brainArea: BrainArea): Promise<Injection[]> {
-            return brainArea.getInjections();
-        },
         neurons(brainArea: BrainArea): Promise<Neuron[]> {
             return brainArea.getNeurons();
         },
@@ -399,13 +379,13 @@ export const resolvers = {
         sample(injection: Injection): Promise<Sample> {
             return injection.getSample();
         },
-        neurons(injection: Injection): Promise<Neuron[]> {
-            return injection.getNeurons();
-        }
     },
     Sample: {
         mouseStrain(sample: Sample, _, __): Promise<MouseStrain> {
             return sample.getMouseStrain();
+        },
+        neurons(sample: Sample): Promise<Neuron[]> {
+            return sample.getNeurons();
         },
         injections(sample: Sample): Promise<Injection[]> {
             return sample.getInjections();
@@ -417,15 +397,15 @@ export const resolvers = {
                 return output.counts[0].count;
             }
 
-            return NaN;
+            return 0;
         }
     },
     Neuron: {
         brainArea(neuron: Neuron): Promise<BrainArea> {
             return neuron.getBrainArea();
         },
-        injection(neuron: Neuron): Promise<Injection> {
-            return neuron.getInjection();
+        sample(neuron: Neuron): Promise<Sample> {
+            return neuron.getSample();
         }
     },
     Tracing: {
@@ -435,6 +415,14 @@ export const resolvers = {
         },
         neuron(tracing, _, context: GraphQLServerContext): Promise<Neuron> {
             return Neuron.findByPk(tracing.neuronId);
+        },
+        soma(tracing, _, context: GraphQLServerContext): Promise<TracingNode> {
+            return TracingNode.findByPk(tracing.somaNodeId);
+        }
+    },
+    TracingNode: {
+        brainStructure(node, _, context: GraphQLServerContext): Promise<BrainArea> {
+            return BrainArea.findByPk(node.brainStructureId);
         }
     },
     Date: new GraphQLScalarType({

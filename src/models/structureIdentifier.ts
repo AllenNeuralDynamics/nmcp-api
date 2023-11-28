@@ -57,6 +57,7 @@ export const modelInit = (sequelize: Sequelize) => {
         value: DataTypes.INTEGER,
         mutable: {type: DataTypes.BOOLEAN, defaultValue: true}
     }, {
+        tableName: "StructureIdentifier",
         timestamps: true,
         paranoid: true,
         sequelize

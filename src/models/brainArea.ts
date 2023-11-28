@@ -1,17 +1,14 @@
 import {Sequelize, DataTypes, HasManyGetAssociationsMixin, FindOptions, Op} from "sequelize";
 
 import {BaseModel, EntityMutateOutput, EntityQueryInput, EntityQueryOutput} from "./baseModel";
-import {Injection} from "./injection";
 import {Neuron} from "./neuron";
 import {
-    optionsIncludeInjectionIds,
     optionsIncludeNeuronIds,
     optionsWhereIds,
-    WithInjectionsQueryInput,
     WithNeuronsQueryInput
 } from "./findOptions";
 
-export type CompartmentQueryInput = EntityQueryInput & WithInjectionsQueryInput & WithNeuronsQueryInput;
+export type CompartmentQueryInput = EntityQueryInput & WithNeuronsQueryInput;
 
 export type CompartmentMutationData = {
     id: string;
@@ -57,13 +54,11 @@ export class BrainArea extends BaseModel {
 
     public aliasList: string[];
 
-    public getInjections!: HasManyGetAssociationsMixin<Injection>;
     public getNeurons!: HasManyGetAssociationsMixin<Neuron>;
 
     public static async getAll(input: CompartmentQueryInput): Promise<EntityQueryOutput<BrainArea>> {
         let options: FindOptions = optionsWhereIds(input);
 
-        options = optionsIncludeInjectionIds(input, options);
         options = optionsIncludeNeuronIds(input, options);
 
         const count = await this.setSortAndLimiting(options, input);
@@ -162,6 +157,5 @@ export const modelInit = (sequelize: Sequelize) => {
 };
 
 export const modelAssociate = () => {
-    BrainArea.hasMany(Injection, {foreignKey: "brainAreaId"});
-    BrainArea.hasMany(Neuron, {foreignKey: "brainAreaId"});
+    BrainArea.hasMany(Neuron, {foreignKey: "brainStructureId"});
 };

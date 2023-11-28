@@ -131,6 +131,7 @@ export const modelInit = (sequelize: Sequelize) => {
         },
         name: DataTypes.TEXT
     }, {
+        tableName: "Fluorophore",
         timestamps: true,
         paranoid: true,
         sequelize

@@ -14,14 +14,13 @@ import {
     RawEntityCount
 } from "./baseModel";
 import {
-    optionsIncludeInjectionIds,
     optionsWhereIds,
     optionsWhereMouseStrainIds,
-    optionsWhereSampleIds,
-    WithInjectionsQueryInput,
+    optionsWhereSampleIds, WithInjectionsQueryInput,
     WithMouseStrainQueryInput
 } from "./findOptions";
 import {MouseStrain} from "./mouseStrain";
+import {Neuron} from "./neuron";
 import {Injection} from "./injection";
 
 export type SampleQueryInput =
@@ -50,9 +49,11 @@ export class Sample extends BaseModel {
     public visibility: number;
 
     public getMouseStrain!: BelongsToGetAssociationMixin<MouseStrain>;
+    public getNeurons!: HasManyGetAssociationsMixin<Neuron>;
     public getInjections!: HasManyGetAssociationsMixin<Injection>;
 
     public readonly Injections?: Injection[];
+    public readonly Neurons?: Neuron[];
 
     public static async findId(id: string): Promise<string> {
         return Sample.findIdWithValidationInternal(Sample, id);
@@ -71,7 +72,6 @@ export class Sample extends BaseModel {
     public static async getAll(input: SampleQueryInput): Promise<EntityQueryOutput<Sample>> {
         let options: FindOptions = optionsWhereIds(input, {where: null, include: []});
 
-        options = optionsIncludeInjectionIds(input, options);
         options = optionsWhereMouseStrainIds(input, options);
 
         const count = await this.setSortAndLimiting(options, input);
@@ -205,46 +205,31 @@ export class Sample extends BaseModel {
         }
     }
 
-    public static async rawNeuronCountsPerSample(ids: string[] = null): Promise<[RawEntityCount, EntityCount[]]> {
-        let options: FindOptions = optionsWhereIds({ids});
+    public static async rawNeuronCounts(sampleIds: string[]): Promise<[RawEntityCount, EntityCount[]]> {
+        let options: FindOptions = {
+            attributes: ["sampleId", [Sequelize.fn("COUNT", "sampleId"), "sampleCount"]],
+            group: ["sampleId"]
+        };
 
-        // @ts-ignore
-        options.include.push({
-            model: Injection,
-            attributes: ["id"]
-        });
+        if (sampleIds && sampleIds.length > 0) {
+            options = optionsWhereSampleIds({sampleIds}, options);
+        }
 
-        const samples = await Sample.findAll(options);
-
-        const injections = await Injection.findAll(optionsWhereSampleIds({sampleIds: ids}));
-
-        let [injectionCounts] = await Injection.rawNeuronCountsPerInjection(injections.map(i => i.id));
-
+        const neurons = await Neuron.findAll(options);
         const rawCounts = new Map<string, number>();
         const entityCounts: EntityCount[] = [];
 
-        samples.map((s: any) => {
-            rawCounts.set(s.id, 0);
-            s.Injections.forEach(i => {
-                if (injectionCounts.has(i.id)) {
-                    rawCounts.set(s.id, rawCounts.get(s.id) + injectionCounts.get(i.id));
-                }
-            });
+        neurons.map((n: any) => {
+            rawCounts.set(n.sampleId, parseInt(n.dataValues.sampleCount));
+            entityCounts.push({id: n.sampleId, count: n.dataValues.sampleCount});
         });
-
-        for (const [id, count] of rawCounts.entries()) {
-            entityCounts.push({
-                id,
-                count
-            });
-        }
 
         return [rawCounts, entityCounts];
     }
 
     public static async neuronCountsPerSample(sampleIds: string[]): Promise<EntityCountOutput> {
         try {
-            const [, counts] = await this.rawNeuronCountsPerSample(sampleIds);
+            const [, counts] = await this.rawNeuronCounts(sampleIds);
 
             return {
                 entityType: EntityType.Sample,
@@ -287,6 +272,7 @@ export const modelInit = (sequelize: Sequelize) => {
             defaultValue: 0
         }
     }, {
+        tableName: "Sample",
         timestamps: true,
         paranoid: true,
         sequelize
@@ -295,5 +281,6 @@ export const modelInit = (sequelize: Sequelize) => {
 
 export const modelAssociate = () => {
     Sample.belongsTo(MouseStrain, {foreignKey: "mouseStrainId"});
+    Sample.hasMany(Neuron, {foreignKey: "sampleId"});
     Sample.hasMany(Injection, {foreignKey: "sampleId"});
 };

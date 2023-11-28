@@ -283,6 +283,7 @@ export const modelInit = (sequelize: Sequelize) => {
             defaultValue: DataTypes.UUIDV4
         }
     }, {
+        tableName: "Injection",
         timestamps: true,
         paranoid: true,
         sequelize
@@ -294,5 +295,4 @@ export const modelAssociate = () => {
     Injection.belongsTo(BrainArea, {foreignKey: "brainAreaId"});
     Injection.belongsTo(InjectionVirus, {foreignKey: "injectionVirusId"});
     Injection.belongsTo(Fluorophore, {foreignKey: "fluorophoreId"});
-    Injection.hasMany(Neuron, {foreignKey: "injectionId"});
 };

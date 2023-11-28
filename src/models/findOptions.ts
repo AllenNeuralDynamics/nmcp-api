@@ -1,12 +1,12 @@
 import {FindOptions, Op} from "sequelize";
 
-import {Injection} from "./injection";
 import {Neuron} from "./neuron";
-import {Sample} from "./sample"
+import {Sample} from "./sample";
+import {Injection} from "./injection";
 import {EntityQueryInput} from "./baseModel";
 
 export type WithCompartmentQueryInput = {
-    brainAreaIds?: string[];
+    brainStructureIds?: string[];
 }
 
 export type WithMouseStrainQueryInput = {
@@ -106,5 +106,5 @@ export function optionsWhereFluorophoreIds(input: WithFluorophoreQueryInput, opt
 }
 
 export function optionsWhereCompartmentIds(input: WithCompartmentQueryInput, options: FindOptions = null): FindOptions {
-    return optionsWherePropertyIds(input, "brainAreaId", options);
+    return optionsWherePropertyIds(input, "brainStructureId", options);
 }

@@ -1,4 +1,4 @@
-# Sample API
+# Sample/Neuron/Tracing API
 Backend service for sample, neuron, and compartment management.
 
 ## Applicable Environment Variables

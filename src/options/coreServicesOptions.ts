@@ -44,6 +44,7 @@ const services = {
 function loadDatabaseOptions(options): any {
     options.sample.host = process.env.SAMPLE_DB_HOST || process.env.DATABASE_HOST || process.env.CORE_SERVICES_HOST || options.sample.host;
     options.sample.port = parseInt(process.env.SAMPLE_DB_PORT) || parseInt(process.env.DATABASE_PORT) || options.sample.port;
+    options.sample.username = process.env.DATABASE_UN || options.sample.username;
     options.sample.password = process.env.DATABASE_PW || options.sample.password;
 
     return options;
