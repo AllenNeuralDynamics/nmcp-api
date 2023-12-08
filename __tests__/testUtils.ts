@@ -14,7 +14,7 @@ export const copyDatabase = async (): Promise<string> => {
 
     fs.copyFileSync(path.join(__dirname, "test-template.sqlite"), path.join(__dirname, tempName));
 
-    await RemoteDatabaseClient.Start({
+    await RemoteDatabaseClient.Start(false, {
         dialect: "sqlite" as Dialect,
         storage: path.join(__dirname, tempName),
         logging: null

@@ -1,5 +1,6 @@
 import * as os from "os";
 import * as express from "express";
+import * as bodyParser from "body-parser";
 import * as cors from 'cors';
 import {ApolloServer} from '@apollo/server';
 import {expressMiddleware} from '@apollo/server/express4';
@@ -15,15 +16,22 @@ import {GraphQLError} from "graphql/error";
 
 import {jwtDecode} from "jwt-decode";
 import moment = require("moment");
+import {tracingQueryMiddleware} from "./rawquery/tracingQueryMiddleware";
 
 const config = require('./authConfig.json');
 
 start().then().catch((err) => debug(err));
 
 async function start() {
-    await RemoteDatabaseClient.Start();
+    await RemoteDatabaseClient.Start(true);
 
     const app = express();
+
+    app.use(bodyParser.urlencoded({extended: true}));
+
+    app.use(bodyParser.json());
+
+    app.use("/tracings", tracingQueryMiddleware);
 
     const server = new ApolloServer({
         typeDefs: typeDefinitions,

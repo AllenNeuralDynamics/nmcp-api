@@ -8,6 +8,11 @@ import {ITracingPage, ITracingPageInput, IUpdateTracingOutput, IUploadFile, IUpl
 import {swcParse} from "../util/SwcParser";
 import {StructureIdentifier, StructureIdentifiers} from "./structureIdentifier";
 import {RegistrationKind} from "./registrationKind";
+import * as fs from "fs";
+import {ServiceOptions} from "../options/serviceOptions";
+import {performNodeMap} from "../transform/tracingTransformWorker";
+import {SearchContent} from "./searchContent";
+import {addTracing} from "../rawquery/tracingQueryMiddleware";
 
 const debug = require("debug")("mnb:sample-api:tracing");
 
@@ -18,6 +23,12 @@ export interface ITracingInput {
     annotator?: string;
     tracingStructureId?: string;
     neuronId?: string;
+}
+
+
+export interface TransformResult {
+    tracing: Tracing;
+    error: string;
 }
 
 export class Tracing extends BaseModel {
@@ -32,10 +43,13 @@ export class Tracing extends BaseModel {
     public endCount?: number;
     public somaNodeId: string;
     public neuronId: string;
+    public tracingStructureId?: string;
 
     public getTracingStructure!: BelongsToGetAssociationMixin<TracingStructure>;
     public getNeuron!: BelongsToGetAssociationMixin<Neuron>;
     public getNodes!: HasManyGetAssociationsMixin<TracingNode>;
+
+    public Nodes?: TracingNode[];
 
     public static async getTracings(queryInput: ITracingPageInput): Promise<ITracingPage> {
         let out: ITracingPage = {
@@ -85,6 +99,20 @@ export class Tracing extends BaseModel {
         }
 
         return out;
+    }
+
+    public static async findOneForTransform(id: string): Promise<Tracing> {
+        return Tracing.findByPk(id, {
+            include: [{
+                model: TracingNode,
+                as: "Nodes",
+                include: [{
+                    model: StructureIdentifier,
+                    as: "StructureIdentifier",
+                    attributes: ["id", "value"]
+                }]
+            }]
+        });
     }
 
     public static async getCandidateTracings(queryInput: ITracingPageInput): Promise<ITracingPage> {
@@ -221,6 +249,8 @@ export class Tracing extends BaseModel {
             await TracingNode.sequelize.transaction(async (t) => {
                 await TracingNode.destroy({where: {tracingId: id}, transaction: t});
 
+                await SearchContent.destroy({where: {tracingId: id}, transaction: t});
+
                 await Tracing.destroy({where: {id: id}, transaction: t});
             });
 
@@ -285,11 +315,14 @@ export class Tracing extends BaseModel {
                 };
             }
 
+            const neuron = await Neuron.findByPk(neuronId);
+
             const tracingData = {
                 filename: file.filename,
                 fileComments: parseOutput.comments,
                 annotator,
                 registration: registrationKind,
+                visibility: neuron.visibility,
                 nodeCount: parseOutput.rows.length,
                 pathCount: parseOutput.pathCount,
                 branchCount: parseOutput.branchCount,
@@ -307,7 +340,8 @@ export class Tracing extends BaseModel {
                     x: row.x,
                     y: row.y,
                     z: row.z,
-                    radius: row.radius
+                    radius: row.radius,
+                    lengthToParent: 0
                 }
             });
 
@@ -319,10 +353,23 @@ export class Tracing extends BaseModel {
                     return node;
                 });
 
-                return TracingNode.bulkCreate(nodeData, {transaction: t});
+                tracing.Nodes = await TracingNode.bulkCreate(nodeData, {transaction: t});
             });
 
             debug(`inserted ${nodeData.length} nodes from ${file.filename}`);
+
+            const somaStructureIdentifier = await StructureIdentifier.findOne({where: {value: StructureIdentifiers.soma}});
+
+            const soma = await TracingNode.findOne({
+                where: {
+                    tracingId: tracing.id,
+                    structureIdentifierId: somaStructureIdentifier.id
+                }
+            });
+
+            if (soma) {
+                await tracing.update({somaNodeId: soma.id});
+            }
 
             const candidateTracing = await Tracing.findOne({
                 where: {
@@ -335,11 +382,40 @@ export class Tracing extends BaseModel {
                 await Tracing.deleteTracing(candidateTracing.id);
             }
 
+            await Tracing.applyTransform(tracing.id);
+
+            addTracing(tracing);
+
         } catch (error) {
             return {tracing: null, error};
         }
 
         return {tracing, error: null};
+    }
+
+    public static async applyTransform(id: string): Promise<TransformResult> {
+        try {
+            const tracing = await Tracing.findByPk(id);
+
+            if (!fs.existsSync(ServiceOptions.ccfv30OntologyPath)) {
+                debug(`CCF v3.0 ontology file ${ServiceOptions.ccfv30OntologyPath} does not exist`);
+                return {tracing: null, error: `CCF v3.0 ontology file ${ServiceOptions.ccfv30OntologyPath} does not exist`};
+            }
+
+            return new Promise((resolve, reject) => {
+                setTimeout(async () => {
+                    // Reload with nodes and required data for transform.
+                    const fullTracing = await Tracing.findOneForTransform(id);
+
+                    await performNodeMap(fullTracing);
+
+                    resolve({tracing: fullTracing, error: null});
+                }, 0);
+            });
+        } catch (err) {
+            debug(err)
+            return {tracing: null, error: err};
+        }
     }
 }
 
@@ -384,4 +460,5 @@ export const modelAssociate = () => {
     Tracing.hasMany(TracingNode, {foreignKey: "tracingId", as: "Nodes"});
     Tracing.belongsTo(TracingStructure, {foreignKey: "tracingStructureId"});
     Tracing.belongsTo(Neuron, {foreignKey: "neuronId"});
+    Tracing.belongsTo(TracingNode, {foreignKey: "somaNodeId", as: "Soma"});
 };

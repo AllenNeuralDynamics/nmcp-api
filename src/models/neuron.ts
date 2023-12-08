@@ -3,12 +3,11 @@ import {
     DataTypes,
     Op,
     BelongsToGetAssociationMixin,
-    FindOptions, Transaction
+    FindOptions, HasManyGetAssociationsMixin
 } from "sequelize";
 
-const parse = require("csv-parse");
-
 import "fs";
+import * as _ from "lodash";
 
 import {BaseModel, DeleteOutput, EntityMutateOutput, EntityQueryInput, EntityQueryOutput} from "./baseModel";
 import {
@@ -21,15 +20,20 @@ import {Sample} from "./sample";
 import {IAnnotationMetadata} from "./annotationMetadata";
 import {RegistrationKind} from "./registrationKind";
 import {Tracing} from "./tracing";
-import {StructureIdentifier, StructureIdentifiers} from "./structureIdentifier";
 import {TracingNode} from "./tracingNode";
+import {SearchScope} from "./SearchScope";
+import {ConsensusStatus} from "./ConsensusStatus";
+import {CcfVersion, SearchContext} from "./searchContext";
+import {SearchContent} from "./searchContent";
+import {PredicateType} from "./queryPredicate";
+import {TracingStructure} from "./tracingStructure";
 
-export enum ConsensusStatus {
-    Full,
-    Partial,
-    Single,
-    Pending,
-    None
+const debug = require("debug")("mnb:nmcp-api:neuron-model");
+
+type NeuronCache = Map<string, Neuron>;
+
+class NeuronCounts {
+    [key: number]: number;
 }
 
 export type NeuronQueryInput =
@@ -59,6 +63,21 @@ export interface IUpdateAnnotationOutput {
     error: string;
 }
 
+export interface IQueryDataPage {
+    nonce: string;
+    ccfVersion: CcfVersion;
+    queryTime: number;
+    totalCount: number;
+    neurons: Neuron[];
+    error: Error;
+}
+
+export enum FilterComposition {
+    and = 1,
+    or = 2,
+    not = 3
+}
+
 export class Neuron extends BaseModel {
     public idNumber: number;
     public idString: string;
@@ -77,6 +96,94 @@ export class Neuron extends BaseModel {
 
     public getSample!: BelongsToGetAssociationMixin<Sample>;
     public getBrainArea!: BelongsToGetAssociationMixin<BrainArea>;
+    public getTracings!: HasManyGetAssociationsMixin<Tracing>;
+
+    public tracings?: Tracing[];
+    public brainStructure: BrainArea;
+
+    private static _neuronCache: NeuronCache = new Map<string, Neuron>();
+
+    private static _neuronCounts = new NeuronCounts();
+
+    public static getOneFromCache(id: string): Neuron {
+        return this._neuronCache.get(id);
+    }
+
+    public static async updateCache(id: string) {
+        const neuron = await Neuron.findByPk(id,{
+            include: [
+                {
+                    model: BrainArea,
+                    as: "BrainArea"
+                },
+                {
+                    model: Tracing,
+                    as: "tracings",
+                    include: [{
+                        model: TracingStructure,
+                        as: "TracingStructure"
+                    }, {
+                        model: TracingNode,
+                        as: "Soma"
+                    }]
+                }
+            ]
+        });
+
+        this._neuronCache.set(neuron.id, neuron);
+    }
+
+    public static neuronCount(scope: SearchScope) {
+        if (scope === null || scope === undefined) {
+            return this._neuronCounts[SearchScope.Published];
+        }
+
+        return this._neuronCounts[scope];
+    }
+
+    public static async loadNeuronCache() {
+        try {
+            debug(`loading neurons`);
+
+            const neurons: Neuron[] = await Neuron.findAll({
+                include: [
+                    {
+                        model: BrainArea,
+                        as: "BrainArea"
+                    },
+                    {
+                        model: Tracing,
+                        as: "tracings",
+                        include: [{
+                            model: TracingStructure,
+                            as: "TracingStructure"
+                        }, {
+                            model: TracingNode,
+                            as: "Soma"
+                        }]
+                    }
+                ]
+            });
+
+            debug(`loaded ${neurons.length} neurons`);
+
+            neurons.map((n) => {
+                this._neuronCache.set(n.id, n);
+            });
+
+            this._neuronCounts[SearchScope.Private] = this._neuronCounts[SearchScope.Team] = neurons.length;
+
+            this._neuronCounts[SearchScope.Division] = this._neuronCounts[SearchScope.Internal] = this._neuronCounts[SearchScope.Moderated] = neurons.filter(n => n.visibility >= SearchScope.Division).length;
+
+            this._neuronCounts[SearchScope.External] = this._neuronCounts[SearchScope.Public] = this._neuronCounts[SearchScope.Published] = neurons.filter(n => n.visibility >= SearchScope.External).length;
+
+            debug(`${this.neuronCount(SearchScope.Team)} team-visible neurons`);
+            debug(`${this.neuronCount(SearchScope.Internal)} internal-visible neurons`);
+            debug(`${this.neuronCount(SearchScope.Public)} public-visible neurons`);
+        } catch (err) {
+            debug(err)
+        }
+    }
 
     public static async getAll(input: NeuronQueryInput): Promise<EntityQueryOutput<Neuron>> {
         let options: FindOptions = optionsWhereIds(input, {where: null, include: []});
@@ -366,6 +473,82 @@ export class Neuron extends BaseModel {
             });
         });
     }
+
+
+    public static async getNeuronsWithPredicates(context: SearchContext): Promise<IQueryDataPage> {
+        try {
+            const start = Date.now();
+
+            let neurons = await this.performNeuronsFilterQuery(context);
+
+            const duration = Date.now() - start;
+
+            const totalCount = Neuron.neuronCount(context.Scope);
+
+            neurons = neurons.sort((b, a) => a.idString.localeCompare(b.idString));
+
+            return {nonce: context.Nonce, ccfVersion: context.CcfVersion, queryTime: duration, totalCount, neurons, error: null};
+
+        } catch (err) {
+            debug(err);
+
+            return {nonce: context.Nonce, ccfVersion: context.CcfVersion, queryTime: -1, totalCount: 0, neurons: [], error: err};
+        }
+    }
+
+    private static async performNeuronsFilterQuery(context: SearchContext): Promise<Neuron[]> {
+        const start = Date.now();
+
+        const queries = context.Predicates.map((predicate) => {
+            return predicate.createFindOptions(context.Scope);
+        });
+
+        const contentPromises: Promise<SearchContent[]>[] = queries.map(async (query) => {
+            return SearchContent.findAll(query);
+        });
+
+        // An array (one for each filter entry) of an array of compartments (all returned for each filter).
+        const contents: SearchContent[][] = await Promise.all(contentPromises);
+
+        // Not interested in individual compartment results.  Just want unique tracings mapped back to neurons for
+        // grouping.  Need to restructure by neurons before applying composition.
+        const results: Neuron[][] = contents.map((c, index) => {
+            let compartments = c;
+
+            const predicate = context.Predicates[index];
+
+            if (predicate.predicateType === PredicateType.CustomRegion && predicate.arbCenter && predicate.arbSize) {
+                const pos = predicate.arbCenter;
+
+                compartments = compartments.filter((comp) => {
+                    const distance = Math.sqrt(Math.pow(pos.x - comp.somaX, 2) + Math.pow(pos.y - comp.somaY, 2) + Math.pow(pos.z - comp.somaZ, 2));
+
+                    return distance <= predicate.arbSize;
+                });
+            }
+
+            return compartments.map(c => {
+                return Neuron.getOneFromCache(c.neuronId);
+            });
+        });
+
+        let neurons = results.reduce((prev, curr, index) => {
+            if (index === 0 || context.Predicates[index].composition === FilterComposition.or) {
+                return _.uniqBy(prev.concat(curr), "id");
+            } else if (context.Predicates[index].composition === FilterComposition.and) {
+                return _.uniqBy(_.intersectionBy(prev, curr, "id"), "id");
+            } else {
+                // Not
+                return _.uniqBy(_.differenceBy(prev, curr, "id"), "id");
+            }
+        }, []);
+
+        const duration = Date.now() - start;
+
+        // await this._metricStorageManager.logQuery(context, queries, "", duration);
+
+        return neurons;
+    }
 }
 
 export const modelInit = (sequelize: Sequelize) => {
@@ -436,4 +619,5 @@ export const modelInit = (sequelize: Sequelize) => {
 export const modelAssociate = () => {
     Neuron.belongsTo(Sample, {foreignKey: "sampleId"});
     Neuron.belongsTo(BrainArea, {foreignKey: {name: "brainStructureId", allowNull: true}});
+    Neuron.hasMany(Tracing, {foreignKey: "neuronId", as: "tracings"});
 };

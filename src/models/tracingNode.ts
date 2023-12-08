@@ -16,6 +16,7 @@ export type TracingNodeMutationData = {
     radius: number;
     lengthToParent: number;
     brainStructureId: string | null;
+    structureIdentifierId: string;
 }
 
 export class TracingNode extends BaseModel {
@@ -27,6 +28,7 @@ export class TracingNode extends BaseModel {
     public radius: number;
     public lengthToParent: number;
     public brainStructureId: string | null;
+    public structureIdentifierId: string;
 
     public getStructureIdentifier!: BelongsToGetAssociationMixin<StructureIdentifier>;
     public getTracing!: BelongsToGetAssociationMixin<Tracing>;

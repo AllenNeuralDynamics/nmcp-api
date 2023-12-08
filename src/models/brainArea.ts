@@ -8,6 +8,11 @@ import {
     WithNeuronsQueryInput
 } from "./findOptions";
 
+const debug = require("debug")("mnb:sample-api:brain-structure");
+
+// As defined by Allen Atlas
+const WHOLE_BRAIN_STRUCTURE_ID = 997;
+
 export type CompartmentQueryInput = EntityQueryInput & WithNeuronsQueryInput;
 
 export type CompartmentMutationData = {
@@ -55,6 +60,48 @@ export class BrainArea extends BaseModel {
     public aliasList: string[];
 
     public getNeurons!: HasManyGetAssociationsMixin<Neuron>;
+
+    // The area and all subareas, so that searching the parent is same as searching in all the children.
+    private static _comprehensiveBrainAreaLookup = new Map<string, string[]>();
+
+    private static _brainAreaCache = new Map<string, BrainArea>();
+
+    private static _wholeBrainId: string;
+
+    public static getOne(id: string) {
+        return this._brainAreaCache.get(id);
+    }
+
+    public static wholeBrainId(): string {
+        return this._wholeBrainId;
+    }
+
+    public static getComprehensiveBrainArea(id: string): string[] {
+        return this._comprehensiveBrainAreaLookup.get(id);
+    }
+
+    public static async loadCompartmentCache() {
+        const brainAreas = await BrainArea.findAll({});
+
+        debug(`caching ${brainAreas.length} brain areas`);
+
+        for (let idx = 0; idx < brainAreas.length; idx++) {
+            const b = brainAreas[idx];
+
+            this._brainAreaCache.set(b.id, b);
+
+            const result = await BrainArea.findAll({
+                attributes: ["id", "structureIdPath"],
+                where: {structureIdPath: {[Op.like]: b.structureIdPath + "%"}}
+            });
+
+            this._comprehensiveBrainAreaLookup.set(b.id, result.map(r => r.id));
+        }
+
+        const wholeBrain = await BrainArea.findOne({where: {structureId: WHOLE_BRAIN_STRUCTURE_ID}});
+
+        this._wholeBrainId = wholeBrain.id;
+    }
 
     public static async getAll(input: CompartmentQueryInput): Promise<EntityQueryOutput<BrainArea>> {
         let options: FindOptions = optionsWhereIds(input);

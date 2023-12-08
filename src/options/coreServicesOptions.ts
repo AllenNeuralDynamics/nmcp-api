@@ -33,6 +33,11 @@ const graphQLServices = {
         host: "search-api",
         port: 5000,
         graphQLEndpoint: "graphql"
+    },
+    staticApi: {
+        host: "static-api",
+        port: 5000,
+        graphQLEndpoint: "graphql"
     }
 };
 
@@ -63,6 +68,10 @@ function loadGraphQLOptions(options): any {
     options.search.port = parseInt(process.env.SEARCH_API_PORT) || options.search.port;
     options.search.graphQLEndpoint = process.env.SEARCH_API_ENDPOINT || process.env.CORE_SERVICES_ENDPOINT || options.search.graphQLEndpoint;
 
+    options.staticApi.host = process.env.STATIC_API_HOST || process.env.CORE_SERVICES_HOST || options.staticApi.host;
+    options.staticApi.port = parseInt(process.env.STATIC_API_PORT) || options.staticApi.port;
+    options.staticApi.graphQLEndpoint = process.env.STATIC_API_ENDPOINT || process.env.CORE_SERVICES_ENDPOINT || options.staticApi.graphQLEndpoint;
+
     return options;
 }
 
@@ -84,3 +93,5 @@ export const SwcServiceOptions: IGraphQLServiceOptions = CoreServiceOptions.grap
 export const TransformServiceOptions: IGraphQLServiceOptions = CoreServiceOptions.graphQL.transform;
 
 export const SearchServiceOptions: IGraphQLServiceOptions = CoreServiceOptions.graphQL.search;
+
+export const StaticServiceOptions: IGraphQLServiceOptions = CoreServiceOptions.graphQL.staticApi;

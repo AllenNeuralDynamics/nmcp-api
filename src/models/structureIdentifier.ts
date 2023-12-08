@@ -44,6 +44,39 @@ export class StructureIdentifier extends BaseModel {
     public static structuresAreLoaded () {
         return this.valueIdMap.size > 0;
     }
+
+    public static countColumnName(s: number | string | StructureIdentifier): string {
+        if (s === null || s === undefined) {
+            return null;
+        }
+
+        let value: number = null;
+
+        if (typeof s === "number") {
+            value = s;
+        } else if (typeof s === "string") {
+            value = this.idValueMap.get(s);
+        } else {
+            value = s.value;
+        }
+
+        if (value === null || value === undefined) {
+            return null;
+        }
+
+        switch (value) {
+            case StructureIdentifiers.soma:
+                return "somaCount";
+            case StructureIdentifiers.undefined:
+                return "pathCount";
+            case StructureIdentifiers.forkPoint:
+                return "branchCount";
+            case  StructureIdentifiers.endPoint:
+                return "endCount";
+        }
+
+        return null;
+    };
 }
 
 export const modelInit = (sequelize: Sequelize) => {

@@ -3,7 +3,7 @@ import {Kind} from "graphql/language";
 
 const GraphQLUpload = require('graphql-upload/GraphQLUpload.js');
 
-import {IUpdateAnnotationOutput, Neuron, NeuronInput, NeuronQueryInput} from "../models/neuron";
+import {IQueryDataPage, IUpdateAnnotationOutput, Neuron, NeuronInput, NeuronQueryInput} from "../models/neuron";
 
 import {BrainArea, CompartmentMutationData, CompartmentQueryInput} from "../models/brainArea";
 import {MouseStrain, MouseStrainInput, MouseStrainQueryInput} from "../models/mouseStrain";
@@ -12,11 +12,17 @@ import {DeleteOutput, EntityCount, EntityCountOutput, EntityMutateOutput, Entity
 import {StructureIdentifier} from "../models/structureIdentifier";
 import {GraphQLServerContext} from "@apollo/server";
 import {TracingStructure} from "../models/tracingStructure";
-import {ITracingInput, Tracing} from "../models/tracing";
+import {ITracingInput, Tracing, TransformResult} from "../models/tracing";
 import {TracingNode} from "../models/tracingNode";
 import {Injection, InjectionInput, InjectionQueryInput} from "../models/injection";
 import {Fluorophore, FluorophoreInput, FluorophoreQueryInput} from "../models/fluorophore";
 import {InjectionVirus, InjectionVirusInput, InjectionVirusQueryInput} from "../models/injectionVirus";
+import {IQueryOperator, operators} from "../models/queryOperator";
+import {ServiceOptions} from "../options/serviceOptions";
+import {SearchScope} from "../models/SearchScope";
+import {staticApiClient} from "../data-access/staticApiService";
+import {PredicateType} from "../models/queryPredicate";
+import {CcfVersion, ISearchContextInput, SearchContext} from "../models/searchContext";
 
 //
 // GraphQL arguments
@@ -123,6 +129,10 @@ export interface IUpdateTracingOutput {
     error: Error;
 }
 
+type SearchNeuronsArguments = {
+    context: ISearchContextInput;
+}
+
 //
 // General mutate
 //
@@ -170,6 +180,17 @@ export const resolvers = {
     Upload: GraphQLUpload,
 
     Query: {
+        systemMessage(): String {
+            return systemMessage;
+        },
+        systemSettings(_, {searchScope}): any {
+            return getSystemSettings(searchScope);
+        },
+
+        queryOperators(): IQueryOperator[] {
+            return operators;
+        },
+
         async brainAreas(_, args: IBrainAreaQueryArguments): Promise<BrainArea[]> {
             const response = await BrainArea.getAll(args.input);
 
@@ -261,8 +282,22 @@ export const resolvers = {
             return Tracing.getCandidateTracings(args.pageInput);
         },
 
-        systemMessage(): String {
-            return systemMessage;
+        async tomographyMetadata(_, args: any, context: GraphQLServerContext): Promise<[]> {
+            try {
+                const resp = await staticApiClient.querySampleTomography();
+                return resp.data.tomographyMetadata;
+            } catch (err) {
+                console.log(err);
+            }
+
+            return [];
+        },
+        searchNeurons(_, args: SearchNeuronsArguments, context: GraphQLServerContext): Promise<IQueryDataPage> {
+            try {
+                return Neuron.getNeuronsWithPredicates(new SearchContext(args.context));
+            } catch (err) {
+                console.log(err);
+            }
         }
     },
     Mutation: {
@@ -322,7 +357,9 @@ export const resolvers = {
         },
 
         async uploadSwc(_, args: ITracingUploadArguments, context: GraphQLServerContext): Promise<IUploadOutput> {
-            return Tracing.receiveSwcUpload(args.annotator, args.neuronId, args.structureId, args.registrationKind, args.file);
+            const output = await Tracing.receiveSwcUpload(args.annotator, args.neuronId, args.structureId, args.registrationKind, args.file);
+
+            return output;
         },
         updateTracing(_, args: IUpdateTracingArguments, context: GraphQLServerContext): Promise<IUpdateTracingOutput> {
             return Tracing.updateTracing(args.tracing);
@@ -345,6 +382,10 @@ export const resolvers = {
         async uploadAnnotationMetadata(_, args: IAnnotationUploadArguments): Promise<IUpdateAnnotationOutput> {
             return Neuron.updateAnnotationMetadata(args.neuronId, args.file);
         },
+
+        async applyTransform(_, args: IIdOnlyArguments): Promise<TransformResult> {
+            return Tracing.applyTransform(args.id);
+        }
     },
     BrainArea: {
         neurons(brainArea: BrainArea): Promise<Neuron[]> {
@@ -440,7 +481,32 @@ export const resolvers = {
             }
             return null;
         },
-    })
+    }),
+    PredicateType: {
+        ANATOMICAL: PredicateType.AnatomicalRegion,
+        CUSTOM: PredicateType.CustomRegion,
+        ID: PredicateType.IdOrDoi,
+    },
+    CcfVersion: {
+        CCFV25: CcfVersion.Ccf25,
+        CCFV30: CcfVersion.Ccf30
+    }
 };
 
 let systemMessage: String = "";
+
+interface ISystemSettings {
+    apiVersion: string;
+    apiRelease: number;
+    neuronCount: number;
+}
+
+async function getSystemSettings(searchScope: SearchScope): Promise<ISystemSettings> {
+    const neuronCount = await Neuron.neuronCount(searchScope);
+
+    return {
+        apiVersion: ServiceOptions.version,
+        apiRelease: ServiceOptions.release,
+        neuronCount
+    }
+}

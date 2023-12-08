@@ -4,6 +4,29 @@ let typeDefinitions = gql`
     scalar Upload
     scalar Date
 
+    enum CcfVersion {
+        CCFV25
+        CCFV30
+    }
+
+    enum PredicateType {
+        ANATOMICAL
+        CUSTOM
+        ID
+    }
+
+    type SystemSettings {
+        apiVersion: String
+        apiRelease: Int
+        neuronCount: Int
+    }
+
+    type QueryOperator {
+        id: String
+        display: String
+        operator: String
+    }
+    
     type BrainArea {
         id: String!
         name: String
@@ -93,6 +116,7 @@ let typeDefinitions = gql`
         brainStructureId: String
         brainArea: BrainArea
         sample: Sample
+        tracings: [Tracing]
         createdAt: Date
         updatedAt: Date
     }
@@ -125,6 +149,7 @@ let typeDefinitions = gql`
         branchCount: Int
         endCount: Int
         tracingStructure: TracingStructure
+        searchTransformAt: Date
         neuron: Neuron
         soma: TracingNode
         createdAt: Date
@@ -140,6 +165,7 @@ let typeDefinitions = gql`
         z: Float
         radius: Float
         lengthToParent: Float
+        structureIdentifierId: String
         structureIdentifier: StructureIdentifier
         structureIdValue: Int
         brainStructureId: String
@@ -256,7 +282,52 @@ let typeDefinitions = gql`
         tracing: Tracing
         error: Error
     }
-    
+
+    type TransformResult {
+        tracing: Tracing
+        error: String
+    }
+
+    type SearchOutput {
+        nonce: String
+        ccfVersion: CcfVersion!
+        queryTime: Int
+        totalCount: Int
+        neurons: [Neuron]
+        error: SearchError
+    }
+
+    type SearchError {
+        message: String
+        code: String
+        name: String
+    }
+
+    """
+    The range of valid indices for requesting slices for each plane.  Not required if requesting by actual location.
+    """
+    type SliceLimits {
+        """2-element vector for min/max of range."""
+        sagittal: [Float]
+        """2-element vector for min/max of range."""
+        horizontal: [Float]
+        """2-element vector for min/max of range."""
+        coronal: [Float]
+    }
+
+    """
+    Metadata for available image slices for a given sample.  This information is no required for typical slice
+    requests where a a location is provided, other than the sample id.
+    """
+    type TomographyMetadata {
+        id: String
+        name: String
+        origin: [Float]
+        pixelSize: [Float]
+        threshold: [Float]
+        limits: SliceLimits
+    }
+
     input BrainAreaQueryInput {
         ids: [String!]
         injectionIds: [String!]
@@ -400,7 +471,35 @@ let typeDefinitions = gql`
         neuronId: String
         tracingStructureId: String
     }
-    
+
+    input InputPosition {
+        x: Float
+        y: Float
+        z: Float
+    }
+
+    input Predicate {
+        predicateType: PredicateType!
+        tracingIdsOrDOIs: [String!]
+        tracingIdsOrDOIsExactMatch: Boolean
+        brainAreaIds: [String!]
+        arbCenter: InputPosition
+        arbSize: Float
+        tracingStructureIds: [String!]
+        nodeStructureIds: [String!]
+        operatorId: String
+        amount: Float
+        invert: Boolean
+        composition: Int
+    }
+
+    input SearchContext {
+        nonce: String
+        scope: Int
+        ccfVersion: CcfVersion!
+        predicates: [Predicate!]
+    }
+
     type Query {
         brainAreas(input: BrainAreaQueryInput): [BrainArea!]!
         brainAreaItems(input: BrainAreaQueryInput): QueryBrainAreas!
@@ -436,7 +535,14 @@ let typeDefinitions = gql`
 
         tracings(pageInput: TracingPageInput): TracingPage!
         candidateTracings(pageInput: TracingPageInput): TracingPage!
+        
+        queryOperators: [QueryOperator!]!
+        searchNeurons(context: SearchContext): SearchOutput
 
+        """Provides all tomography metadata."""
+        tomographyMetadata: [TomographyMetadata!]
+        
+        systemSettings(searchScope: Int): SystemSettings
         systemMessage: String
     }
 
@@ -473,6 +579,8 @@ let typeDefinitions = gql`
         uploadSwc(annotator: String, neuronId: String, structureId: String, registrationKind: Int, file: Upload): TracingUploadOutput!
         updateTracing(tracing: TracingInput): UpdateTracingOutput!
         deleteTracing(id: String!): DeleteOutput!
+        
+        applyTransform(id: String!): TransformResult
     }
 
     schema {

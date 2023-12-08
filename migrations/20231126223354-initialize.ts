@@ -11,6 +11,8 @@ const TracingStructureTableName = "TracingStructure";
 const TracingTableName = "Tracing";
 const TracingNodeTableName = "TracingNode";
 
+const SearchContentTable = "SearchContent";
+
 export = {
     up: async (queryInterface: any, Sequelize: any) => {
         await queryInterface.createTable(
@@ -409,17 +411,80 @@ export = {
         await queryInterface.addIndex(TracingNodeTableName, ["tracingId"]);
         await queryInterface.addIndex(TracingNodeTableName, ["brainStructureId"]);
         await queryInterface.addIndex(TracingNodeTableName, ["structureIdentifierId"]);
+
+        await queryInterface.createTable(
+            SearchContentTable,
+            {
+                id: {
+                    primaryKey: true,
+                    type: Sequelize.UUID,
+                    defaultValue: Sequelize.UUIDV4
+                },
+                somaX: Sequelize.DOUBLE,
+                somaY: Sequelize.DOUBLE,
+                somaZ: Sequelize.DOUBLE,
+                nodeCount: Sequelize.INTEGER,
+                somaCount: Sequelize.INTEGER,
+                pathCount: Sequelize.INTEGER,
+                branchCount: Sequelize.INTEGER,
+                endCount: Sequelize.INTEGER,
+                neuronIdString: Sequelize.TEXT,
+                neuronDOI: Sequelize.TEXT,
+                neuronConsensus: Sequelize.INTEGER,
+                visibility: Sequelize.INTEGER,
+                tracingId: {
+                    type: Sequelize.UUID,
+                    references: {
+                        model: TracingTableName,
+                        key: "id"
+                    }
+                },
+                brainAreaId: {
+                    type: Sequelize.UUID,
+                    references: {
+                        model: BrainStructureTableName,
+                        key: "id"
+                    }
+                },
+                neuronId: {
+                    type: Sequelize.UUID,
+                    references: {
+                        model: NeuronTableName,
+                        key: "id"
+                    }
+                },
+                tracingStructureId: {
+                    type: Sequelize.UUID,
+                    references: {
+                        model: TracingStructureTableName,
+                        key: "id"
+                    }
+                }
+            });
+
+        await queryInterface.addIndex(SearchContentTable, ["neuronId"]);
+        await queryInterface.addIndex(SearchContentTable, ["tracingId"]);
+        await queryInterface.addIndex(SearchContentTable, ["brainAreaId"]);
+        await queryInterface.addIndex(SearchContentTable, ["tracingStructureId"]);
+        await queryInterface.addIndex(SearchContentTable, ["nodeCount"]);
+        await queryInterface.addIndex(SearchContentTable, ["somaCount"]);
+        await queryInterface.addIndex(SearchContentTable, ["pathCount"]);
+        await queryInterface.addIndex(SearchContentTable, ["branchCount"]);
+        await queryInterface.addIndex(SearchContentTable, ["endCount"]);
+        await queryInterface.addIndex(SearchContentTable, ["neuronConsensus"]);
     },
 
     down: async (queryInterface: any, Sequelize: any) => {
+        await queryInterface.dropTable(SearchContentTable);
+
+        await queryInterface.dropTable(TracingNodeTableName);
+        await queryInterface.dropTable(TracingTableName);
+        await queryInterface.dropTable(StructureIdentifierTableName);
+        await queryInterface.dropTable(TracingStructureTableName);
+
         await queryInterface.dropTable(NeuronTableName);
         await queryInterface.dropTable(SampleTableName);
         await queryInterface.dropTable(GenotypeTableName);
         await queryInterface.dropTable(BrainStructureTableName);
-
-        await queryInterface.dropTable(StructureIdentifierTableName);
-        await queryInterface.dropTable(TracingStructureTableName);
-        await queryInterface.dropTable(TracingTableName);
-        await queryInterface.dropTable(TracingNodeTableName);
     }
 };

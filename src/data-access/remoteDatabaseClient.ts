@@ -14,11 +14,12 @@ import {Sample} from "../models/sample";
 import {Neuron} from "../models/neuron";
 import {StructureIdentifier} from "../models/structureIdentifier";
 import {TracingStructure} from "../models/tracingStructure";
+import {loadTracingCache} from "../rawquery/tracingQueryMiddleware";
 
 export class RemoteDatabaseClient {
-    public static async Start(options: Options = SequelizeOptions): Promise<RemoteDatabaseClient> {
+    public static async Start(prepareSearchContents = false, options: Options = SequelizeOptions): Promise<RemoteDatabaseClient> {
         const client = new RemoteDatabaseClient(options);
-        await client.start();
+        await client.start(prepareSearchContents);
         return client;
     }
 
@@ -29,10 +30,16 @@ export class RemoteDatabaseClient {
         this._options = options;
     }
 
-    private async start() {
+    private async start(prepareSearchContents: boolean) {
         this.createConnection(this._options);
+
         await this.authenticate("sample");
+
         await this.seedIfRequired();
+
+        if (prepareSearchContents) {
+            await this.prepareSearchContents();
+        }
     }
 
     private createConnection(options: Options) {
@@ -85,87 +92,101 @@ export class RemoteDatabaseClient {
 
         const when = new Date();
 
-        let count = await BrainArea.count();
+        try {
+            let count = await BrainArea.count();
 
-        if (count < 1327) {
-            debug("seeding brain structures");
+            if (count < 1327) {
+                debug("seeding brain structures");
 
-            const chunkSize = 250;
+                const chunkSize = 250;
 
-            const allExisting = (await BrainArea.findAll({attributes: ["id"]}));
-            const allExistingId = allExisting.map(b => b.id);
+                const allExisting = (await BrainArea.findAll({attributes: ["id"]}));
+                const allExistingId = allExisting.map(b => b.id);
 
-            const items = loadBrainStructures(when);
+                const items = loadBrainStructures(when);
 
-            const existing = items.filter(i => allExistingId.includes(i.id));
-            const newItems = items.filter(i => !allExistingId.includes(i.id));
+                const existing = items.filter(i => allExistingId.includes(i.id));
+                const newItems = items.filter(i => !allExistingId.includes(i.id));
 
-            const updates = existing.map(item => {
-                const o = allExisting.find(e => e.id == item.id);
-                return o.update(item);
-            });
+                const updates = existing.map(item => {
+                    const o = allExisting.find(e => e.id == item.id);
+                    return o.update(item);
+                });
 
-            await Promise.all(updates);
+                await Promise.all(updates);
 
-            while (newItems.length > chunkSize) {
-                const chunk = newItems.splice(0, chunkSize);
-                await queryInterface.bulkInsert("BrainStructure", chunk, {});
-            }
+                while (newItems.length > chunkSize) {
+                    const chunk = newItems.splice(0, chunkSize);
+                    await queryInterface.bulkInsert("BrainStructure", chunk, {});
+                }
 
-            if (newItems.length > 0) {
-                await queryInterface.bulkInsert("BrainStructure", newItems, {});
-            }
-        } else {
-            debug("skipping brain structure seed");
-        }
-
-        count = await MouseStrain.count();
-        if (count == 0) {
-            debug("seeding mouse strains");
-            await queryInterface.bulkInsert("Genotype", loadMouseStrains(when), {});
-        } else {
-            debug("skipping mouse strain seed");
-        }
-
-        count = await StructureIdentifier.count();
-        if (count == 0) {
-            debug("seeding structure identifiers");
-            await queryInterface.bulkInsert("StructureIdentifier", loadStructureIdentifiers(when), {});
-        } else {
-            debug("skipping structure identifier seed");
-        }
-
-        count = await TracingStructure.count();
-        if (count == 0) {
-            debug("seeding tracing structures");
-            await queryInterface.bulkInsert("TracingStructure", loadTracingStructures(when), {});
-        } else {
-            debug("skipping structure seed");
-        }
-
-        if (ServiceOptions.seedUserItems) {
-            debug("seeding user-defined items");
-
-            count = await Sample.count();
-
-            if (count == 0) {
-                debug("seeding samples");
-                await queryInterface.bulkInsert("Sample", loadSamples(when), {});
+                if (newItems.length > 0) {
+                    await queryInterface.bulkInsert("BrainStructure", newItems, {});
+                }
             } else {
-                debug("skipping sample seed");
+                debug("skipping brain structure seed");
             }
 
-            count = await Neuron.count();
-
+            count = await MouseStrain.count();
             if (count == 0) {
-                debug("seeding neurons");
-                await queryInterface.bulkInsert("Neuron", loadNeurons(when), {});
+                debug("seeding mouse strains");
+                await queryInterface.bulkInsert("Genotype", loadMouseStrains(when), {});
             } else {
-                debug("skipping neuron seed");
+                debug("skipping mouse strain seed");
             }
+
+            count = await StructureIdentifier.count();
+            if (count == 0) {
+                debug("seeding structure identifiers");
+                await queryInterface.bulkInsert("StructureIdentifier", loadStructureIdentifiers(when), {});
+            } else {
+                debug("skipping structure identifier seed");
+            }
+
+            count = await TracingStructure.count();
+            if (count == 0) {
+                debug("seeding tracing structures");
+                await queryInterface.bulkInsert("TracingStructure", loadTracingStructures(when), {});
+            } else {
+                debug("skipping structure seed");
+            }
+
+            if (ServiceOptions.seedUserItems) {
+                debug("seeding user-defined items");
+
+                count = await Sample.count();
+
+                if (count == 0) {
+                    debug("seeding samples");
+                    await queryInterface.bulkInsert("Sample", loadSamples(when), {});
+                } else {
+                    debug("skipping sample seed");
+                }
+
+                count = await Neuron.count();
+
+                if (count == 0) {
+                    debug("seeding neurons");
+                    await queryInterface.bulkInsert("Neuron", loadNeurons(when), {});
+                } else {
+                    debug("skipping neuron seed");
+                }
+            }
+        } catch (err) {
+            debug(err);
         }
 
         debug("seed complete");
+    }
+
+    private async prepareSearchContents() {
+        debug(`preparing search contents`);
+
+        await BrainArea.loadCompartmentCache();
+
+        await Neuron.loadNeuronCache();
+
+        await loadTracingCache();
     }
 }
 
