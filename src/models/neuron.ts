@@ -18,7 +18,6 @@ import {
 import {BrainArea} from "./brainArea";
 import {Sample} from "./sample";
 import {IAnnotationMetadata} from "./annotationMetadata";
-import {RegistrationKind} from "./registrationKind";
 import {Tracing} from "./tracing";
 import {TracingNode} from "./tracingNode";
 import {SearchScope} from "./SearchScope";
@@ -27,6 +26,9 @@ import {CcfVersion, SearchContext} from "./searchContext";
 import {SearchContent} from "./searchContent";
 import {PredicateType} from "./queryPredicate";
 import {TracingStructure} from "./tracingStructure";
+import {Annotation} from "./annotation";
+import {AnnotationStatus} from "./annotationStatus";
+import {User} from "./user";
 
 const debug = require("debug")("mnb:nmcp-api:neuron-model");
 
@@ -97,9 +99,11 @@ export class Neuron extends BaseModel {
     public getSample!: BelongsToGetAssociationMixin<Sample>;
     public getBrainArea!: BelongsToGetAssociationMixin<BrainArea>;
     public getTracings!: HasManyGetAssociationsMixin<Tracing>;
+    public getAnnotations!: HasManyGetAssociationsMixin<Annotation>;
 
     public tracings?: Tracing[];
     public brainStructure: BrainArea;
+    public Annotations?: Annotation[];
 
     private static _neuronCache: NeuronCache = new Map<string, Neuron>();
 
@@ -209,6 +213,32 @@ export class Neuron extends BaseModel {
         });
     }
 
+    public static async getCandidateNeuronsForUser(userId: string): Promise<Neuron[]> {
+        const annotations = await Annotation.findAll({
+            where: {annotatorId: userId, status: AnnotationStatus.Approved}
+        });
+
+        const neuronPromises = annotations.map(async(t) => {
+            return await t.getNeuron();
+        })
+
+        return await Promise.all(neuronPromises);
+    }
+
+    public static async getCandidateNeurons(input: NeuronQueryInput): Promise<EntityQueryOutput<Neuron>> {
+        const neuronIds = (await Neuron.findAll({attributes: ["id"]})).map(n => n.id);
+
+        const neuronWithTracingIds = (await Tracing.findAll({attributes: ["neuronId"]})).map(t => t.neuronId);
+
+        const neuronsWithTracings = _.uniq(neuronWithTracingIds);
+
+        const neuronsThatRequireCandidate = _.difference(neuronIds, neuronsWithTracings);
+
+        const neurons = await Neuron.findAll({where: {id: {[Op.in]: neuronsThatRequireCandidate}}})
+
+        return {totalCount: neuronsThatRequireCandidate.length, items: neurons};
+    }
+
     public static async isDuplicate(idString: string, sampleId: string, id: string = null): Promise<boolean> {
         if (!sampleId || !idString) {
             return false;
@@ -265,8 +295,6 @@ export class Neuron extends BaseModel {
                 brainStructureId: neuronInput.brainStructureId,
                 sampleId: neuronInput.sampleId
             });
-
-            await Tracing.createCandidateTracing(neuron);
 
             return {source: neuron, error: null};
         } catch (error) {
@@ -357,32 +385,6 @@ export class Neuron extends BaseModel {
 
             const neuron = await row.update(neuronInput);
 
-            const tracing = await Tracing.getCandidateTracing(neuron.id);
-
-            const soma = await TracingNode.findByPk(tracing.somaNodeId);
-
-            const somaUpdates = {};
-
-            if (neuron.x != soma.x) {
-                somaUpdates["x"] = neuron.x;
-            }
-
-            if (neuron.y != soma.y) {
-                somaUpdates["y"] = neuron.y;
-            }
-
-            if (neuron.z != soma.z) {
-                somaUpdates["z"] = neuron.z;
-            }
-
-            if (neuron.brainStructureId != soma.brainStructureId) {
-                somaUpdates["brainStructureId"] = neuron.brainStructureId;
-            }
-
-            if (Object.keys(somaUpdates).length > 0) {
-                await soma.update(somaUpdates);
-            }
-
             return {source: neuron, error: null};
         } catch (error) {
             return {source: null, error: error.message};
@@ -401,8 +403,7 @@ export class Neuron extends BaseModel {
             if (count > 0) {
                 const candidateTracing = await Tracing.findOne({
                     where: {
-                        neuronId: id,
-                        registration: RegistrationKind.Candidate
+                        neuronId: id
                     }
                 });
 
@@ -549,6 +550,40 @@ export class Neuron extends BaseModel {
 
         return neurons;
     }
+
+    public static async requestAnnotation(neuronId: string, annotator: User): Promise<Neuron> {
+        const neuron = await Neuron.findByPk(neuronId);
+
+        try {
+            const existingAnnotation = await Annotation.findOne({
+                where: {
+                    annotatorId: annotator.id,
+                    neuronId: neuronId
+                }
+            });
+
+            if (existingAnnotation) {
+                if (existingAnnotation.status == AnnotationStatus.Cancelled || existingAnnotation.status == AnnotationStatus.InReview || existingAnnotation.status == AnnotationStatus.OnHold) {
+                    await existingAnnotation.update({status: AnnotationStatus.InProgress});
+                }
+
+                return neuron;
+            }
+
+            await Annotation.create({
+                neuronId: neuronId,
+                annotatorId: annotator.id,
+                status: AnnotationStatus.InProgress,
+                notes: "",
+                durationMinutes: 0,
+                startedAt: Date.now()
+            })
+        } catch (err) {
+            debug(err);
+        }
+
+        return neuron;
+    }
 }
 
 export const modelInit = (sequelize: Sequelize) => {
@@ -620,4 +655,5 @@ export const modelAssociate = () => {
     Neuron.belongsTo(Sample, {foreignKey: "sampleId"});
     Neuron.belongsTo(BrainArea, {foreignKey: {name: "brainStructureId", allowNull: true}});
     Neuron.hasMany(Tracing, {foreignKey: "neuronId", as: "tracings"});
+    Neuron.hasMany(Annotation, {foreignKey: "neuronId", as: "Annotations"});
 };

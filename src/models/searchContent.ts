@@ -74,7 +74,7 @@ export const SearchContentModelAttributes = {
 export const modelInit = (sequelize: Sequelize) => {
     SearchContent.init(SearchContentModelAttributes, {
         tableName: "SearchContent",
-        timestamps: false,
+        timestamps: true,
         sequelize
     });
 };

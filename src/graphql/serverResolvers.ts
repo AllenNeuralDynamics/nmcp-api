@@ -10,7 +10,6 @@ import {MouseStrain, MouseStrainInput, MouseStrainQueryInput} from "../models/mo
 import {SampleInput, Sample, SampleQueryInput} from "../models/sample";
 import {DeleteOutput, EntityCount, EntityCountOutput, EntityMutateOutput, EntityQueryOutput, EntityType} from "../models/baseModel";
 import {StructureIdentifier} from "../models/structureIdentifier";
-import {GraphQLServerContext} from "@apollo/server";
 import {TracingStructure} from "../models/tracingStructure";
 import {ITracingInput, Tracing, TransformResult} from "../models/tracing";
 import {TracingNode} from "../models/tracingNode";
@@ -23,6 +22,8 @@ import {SearchScope} from "../models/SearchScope";
 import {staticApiClient} from "../data-access/staticApiService";
 import {PredicateType} from "../models/queryPredicate";
 import {CcfVersion, ISearchContextInput, SearchContext} from "../models/searchContext";
+import {User} from "../models/user";
+import {Annotation} from "../models/annotation";
 
 //
 // GraphQL arguments
@@ -89,10 +90,8 @@ interface IAnnotationUploadArguments {
 }
 
 interface ITracingUploadArguments {
-    annotator: string;
     neuronId: string;
     structureId: string;
-    registrationKind: number;
     file: Promise<IUploadFile>;
 }
 
@@ -176,6 +175,11 @@ export interface IQueryTracingsCountOutput {
     error: Error;
 }
 
+export interface IErrorOutput {
+    message: string;
+    name: string;
+}
+
 export const resolvers = {
     Upload: GraphQLUpload,
 
@@ -189,6 +193,10 @@ export const resolvers = {
 
         queryOperators(): IQueryOperator[] {
             return operators;
+        },
+
+        user(_, args: any, context: User): any {
+            return context;
         },
 
         async brainAreas(_, args: IBrainAreaQueryArguments): Promise<BrainArea[]> {
@@ -244,8 +252,12 @@ export const resolvers = {
         neuron(_, args: IIdOnlyArguments): Promise<Neuron> {
             return Neuron.findByPk(args.id);
         },
-        neuronsForSample(_, args: SampleIdArguments, context: GraphQLServerContext): Promise<Neuron[]> {
+        neuronsForSample(_, args: SampleIdArguments, context: User): Promise<Neuron[]> {
             return Neuron.getNeurons(args.sampleId);
+        },
+
+        candidateNeurons(_, args: INeuronQueryArguments, context: User): Promise<EntityQueryOutput<Neuron>> {
+            return Neuron.getCandidateNeurons(args.input);
         },
 
         neuronCountsForSamples(_, args: ICountsArguments): Promise<EntityCountOutput> {
@@ -267,22 +279,31 @@ export const resolvers = {
             }
         },
 
-        structureIdentifiers(_, __, context: GraphQLServerContext): Promise<StructureIdentifier[]> {
+        async structureIdentifiers(_, __, context: User): Promise<StructureIdentifier[]> {
             return StructureIdentifier.findAll({});
         },
-        tracingStructures(_, __, context: GraphQLServerContext): Promise<TracingStructure[]> {
+        async tracingStructures(_, __, context: User): Promise<TracingStructure[]> {
             return TracingStructure.findAll({});
         },
 
-        tracings(_, args: ITracingsArguments, context: GraphQLServerContext): Promise<ITracingPage> {
+        async tracings(_, args: ITracingsArguments, context: User): Promise<ITracingPage> {
             return Tracing.getTracings(args.pageInput);
         },
 
-        candidateTracings(_, args: ITracingsArguments, context: GraphQLServerContext): Promise<ITracingPage> {
-            return Tracing.getCandidateTracings(args.pageInput);
+        async annotationsForUser(_, __, context: User): Promise<Annotation[]> {
+            return Annotation.getAnnotationsForUser(context.id);
         },
 
-        async tomographyMetadata(_, args: any, context: GraphQLServerContext): Promise<[]> {
+        async reviewableAnnotations(_, __, context: User): Promise<Annotation[]> {
+            // TODO check permissions of User
+            return Annotation.getReviewableAnnotations();
+        },
+
+        async candidatesForUser(_, __, context: User): Promise<Neuron[]> {
+            return Neuron.getCandidateNeuronsForUser(context.id);
+        },
+
+        async tomographyMetadata(_, args: any, context: User): Promise<[]> {
             try {
                 const resp = await staticApiClient.querySampleTomography();
                 return resp.data.tomographyMetadata;
@@ -292,7 +313,7 @@ export const resolvers = {
 
             return [];
         },
-        searchNeurons(_, args: SearchNeuronsArguments, context: GraphQLServerContext): Promise<IQueryDataPage> {
+        searchNeurons(_, args: SearchNeuronsArguments, context: User): Promise<IQueryDataPage> {
             try {
                 return Neuron.getNeuronsWithPredicates(new SearchContext(args.context));
             } catch (err) {
@@ -356,15 +377,15 @@ export const resolvers = {
             return Neuron.deleteFor(args.id);
         },
 
-        async uploadSwc(_, args: ITracingUploadArguments, context: GraphQLServerContext): Promise<IUploadOutput> {
-            const output = await Tracing.receiveSwcUpload(args.annotator, args.neuronId, args.structureId, args.registrationKind, args.file);
+        async uploadSwc(_, args: ITracingUploadArguments, context: User): Promise<IUploadOutput> {
+            const output = await Tracing.createApprovedTracing(context.id, args.neuronId, args.structureId, args.file);
 
             return output;
         },
-        updateTracing(_, args: IUpdateTracingArguments, context: GraphQLServerContext): Promise<IUpdateTracingOutput> {
+        updateTracing(_, args: IUpdateTracingArguments, context: User): Promise<IUpdateTracingOutput> {
             return Tracing.updateTracing(args.tracing);
         },
-        deleteTracing(_, args: IIdOnlyArguments, context: GraphQLServerContext): Promise<DeleteOutput> {
+        deleteTracing(_, args: IIdOnlyArguments, context: User): Promise<DeleteOutput> {
             return Tracing.deleteTracing(args.id);
         },
 
@@ -385,6 +406,29 @@ export const resolvers = {
 
         async applyTransform(_, args: IIdOnlyArguments): Promise<TransformResult> {
             return Tracing.applyTransform(args.id);
+        },
+
+        async requestAnnotation(_, args: IIdOnlyArguments, context: User): Promise<Neuron> {
+            return Neuron.requestAnnotation(args.id, context);
+        },
+        async requestAnnotationReview(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
+            // TODO verify User matches annotator or that User permissions are high e.g., admin
+            return Annotation.markAnnotationForReview(args.id);
+        },
+        async requestAnnotationHold(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
+            // TODO verify User matches annotator or that User permissions are high e.g., admin
+            return Annotation.markAnnotationOnHold(args.id);
+        },
+        async approveAnnotation(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
+            // TODO verify permissions on User
+            return Annotation.approveAnnotation(args.id);
+        },
+        async declineAnnotation(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
+            // TODO verify permissions on User
+            return Annotation.declineAnnotation(args.id);
+        },
+        async cancelAnnotation(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
+            return Annotation.cancelAnnotation(args.id);
         }
     },
     BrainArea: {
@@ -447,23 +491,39 @@ export const resolvers = {
         },
         sample(neuron: Neuron): Promise<Sample> {
             return neuron.getSample();
+        },
+        annotations(neuron: Neuron): Promise<Annotation[]> {
+            return neuron.getAnnotations();
         }
     },
     Tracing: {
-        async tracingStructure(tracing, _, context: GraphQLServerContext): Promise<TracingStructure> {
+        async tracingStructure(tracing, _, context: User): Promise<TracingStructure> {
             const result: Tracing = await Tracing.findByPk(tracing.id);
             return result ? result.getTracingStructure() : null;
         },
-        neuron(tracing, _, context: GraphQLServerContext): Promise<Neuron> {
+        neuron(tracing, _, context: User): Promise<Neuron> {
             return Neuron.findByPk(tracing.neuronId);
         },
-        soma(tracing, _, context: GraphQLServerContext): Promise<TracingNode> {
+        soma(tracing, _, context: User): Promise<TracingNode> {
             return TracingNode.findByPk(tracing.somaNodeId);
         }
     },
     TracingNode: {
-        brainStructure(node, _, context: GraphQLServerContext): Promise<BrainArea> {
+        brainStructure(node, _, context: User): Promise<BrainArea> {
             return BrainArea.findByPk(node.brainStructureId);
+        }
+    },
+    User: {
+        annotations(user: User): Promise<Annotation[]> {
+            return user.getAnnotations();
+        }
+    },
+    Annotation: {
+        annotator(annotation: Annotation): Promise<User> {
+            return annotation.getAnnotator();
+        },
+        neuron(annotation: Annotation): Promise<Neuron> {
+            return annotation.getNeuron();
         }
     },
     Date: new GraphQLScalarType({

@@ -1,3 +1,5 @@
+import {QueryInterface} from "sequelize";
+
 const BrainStructureTableName = "BrainStructure";
 const GenotypeTableName = "Genotype";
 const FluorophoreTableName = "Fluorophore";
@@ -13,8 +15,10 @@ const TracingNodeTableName = "TracingNode";
 
 const SearchContentTable = "SearchContent";
 
+const SynchronizationMarkerTableName = "SynchronizationMarker";
+
 export = {
-    up: async (queryInterface: any, Sequelize: any) => {
+    up: async (queryInterface: QueryInterface, Sequelize: any) => {
         await queryInterface.createTable(
             BrainStructureTableName,
             {
@@ -315,10 +319,6 @@ export = {
                     type: Sequelize.TEXT,
                     defaultValue: ""
                 },
-                registration: {
-                    type: Sequelize.INTEGER,
-                    defaultValue: 0
-                },
                 nodeCount: {
                     type: Sequelize.INTEGER,
                     defaultValue: 0
@@ -332,10 +332,6 @@ export = {
                     defaultValue: 0
                 },
                 endCount: {
-                    type: Sequelize.INTEGER,
-                    defaultValue: 0
-                },
-                visibility: {
                     type: Sequelize.INTEGER,
                     defaultValue: 0
                 },
@@ -363,8 +359,6 @@ export = {
                 deletedAt: Sequelize.DATE
             });
 
-        await queryInterface.addIndex(TracingTableName, ["registration"]);
-        await queryInterface.addIndex(TracingTableName, ["visibility"]);
         await queryInterface.addIndex(TracingTableName, ["neuronId"]);
         await queryInterface.addIndex(TracingTableName, ["tracingStructureId"]);
 
@@ -405,7 +399,7 @@ export = {
                     }
                 },
                 createdAt: Sequelize.DATE,
-                updatedAt: Sequelize.DATE,
+                updatedAt: Sequelize.DATE
             });
 
         await queryInterface.addIndex(TracingNodeTableName, ["tracingId"]);
@@ -459,7 +453,9 @@ export = {
                         model: TracingStructureTableName,
                         key: "id"
                     }
-                }
+                },
+                createdAt: Sequelize.DATE,
+                updatedAt: Sequelize.DATE
             });
 
         await queryInterface.addIndex(SearchContentTable, ["neuronId"]);
@@ -472,9 +468,28 @@ export = {
         await queryInterface.addIndex(SearchContentTable, ["branchCount"]);
         await queryInterface.addIndex(SearchContentTable, ["endCount"]);
         await queryInterface.addIndex(SearchContentTable, ["neuronConsensus"]);
+
+        await queryInterface.createTable(
+            SynchronizationMarkerTableName,
+            {
+                id: {
+                    primaryKey: true,
+                    type: Sequelize.UUID,
+                    defaultValue: Sequelize.UUIDV4
+                },
+                markerKind: Sequelize.INTEGER,
+                appliedAt: Sequelize.DATE,
+                createdAt: Sequelize.DATE,
+                updatedAt: Sequelize.DATE
+            }
+        );
+
+        await queryInterface.addIndex(SynchronizationMarkerTableName, ["markerKind"]);
     },
 
-    down: async (queryInterface: any, Sequelize: any) => {
+    down: async (queryInterface: QueryInterface, _: any) => {
+        await queryInterface.dropTable(SynchronizationMarkerTableName);
+
         await queryInterface.dropTable(SearchContentTable);
 
         await queryInterface.dropTable(TracingNodeTableName);

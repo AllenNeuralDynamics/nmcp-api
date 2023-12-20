@@ -13,7 +13,7 @@ let cacheReady = false;
 
 let timerStart;
 
-export function addTracing(tracing: Tracing) {
+export function addTracingToMiddlewareCache(tracing: Tracing) {
     const mappedTracing = mapTracingToCache(tracing);
 
     compiledMap.set(mappedTracing.id, mappedTracing)

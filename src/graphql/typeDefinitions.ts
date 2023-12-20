@@ -1,4 +1,5 @@
 import {gql} from "graphql-tag";
+import {AnnotationStatus} from "../models/annotationStatus";
 
 let typeDefinitions = gql`
     scalar Upload
@@ -26,7 +27,7 @@ let typeDefinitions = gql`
         display: String
         operator: String
     }
-    
+
     type BrainArea {
         id: String!
         name: String
@@ -117,6 +118,7 @@ let typeDefinitions = gql`
         brainArea: BrainArea
         sample: Sample
         tracings: [Tracing]
+        annotations: [Annotation]
         createdAt: Date
         updatedAt: Date
     }
@@ -143,7 +145,6 @@ let typeDefinitions = gql`
         filename: String
         fileComments: String
         annotator: String
-        registration: Int
         nodeCount: Int
         pathCount: Int
         branchCount: Int
@@ -173,6 +174,30 @@ let typeDefinitions = gql`
         tracing: Tracing
         createdAt: Date
         updatedAt: Date
+    }
+
+    type User {
+        id: String!
+        firstName: String
+        lastName: String
+        emailAddress:String
+        affiliation: String
+        permissions: Int
+        isAnonymousForComplete: Boolean
+        isAnonymousForCandidate: Boolean
+        annotations: [Annotation]
+    }
+
+    type Annotation {
+        id: String!
+        status: Int
+        notes: String
+        durationMinutes: Int
+        annotatorId: String
+        annotator: User
+        neuron: Neuron
+        startedAt: Date
+        completedAt: Date
     }
 
     type TracingPage {
@@ -258,7 +283,7 @@ let typeDefinitions = gql`
         metadata: String
         error: String
     }
-    
+
     type Error {
         message: String
         name: String
@@ -268,7 +293,7 @@ let typeDefinitions = gql`
         tracingId: String
         count: Int
     }
-    
+
     type TracingsForTracingsOutput {
         counts: [TracingsForSwcTracingCount]
         error: Error
@@ -377,7 +402,7 @@ let typeDefinitions = gql`
         offset: Int
         limit: Int
     }
-    
+
     input SampleQueryInput {
         ids: [String!]
         mouseStrainIds: [String!]
@@ -464,7 +489,7 @@ let typeDefinitions = gql`
         neuronIds: [String!]
         tracingStructureId: String
     }
-    
+
     input TracingInput {
         id: String!
         annotator: String
@@ -501,6 +526,8 @@ let typeDefinitions = gql`
     }
 
     type Query {
+        user: User
+
         brainAreas(input: BrainAreaQueryInput): [BrainArea!]!
         brainAreaItems(input: BrainAreaQueryInput): QueryBrainAreas!
         brainArea(id: String!): BrainArea
@@ -523,6 +550,7 @@ let typeDefinitions = gql`
         neurons(input: NeuronQueryInput): QueryNeurons
         neuron(id: String!): Neuron
         neuronsForSample(sampleId: String): [Neuron!]!
+        candidateNeurons(input: NeuronQueryInput): QueryNeurons
 
         neuronCountsForInjections(ids: [String!]): EntityCountOutput
         neuronCountsForSamples(ids: [String!]): EntityCountOutput
@@ -534,14 +562,17 @@ let typeDefinitions = gql`
         tracingStructures: [TracingStructure!]!
 
         tracings(pageInput: TracingPageInput): TracingPage!
-        candidateTracings(pageInput: TracingPageInput): TracingPage!
-        
+
         queryOperators: [QueryOperator!]!
         searchNeurons(context: SearchContext): SearchOutput
 
         """Provides all tomography metadata."""
         tomographyMetadata: [TomographyMetadata!]
-        
+
+        annotationsForUser: [Annotation!]!
+        candidatesForUser: [Neuron!]!
+        reviewableAnnotations: [Annotation!]!
+
         systemSettings(searchScope: Int): SystemSettings
         systemMessage: String
     }
@@ -573,14 +604,21 @@ let typeDefinitions = gql`
 
         setSystemMessage(message: String): Boolean
         clearSystemMessage: Boolean
-        
+
         uploadAnnotationMetadata(neuronId: String, file: Upload): UploadAnnotationMetadataOutput!
 
-        uploadSwc(annotator: String, neuronId: String, structureId: String, registrationKind: Int, file: Upload): TracingUploadOutput!
+        uploadSwc(neuronId: String, structureId: String, file: Upload): TracingUploadOutput!
         updateTracing(tracing: TracingInput): UpdateTracingOutput!
         deleteTracing(id: String!): DeleteOutput!
-        
+
         applyTransform(id: String!): TransformResult
+
+        requestAnnotation(id: String!): Tracing
+        requestAnnotationReview(id: String!): Error
+        requestAnnotationHold(id: String!): Error
+        approveAnnotation(id: String!): Error
+        declineAnnotation(id: String!): Error
+        cancelAnnotation(id: String!): Error
     }
 
     schema {

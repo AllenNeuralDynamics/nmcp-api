@@ -1,18 +1,20 @@
-import {Sequelize, DataTypes, BelongsToGetAssociationMixin, HasManyGetAssociationsMixin, Op} from "sequelize";
+import {BelongsToGetAssociationMixin, DataTypes, HasManyGetAssociationsMixin, Op, Sequelize} from "sequelize";
 
 import {BaseModel, DeleteOutput} from "./baseModel";
 import {TracingStructure} from "./tracingStructure";
 import {TracingNode, TracingNodeMutationData} from "./tracingNode";
 import {Neuron} from "./neuron";
-import {ITracingPage, ITracingPageInput, IUpdateTracingOutput, IUploadFile, IUploadOutput} from "../graphql/serverResolvers";
+import {IErrorOutput, ITracingPage, ITracingPageInput, IUpdateTracingOutput, IUploadOutput} from "../graphql/serverResolvers";
 import {swcParse} from "../util/SwcParser";
 import {StructureIdentifier, StructureIdentifiers} from "./structureIdentifier";
-import {RegistrationKind} from "./registrationKind";
 import * as fs from "fs";
 import {ServiceOptions} from "../options/serviceOptions";
 import {performNodeMap} from "../transform/tracingTransformWorker";
 import {SearchContent} from "./searchContent";
-import {addTracing} from "../rawquery/tracingQueryMiddleware";
+import {addTracingToMiddlewareCache} from "../rawquery/tracingQueryMiddleware";
+import {User} from "./user";
+import {Annotation} from "./annotation";
+import {AnnotationStatus} from "./annotationStatus";
 
 const debug = require("debug")("mnb:sample-api:tracing");
 
@@ -20,7 +22,6 @@ export interface ITracingInput {
     id?: string;
     filename?: string;
     fileComments?: string;
-    annotator?: string;
     tracingStructureId?: string;
     neuronId?: string;
 }
@@ -35,8 +36,6 @@ export class Tracing extends BaseModel {
     public id: string;
     public filename: string;
     public fileComments: string;
-    public annotator: string;
-    public registration?: number;
     public nodeCount?: number;
     public pathCount?: number;
     public branchCount?: number;
@@ -61,8 +60,6 @@ export class Tracing extends BaseModel {
         };
 
         let options = {where: {}};
-
-        options.where["registration"] = {[Op.ne]: RegistrationKind.Candidate}
 
         out.totalCount = await Tracing.count(options);
 
@@ -115,57 +112,6 @@ export class Tracing extends BaseModel {
         });
     }
 
-    public static async getCandidateTracings(queryInput: ITracingPageInput): Promise<ITracingPage> {
-        let out: ITracingPage = {
-            offset: 0,
-            limit: 0,
-            totalCount: 0,
-            matchCount: 0,
-            tracings: []
-        };
-
-        let options = {where: {}};
-
-        options.where["registration"] = {[Op.eq]: RegistrationKind.Candidate}
-
-        out.totalCount = await Tracing.count(options);
-
-        if (queryInput) {
-            out.matchCount = await Tracing.count(options);
-
-            options["order"] = [["createdAt", "DESC"]];
-
-            if (queryInput.offset) {
-                options["offset"] = queryInput.offset;
-                out.offset = queryInput.offset;
-            }
-
-            if (queryInput.limit) {
-                options["limit"] = queryInput.limit;
-                out.limit = queryInput.limit;
-            }
-        } else {
-            out.matchCount = out.totalCount;
-        }
-
-        if (out.limit === 1) {
-            out.tracings = [await Tracing.findOne(options)];
-        } else {
-            out.tracings = await Tracing.findAll(options);
-        }
-
-        return out;
-    }
-
-    public static async getCandidateTracing(neuronId: string): Promise<Tracing> {
-        let options = {where: {}};
-
-        options.where["neuronId"] = {[Op.eq]: neuronId}
-        options.where["registration"] = {[Op.eq]: RegistrationKind.Candidate}
-
-        return await Tracing.findOne(options);
-    }
-
     public static async getCountForNeuron(neuronId: string): Promise<number> {
         if (!neuronId || neuronId.length === 0) {
             return 0;
@@ -174,45 +120,8 @@ export class Tracing extends BaseModel {
         let options = {where: {}};
 
         options.where["neuronId"] = {[Op.eq]: neuronId}
-        options.where["registration"] = {[Op.ne]: RegistrationKind.Candidate}
 
         return Tracing.count(options);
-    }
-
-    public static async createCandidateTracing(neuron: Neuron): Promise<Tracing> {
-        const tracingData = {
-            filename: "N/A",
-            fileComments: "Placeholder tracing for candidate neuron",
-            annotator: "System",
-            registration: RegistrationKind.Candidate,
-            nodeCount: 1,
-            pathCount: 0,
-            branchCount: 0,
-            endCount: 0,
-            neuronId: neuron.id,
-            tracingStructureId: "68e76074-1777-42b6-bbf9-93a6a5f02fa4"
-        };
-
-        const tracing = await Tracing.create(tracingData);
-
-        const nodeData = {
-            tracingId: tracing.id,
-            sampleNumber: 1,
-            parentNumber: -1,
-            structureIdentifierId: StructureIdentifier.idForValue(StructureIdentifiers.soma),
-            x: neuron.x,
-            y: neuron.y,
-            z: neuron.z,
-            radius: 1,
-            lengthToParent: 0,
-            brainStructureId: neuron.brainStructureId
-        }
-
-        const soma = await TracingNode.create(nodeData);
-
-        await tracing.update({somaNodeId: soma.id});
-
-        return tracing;
     }
 
     public static async updateTracing(tracingInput: ITracingInput): Promise<IUpdateTracingOutput> {
@@ -243,8 +152,6 @@ export class Tracing extends BaseModel {
             return {id, error: "A tracing with that id does not exist"};
         }
 
-        const isCandidate = tracing.registration == RegistrationKind.Candidate;
-
         try {
             await TracingNode.sequelize.transaction(async (t) => {
                 await TracingNode.destroy({where: {tracingId: id}, transaction: t});
@@ -254,20 +161,7 @@ export class Tracing extends BaseModel {
                 await Tracing.destroy({where: {id: id}, transaction: t});
             });
 
-            debug(`destroyed tracing ${tracing.id}`)
-
-            const tracingCount = await Tracing.count({
-                where: {
-                    neuronId: tracing.neuronId
-                }
-            });
-
-            if (tracingCount == 0) {
-                const neuron = await Neuron.findByPk(tracing.neuronId);
-
-                await Tracing.createCandidateTracing(neuron);
-            }
-
+            debug(`destroyed tracing ${tracing.id}`);
         } catch (err) {
             debug(err);
             return {id, error: err.message};
@@ -276,7 +170,7 @@ export class Tracing extends BaseModel {
         return {id, error: null};
     }
 
-    public static async receiveSwcUpload(annotator: string, neuronId: string, tracingStructureId: string, registrationKind: number, uploadFile: Promise<any>): Promise<IUploadOutput> {
+    public static async createApprovedTracing(userId: string, neuronId: string, tracingStructureId: string, uploadFile: Promise<any>): Promise<IUploadOutput> {
         if (!uploadFile) {
             return {
                 tracing: null,
@@ -320,8 +214,6 @@ export class Tracing extends BaseModel {
             const tracingData = {
                 filename: file.filename,
                 fileComments: parseOutput.comments,
-                annotator,
-                registration: registrationKind,
                 visibility: neuron.visibility,
                 nodeCount: parseOutput.rows.length,
                 pathCount: parseOutput.pathCount,
@@ -371,20 +263,11 @@ export class Tracing extends BaseModel {
                 await tracing.update({somaNodeId: soma.id});
             }
 
-            const candidateTracing = await Tracing.findOne({
-                where: {
-                    neuronId: tracingData.neuronId,
-                    registration: RegistrationKind.Candidate
-                }
-            });
+            await Annotation.completeAnnotation(userId, neuronId);
 
-            if (candidateTracing) {
-                await Tracing.deleteTracing(candidateTracing.id);
-            }
+            addTracingToMiddlewareCache(tracing);
 
             await Tracing.applyTransform(tracing.id);
-
-            addTracing(tracing);
 
         } catch (error) {
             return {tracing: null, error};
@@ -435,16 +318,10 @@ export const modelInit = (sequelize: Sequelize) => {
             type: DataTypes.TEXT,
             defaultValue: ""
         },
-        annotator: {
-            type: DataTypes.TEXT,
-            defaultValue: ""
-        },
-        registration: DataTypes.INTEGER,
         nodeCount: DataTypes.INTEGER,
         pathCount: DataTypes.INTEGER,
         branchCount: DataTypes.INTEGER,
         endCount: DataTypes.INTEGER,
-        visibility: DataTypes.INTEGER,
         somaNodeId: DataTypes.UUID,
         nodeLookupAt: DataTypes.DATE,
         searchTransformAt: DataTypes.DATE

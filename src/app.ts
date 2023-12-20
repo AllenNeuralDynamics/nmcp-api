@@ -17,6 +17,8 @@ import {GraphQLError} from "graphql/error";
 import {jwtDecode} from "jwt-decode";
 import moment = require("moment");
 import {tracingQueryMiddleware} from "./rawquery/tracingQueryMiddleware";
+import {synchronizationManagerStart} from "./synchronization/synchonizationManager";
+import {User} from "./models/user";
 
 const config = require('./authConfig.json');
 
@@ -24,6 +26,8 @@ start().then().catch((err) => debug(err));
 
 async function start() {
     await RemoteDatabaseClient.Start(true);
+
+    synchronizationManagerStart();
 
     const app = express();
 
@@ -33,7 +37,7 @@ async function start() {
 
     app.use("/tracings", tracingQueryMiddleware);
 
-    const server = new ApolloServer({
+    const server = new ApolloServer<User>({
         typeDefs: typeDefinitions,
         resolvers,
         introspection: true,
@@ -54,8 +58,10 @@ async function start() {
             context: async ({req, res}) => {
                 const token = req.headers.authorization || "null";
 
+                let user = null;
+
                 if (requireAuthentication) {
-                    const scopes = validateToken(token);
+                    const [scopes, tokenUser] = await validateToken(token);
 
                     if (scopes == null) {
                         throw new GraphQLError('User is not authenticated', {
@@ -65,9 +71,11 @@ async function start() {
                             },
                         });
                     }
+
+                    user = tokenUser;
                 }
 
-                return token;
+                return user;
             }
         })
     );
@@ -86,7 +94,9 @@ const authOptions = {
     passReqToCallback: config.settings.passReqToCallback
 }
 
-function validateToken(token: string): string[] {
+export type TokenOutput = [scopes: string[], user: User];
+
+async function validateToken(token: string): Promise<TokenOutput> {
     let decoded = null;
 
     try {
@@ -117,5 +127,8 @@ function validateToken(token: string): string[] {
     }
 
     //@ts-ignore
-    return decoded.scp.split(" ");
+    const user= await User.getUser(decoded.sub, decoded.given_name, decoded.family_name, decoded.emails.length > 0 ? decoded.emails[0] :"")
+
+    //@ts-ignore
+    return [decoded.scp.split(" "), user];
 }
