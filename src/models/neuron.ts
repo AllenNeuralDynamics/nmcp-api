@@ -401,16 +401,6 @@ export class Neuron extends BaseModel {
             const count = await Neuron.destroy({where: {id}});
 
             if (count > 0) {
-                const candidateTracing = await Tracing.findOne({
-                    where: {
-                        neuronId: id
-                    }
-                });
-
-                if (candidateTracing) {
-                    await Tracing.deleteTracing(candidateTracing.id);
-                }
-
                 return {id, error: null}
             }
 

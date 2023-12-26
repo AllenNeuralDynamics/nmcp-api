@@ -103,6 +103,15 @@ export class Annotation extends BaseModel {
         return true;
     }
 
+    public static async reopenAnnotation(neuronId: string): Promise<void> {
+        const annotations = await Annotation.findAll({
+            where: {neuronId: neuronId, status: AnnotationStatus.Complete}
+        });
+
+        await Promise.all(annotations.map(async (a) => {
+            await a.update({status: AnnotationStatus.Approved});
+        }));
+    }
 
     public static async cancelAnnotation(id: string): Promise<IErrorOutput> {
         const annotation = await Annotation.findByPk(id);
@@ -119,6 +128,14 @@ export class Annotation extends BaseModel {
         });
 
         return null;
+    }
+
+    public static async removeForNeuron(neuronId: string): Promise<boolean> {
+        await Annotation.destroy({
+            where: {neuronId: neuronId}
+        });
+
+        return true;
     }
 }
 

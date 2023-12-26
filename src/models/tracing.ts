@@ -124,6 +124,13 @@ export class Tracing extends BaseModel {
         return Tracing.findAll(options);
     }
 
+    /**
+     * Count the number of tracings for a given neuron.
+     *
+     * @param neuronId
+     *
+     * @return the number of tracings
+     */
     public static async getCountForNeuron(neuronId: string): Promise<number> {
         if (!neuronId || neuronId.length === 0) {
             return 0;
@@ -165,13 +172,14 @@ export class Tracing extends BaseModel {
         }
     }
 
-    public static async deleteTracing(id: string): Promise<DeleteOutput> {
+    public static async deleteTracing(id: string, removeAnnotations: boolean = true): Promise<DeleteOutput> {
         let tracing = await Tracing.findByPk(id);
 
         if (!tracing) {
             return {id, error: "A tracing with that id does not exist"};
         }
 
+        // Remove tracing and nodes.
         try {
             await TracingNode.sequelize.transaction(async (t) => {
                 await TracingNode.destroy({where: {tracingId: id}, transaction: t});
@@ -187,9 +195,28 @@ export class Tracing extends BaseModel {
             return {id, error: err.message};
         }
 
+        const count = await Tracing.getCountForNeuron(tracing.neuronId);
+
+        if (removeAnnotations && count == 0) {
+            // If this is the last tracing associated with a neuron remove any annotations to reset the status.
+            await Annotation.removeForNeuron(tracing.neuronId);
+        }
+
+        if (count == 1) {
+            // Was complete, one has been removed, mark as approved again so a replacement could be uploaded.
+            await Annotation.reopenAnnotation(tracing.neuronId);
+        }
+
         return {id, error: null};
     }
 
+    /**
+     *
+     * @param userId
+     * @param neuronId
+     * @param tracingStructureId
+     * @param uploadFile
+     */
     public static async createApprovedTracing(userId: string, neuronId: string, tracingStructureId: string, uploadFile: Promise<any>): Promise<IUploadOutput> {
         if (!uploadFile) {
             return {
@@ -227,6 +254,18 @@ export class Tracing extends BaseModel {
                         message: "There is more than one soma/root/un-parented nodes in the tracing"
                     }
                 };
+            }
+
+            // Only allow one axon/dendrite per neuron.
+            const existing = await Tracing.findOne({
+                where: {
+                    neuronId: neuronId,
+                    tracingStructureId: tracingStructureId
+                }
+            });
+
+            if (existing) {
+                await Tracing.deleteTracing(existing.id, false);
             }
 
             const neuron = await Neuron.findByPk(neuronId);
@@ -283,12 +322,14 @@ export class Tracing extends BaseModel {
                 await tracing.update({somaNodeId: soma.id});
             }
 
-            await Annotation.completeAnnotation(userId, neuronId);
+            // If axon and dendrite are ready, mark as complete.
+            const count = await Tracing.getCountForNeuron(tracing.neuronId);
+
+            if (count == 2) {
+                await Annotation.completeAnnotation(userId, neuronId);
+            }
 
             addTracingToMiddlewareCache(tracing);
-
-            await Tracing.applyTransform(tracing.id);
-
         } catch (error) {
             return {tracing: null, error};
         }
