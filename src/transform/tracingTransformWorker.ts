@@ -12,7 +12,7 @@ if (swcTracingId) {
         try {
             await RemoteDatabaseClient.Start();
 
-            const swcTracing = await Tracing.findByPk(swcTracingId);
+            const swcTracing = await Tracing.findOneForTransform(swcTracingId);
 
             const result = await performNodeMap(swcTracing, true);
 

@@ -112,6 +112,18 @@ export class Tracing extends BaseModel {
         });
     }
 
+    public static async getForNeuron(neuronId: string): Promise<Tracing[]> {
+        if (!neuronId || neuronId.length === 0) {
+            return [];
+        }
+
+        let options = {where: {}};
+
+        options.where["neuronId"] = {[Op.eq]: neuronId}
+
+        return Tracing.findAll(options);
+    }
+
     public static async getCountForNeuron(neuronId: string): Promise<number> {
         if (!neuronId || neuronId.length === 0) {
             return 0;
@@ -122,6 +134,14 @@ export class Tracing extends BaseModel {
         options.where["neuronId"] = {[Op.eq]: neuronId}
 
         return Tracing.count(options);
+    }
+
+    public static async getUntransformed(): Promise<Tracing[]> {
+        let options = {where: {}};
+
+        options.where["searchTransformAt"] = {[Op.eq]: null}
+
+        return Tracing.findAll(options);
     }
 
     public static async updateTracing(tracingInput: ITracingInput): Promise<IUpdateTracingOutput> {
