@@ -52,11 +52,13 @@ async function verifyNeuronSearchContents() {
         });
     }
 
-    console.log(`${neurons.length} neurons updated since last synchronization`);
-
     if (neurons.length > 0) {
+        console.log(`${neurons.length} neurons updated since last synchronization`);
+
         const updatePromises = neurons.map(async(n) => {
             const tracings = await Tracing.getForNeuron(n.id);
+
+            console.log(`${tracings.length} tracings for neuron ${n.id}`);
 
             const tracingPromises = tracings.map(async(t) => {
                 await Tracing.applyTransform(t.id);
@@ -78,11 +80,13 @@ async function verifyNeuronSearchContents() {
 async function verifyUntransformedTracings() {
     const tracings = await Tracing.getUntransformed();
 
-    console.log(`${tracings.length} tracings have not been transformed`);
+    if(tracings.length > 0) {
+        console.log(`${tracings.length} tracings have not been transformed`);
 
-    const updatePromises = tracings.map(async(t) => {
-        await Tracing.applyTransform(t.id);
-    })
+        const updatePromises = tracings.map(async (t) => {
+            await Tracing.applyTransform(t.id);
+        })
 
-    await Promise.all(updatePromises);
+        await Promise.all(updatePromises);
+    }
 }

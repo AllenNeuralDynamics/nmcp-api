@@ -1,7 +1,6 @@
 import {BaseModel} from "./baseModel";
 import {DataTypes, HasManyGetAssociationsMixin, Sequelize} from "sequelize";
-import {Annotation} from "./annotation";
-import {TracingNode} from "./tracingNode";
+import {Reconstruction} from "./reconstruction";
 
 export class User extends BaseModel {
     public firstName: string;
@@ -13,9 +12,9 @@ export class User extends BaseModel {
     public isAnonymousForCandidate: boolean;
     public crossAuthenticationId: string;
 
-    public getAnnotations!: HasManyGetAssociationsMixin<Annotation>;
+    public getReconstructions!: HasManyGetAssociationsMixin<Reconstruction>;
 
-    public Annotations?: Annotation[];
+    public Reconstructions?: Reconstruction[];
 
     public static async getUser(userId: string, firstName: string, lastName: string, email: string): Promise<User> {
         let user = await User.findByPk(userId);
@@ -61,6 +60,6 @@ export const modelInit = (sequelize: Sequelize) => {
 };
 
 export const modelAssociate = () => {
-    User.hasMany(Annotation, {foreignKey: "annotatorId", as: "Annotations"});
-    User.hasMany(Annotation, {foreignKey: "proofreaderId", as: "Approvals"});
+    User.hasMany(Reconstruction, {foreignKey: "annotatorId", as: "Reconstructions"});
+    User.hasMany(Reconstruction, {foreignKey: "proofreaderId", as: "Approvals"});
 };

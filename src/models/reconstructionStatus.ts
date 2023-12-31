@@ -1,4 +1,4 @@
-export enum AnnotationStatus {
+export enum ReconstructionStatus {
     Unknown,
     InProgress,
     OnHold,

@@ -3,6 +3,10 @@ import {Sequelize, DataTypes, HasManyGetAssociationsMixin} from "sequelize";
 import {BaseModel} from "./baseModel";
 import {Tracing} from "./tracing";
 
+export const AxonStructureId = "68e76074-1777-42b6-bbf9-93a6a5f02fa4";
+
+export const DendriteStructureId = "aef2ba31-8f9b-4a47-9de0-58dab1cc06a8";
+
 export class TracingStructure extends BaseModel {
     public id: string;
     public name: string;

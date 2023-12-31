@@ -1,14 +1,8 @@
 import {gql} from "graphql-tag";
-import {AnnotationStatus} from "../models/annotationStatus";
 
 let typeDefinitions = gql`
     scalar Upload
     scalar Date
-
-    enum CcfVersion {
-        CCFV25
-        CCFV30
-    }
 
     enum PredicateType {
         ANATOMICAL
@@ -117,8 +111,7 @@ let typeDefinitions = gql`
         brainStructureId: String
         brainArea: BrainArea
         sample: Sample
-        tracings: [Tracing]
-        annotations: [Annotation]
+        reconstructions: [Reconstruction]
         createdAt: Date
         updatedAt: Date
     }
@@ -150,7 +143,7 @@ let typeDefinitions = gql`
         endCount: Int
         tracingStructure: TracingStructure
         searchTransformAt: Date
-        neuron: Neuron
+        reconstruction: Reconstruction
         soma: TracingNode
         createdAt: Date
         updatedAt: Date
@@ -184,10 +177,10 @@ let typeDefinitions = gql`
         permissions: Int
         isAnonymousForComplete: Boolean
         isAnonymousForCandidate: Boolean
-        annotations: [Annotation]
+        reconstructions: [Reconstruction]
     }
 
-    type Annotation {
+    type Reconstruction {
         id: String!
         status: Int
         notes: String
@@ -197,16 +190,19 @@ let typeDefinitions = gql`
         annotator: User
         proofreader: User
         neuron: Neuron
+        tracings: [Tracing!]
+        axon: Tracing
+        dendrite: Tracing
         startedAt: Date
         completedAt: Date
     }
 
-    type TracingPage {
+    type ReconstructionPage {
         offset: Int
         limit: Int
         totalCount: Int
         matchCount: Int
-        tracings: [Tracing!]!
+        reconstructions: [Reconstruction!]!
     }
 
     type QueryBrainAreas {
@@ -316,7 +312,6 @@ let typeDefinitions = gql`
 
     type SearchOutput {
         nonce: String
-        ccfVersion: CcfVersion!
         queryTime: Int
         totalCount: Int
         neurons: [Neuron]
@@ -497,6 +492,11 @@ let typeDefinitions = gql`
         neuronId: String
         tracingStructureId: String
     }
+    
+    input ReconstructionPageInput {
+        offset: Int
+        limit: Int
+    }
 
     input InputPosition {
         x: Float
@@ -522,7 +522,6 @@ let typeDefinitions = gql`
     input SearchContext {
         nonce: String
         scope: Int
-        ccfVersion: CcfVersion!
         predicates: [Predicate!]
     }
 
@@ -555,14 +554,12 @@ let typeDefinitions = gql`
 
         neuronCountsForInjections(ids: [String!]): EntityCountOutput
         neuronCountsForSamples(ids: [String!]): EntityCountOutput
-        tracingCountsForNeurons(ids: [String!]): EntityCountOutput
+        reconstructionCountsForNeurons(ids: [String!]): EntityCountOutput
 
         structureIdentifiers: [StructureIdentifier!]!
         structureIdentifier(id: String): StructureIdentifier!
 
         tracingStructures: [TracingStructure!]!
-
-        tracings(pageInput: TracingPageInput): TracingPage!
 
         queryOperators: [QueryOperator!]!
         searchNeurons(context: SearchContext): SearchOutput
@@ -570,9 +567,11 @@ let typeDefinitions = gql`
         """Provides all tomography metadata."""
         tomographyMetadata: [TomographyMetadata!]
 
-        annotationsForUser: [Annotation!]!
+
+        reconstructions(pageInput: ReconstructionPageInput): ReconstructionPage!
+        reconstructionsForUser: [Reconstruction!]!
         candidatesForUser: [Neuron!]!
-        reviewableAnnotations: [Annotation!]!
+        reviewableReconstructions: [Reconstruction!]!
 
         systemSettings(searchScope: Int): SystemSettings
         systemMessage: String
@@ -615,12 +614,12 @@ let typeDefinitions = gql`
 
         applyTransform(id: String!): TransformResult
 
-        requestAnnotation(id: String!): Tracing
-        requestAnnotationReview(id: String!): Error
-        requestAnnotationHold(id: String!): Error
-        approveAnnotation(id: String!): Error
-        declineAnnotation(id: String!): Error
-        cancelAnnotation(id: String!): Error
+        requestReconstruction(id: String!): Tracing
+        requestReconstructionReview(id: String!): Error
+        requestReconstructionHold(id: String!): Error
+        approveReconstruction(id: String!): Error
+        declineReconstruction(id: String!): Error
+        cancelReconstruction(id: String!): Error
     }
 
     schema {

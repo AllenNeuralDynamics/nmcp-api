@@ -1,17 +1,15 @@
 import {QueryInterface} from "sequelize";
 
-const BrainStructureTableName = "BrainStructure";
-const GenotypeTableName = "Genotype";
-const FluorophoreTableName = "Fluorophore";
-const InjectionVirusTableName = "InjectionVirus";
-const SampleTableName = "Sample";
-const InjectionTableName = "Injection";
-const NeuronTableName = "Neuron";
-
-const StructureIdentifierTableName = "StructureIdentifier";
-const TracingStructureTableName = "TracingStructure";
-
-const UserTableName = "User";
+import {
+    BrainStructureTableName,
+    FluorophoreTableName,
+    GenotypeTableName,
+    InjectionTableName,
+    InjectionVirusTableName,
+    NeuronTableName,
+    SampleTableName,
+    StructureIdentifierTableName, TracingStructureTableName, UserTableName
+} from "../src/models/TableNames";
 
 export = {
     up: async (queryInterface: QueryInterface, Sequelize: any) => {

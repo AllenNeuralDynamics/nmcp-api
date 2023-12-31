@@ -139,7 +139,9 @@ export class TransformOperation {
     private async updateBrainCompartmentContent() {
         const tracing = this.Tracing;
 
-        const neuron = await tracing.getNeuron();
+        const reconstruction = await tracing.getReconstruction();
+
+        const neuron = await reconstruction.getNeuron();
 
         const sample = await neuron.getSample();
 

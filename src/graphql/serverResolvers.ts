@@ -23,7 +23,7 @@ import {staticApiClient} from "../data-access/staticApiService";
 import {PredicateType} from "../models/queryPredicate";
 import {CcfVersion, ISearchContextInput, SearchContext} from "../models/searchContext";
 import {User} from "../models/user";
-import {Annotation} from "../models/annotation";
+import {Reconstruction} from "../models/reconstruction";
 
 //
 // GraphQL arguments
@@ -97,23 +97,21 @@ interface ITracingUploadArguments {
     file: Promise<IUploadFile>;
 }
 
-export interface ITracingPageInput {
+export interface IReconstructionPageInput {
     offset: number;
     limit: number;
-    neuronIds: string[];
-    tracingStructureId: string;
 }
 
-interface ITracingsArguments {
-    pageInput: ITracingPageInput;
+interface IReconstructionArguments {
+    pageInput: IReconstructionPageInput;
 }
 
-export interface ITracingPage {
+export interface IReconstructionPage {
     offset: number;
     limit: number;
     totalCount: number;
     matchCount: number;
-    tracings: Tracing[];
+    reconstructions: Reconstruction[];
 }
 
 export interface IUploadOutput {
@@ -266,11 +264,11 @@ export const resolvers = {
             return Sample.neuronCountsPerSample(args.ids);
         },
 
-        async tracingCountsForNeurons(_, args: ICountsArguments): Promise<EntityCountOutput> {
+        async reconstructionCountsForNeurons(_, args: ICountsArguments): Promise<EntityCountOutput> {
             const counts: EntityCount[] = await Promise.all(args.ids.map(async (id) => {
                 return {
                     id: id,
-                    count: await Tracing.getCountForNeuron(id)
+                    count: await Reconstruction.getCountForNeuron(id)
                 }
             }));
 
@@ -288,17 +286,17 @@ export const resolvers = {
             return TracingStructure.findAll({});
         },
 
-        async tracings(_, args: ITracingsArguments, context: User): Promise<ITracingPage> {
-            return Tracing.getTracings(args.pageInput);
+        async reconstructions(_, args: IReconstructionArguments, context: User): Promise<IReconstructionPage> {
+            return Reconstruction.getAll(args.pageInput);
         },
 
-        async annotationsForUser(_, __, context: User): Promise<Annotation[]> {
-            return Annotation.getAnnotationsForUser(context.id);
+        async reconstructionsForUser(_, __, context: User): Promise<Reconstruction[]> {
+            return Reconstruction.getAnnotationsForUser(context.id);
         },
 
-        async reviewableAnnotations(_, __, context: User): Promise<Annotation[]> {
+        async reviewableReconstructions(_, __, context: User): Promise<Reconstruction[]> {
             // TODO check permissions of User
-            return Annotation.getReviewableAnnotations();
+            return Reconstruction.getReviewableAnnotations();
         },
 
         async candidatesForUser(_, __, context: User): Promise<Neuron[]> {
@@ -315,7 +313,7 @@ export const resolvers = {
 
             return [];
         },
-        searchNeurons(_, args: SearchNeuronsArguments, context: User): Promise<IQueryDataPage> {
+        async searchNeurons(_, args: SearchNeuronsArguments, context: User): Promise<IQueryDataPage> {
             try {
                 return Neuron.getNeuronsWithPredicates(new SearchContext(args.context));
             } catch (err) {
@@ -410,27 +408,27 @@ export const resolvers = {
             return Tracing.applyTransform(args.id);
         },
 
-        async requestAnnotation(_, args: IIdOnlyArguments, context: User): Promise<Neuron> {
+        async requestReconstruction(_, args: IIdOnlyArguments, context: User): Promise<Neuron> {
             return Neuron.requestAnnotation(args.id, context);
         },
-        async requestAnnotationReview(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
+        async requestReconstructionReview(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
             // TODO verify User matches annotator or that User permissions are high e.g., admin
-            return Annotation.markAnnotationForReview(args.id);
+            return Reconstruction.markAnnotationForReview(args.id);
         },
-        async requestAnnotationHold(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
+        async requestReconstructionHold(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
             // TODO verify User matches annotator or that User permissions are high e.g., admin
-            return Annotation.markAnnotationOnHold(args.id);
+            return Reconstruction.markAnnotationOnHold(args.id);
         },
-        async approveAnnotation(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
+        async approveReconstruction(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
             // TODO verify permissions on User
-            return Annotation.approveAnnotation(args.id, context.id);
+            return Reconstruction.approveAnnotation(args.id, context.id);
         },
-        async declineAnnotation(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
+        async declineReconstruction(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
             // TODO verify permissions on User
-            return Annotation.declineAnnotation(args.id, context.id);
+            return Reconstruction.declineAnnotation(args.id, context.id);
         },
-        async cancelAnnotation(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
-            return Annotation.cancelAnnotation(args.id);
+        async cancelReconstruction(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
+            return Reconstruction.cancelAnnotation(args.id);
         }
     },
     BrainArea: {
@@ -494,8 +492,8 @@ export const resolvers = {
         sample(neuron: Neuron): Promise<Sample> {
             return neuron.getSample();
         },
-        annotations(neuron: Neuron): Promise<Annotation[]> {
-            return neuron.getAnnotations();
+        reconstructions(neuron: Neuron): Promise<Reconstruction[]> {
+            return neuron.getReconstructions();
         }
     },
     Tracing: {
@@ -503,8 +501,8 @@ export const resolvers = {
             const result: Tracing = await Tracing.findByPk(tracing.id);
             return result ? result.getTracingStructure() : null;
         },
-        neuron(tracing, _, context: User): Promise<Neuron> {
-            return Neuron.findByPk(tracing.neuronId);
+        reconstruction(tracing, _, context: User): Promise<Reconstruction> {
+            return Reconstruction.findByPk(tracing.reconstructionId);
         },
         soma(tracing, _, context: User): Promise<TracingNode> {
             return TracingNode.findByPk(tracing.somaNodeId);
@@ -516,19 +514,25 @@ export const resolvers = {
         }
     },
     User: {
-        annotations(user: User): Promise<Annotation[]> {
-            return user.getAnnotations();
+        reconstructions(user: User): Promise<Reconstruction[]> {
+            return user.getReconstructions();
         }
     },
-    Annotation: {
-        annotator(annotation: Annotation): Promise<User> {
-            return annotation.getAnnotator();
+    Reconstruction: {
+        async annotator(reconstruction: Reconstruction): Promise<User> {
+            return reconstruction.getAnnotator();
         },
-        proofreader(annotation: Annotation): Promise<User> {
-            return annotation.getProofreader();
+        async proofreader(reconstruction: Reconstruction): Promise<User> {
+            return reconstruction.getProofreader();
         },
-        neuron(annotation: Annotation): Promise<Neuron> {
-            return annotation.getNeuron();
+        async neuron(reconstruction: Reconstruction): Promise<Neuron> {
+            return reconstruction.getNeuron();
+        },
+        async axon(reconstruction: Reconstruction): Promise<Tracing> {
+            return reconstruction.getAxon();
+        },
+        async dendrite(reconstruction: Reconstruction): Promise<Tracing> {
+            return reconstruction.getDendrite();
         }
     },
     Date: new GraphQLScalarType({
@@ -551,10 +555,6 @@ export const resolvers = {
         ANATOMICAL: PredicateType.AnatomicalRegion,
         CUSTOM: PredicateType.CustomRegion,
         ID: PredicateType.IdOrDoi,
-    },
-    CcfVersion: {
-        CCFV25: CcfVersion.Ccf25,
-        CCFV30: CcfVersion.Ccf30
     }
 };
 

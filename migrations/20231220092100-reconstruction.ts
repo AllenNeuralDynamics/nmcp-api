@@ -1,18 +1,61 @@
 import {QueryInterface} from "sequelize";
 
-const BrainStructureTableName = "BrainStructure";
-const NeuronTableName = "Neuron";
-const StructureIdentifierTableName = "StructureIdentifier";
-const TracingStructureTableName = "TracingStructure";
-
-const TracingTableName = "Tracing";
-const TracingNodeTableName = "TracingNode";
-
-const UserTableName = "User";
-const AnnotationTableName = "Annotation";
+import {
+    BrainStructureTableName,
+    NeuronTableName,
+    ReconstructionTableName,
+    StructureIdentifierTableName,
+    TracingNodeTableName,
+    TracingStructureTableName,
+    TracingTableName,
+    UserTableName
+} from "../src/models/TableNames";
 
 export = {
     up: async (queryInterface: QueryInterface, Sequelize: any) => {
+        await queryInterface.createTable(ReconstructionTableName,
+            {
+                id: {
+                    primaryKey: true,
+                    type: Sequelize.UUID,
+                    defaultValue: Sequelize.UUIDV4
+                },
+                status: Sequelize.INTEGER,
+                notes: Sequelize.TEXT,
+                checks: Sequelize.TEXT,
+                durationHours: Sequelize.DOUBLE,
+                lengthMillimeters: Sequelize.DOUBLE,
+                neuronId: {
+                    type: Sequelize.UUID,
+                    references: {
+                        model: NeuronTableName,
+                        key: "id"
+                    }
+                },
+                annotatorId: {
+                    type: Sequelize.UUID,
+                    references: {
+                        model: UserTableName,
+                        key: "id"
+                    }
+                },
+                proofreaderId: {
+                    type: Sequelize.UUID,
+                    references: {
+                        model: UserTableName,
+                        key: "id"
+                    }
+                },
+                startedAt: Sequelize.DATE,
+                completedAt: Sequelize.DATE,
+                createdAt: Sequelize.DATE,
+                updatedAt: Sequelize.DATE,
+                deletedAt: Sequelize.DATE
+            }
+        );
+
+        await queryInterface.addIndex(ReconstructionTableName, ["status"]);
+
         await queryInterface.createTable(
             TracingTableName,
             {
@@ -58,10 +101,10 @@ export = {
                         key: "id"
                     }
                 },
-                neuronId: {
+                reconstructionId: {
                     type: Sequelize.UUID,
                     references: {
-                        model: NeuronTableName,
+                        model: ReconstructionTableName,
                         key: "id"
                     }
                 },
@@ -70,7 +113,7 @@ export = {
                 deletedAt: Sequelize.DATE
             });
 
-        await queryInterface.addIndex(TracingTableName, ["neuronId"]);
+        await queryInterface.addIndex(TracingTableName, ["reconstructionId"]);
         await queryInterface.addIndex(TracingTableName, ["tracingStructureId"]);
 
         await queryInterface.createTable(
@@ -116,52 +159,10 @@ export = {
         await queryInterface.addIndex(TracingNodeTableName, ["tracingId"]);
         await queryInterface.addIndex(TracingNodeTableName, ["brainStructureId"]);
         await queryInterface.addIndex(TracingNodeTableName, ["structureIdentifierId"]);
-
-        await queryInterface.createTable(AnnotationTableName,
-            {
-                id: {
-                    primaryKey: true,
-                    type: Sequelize.UUID,
-                    defaultValue: Sequelize.UUIDV4
-                },
-                status: Sequelize.INTEGER,
-                notes: Sequelize.TEXT,
-                durationHours: Sequelize.DOUBLE,
-                lengthMillimeters: Sequelize.DOUBLE,
-                neuronId: {
-                    type: Sequelize.UUID,
-                    references: {
-                        model: NeuronTableName,
-                        key: "id"
-                    }
-                },
-                annotatorId: {
-                    type: Sequelize.UUID,
-                    references: {
-                        model: UserTableName,
-                        key: "id"
-                    }
-                },
-                proofreaderId: {
-                    type: Sequelize.UUID,
-                    references: {
-                        model: UserTableName,
-                        key: "id"
-                    }
-                },
-                startedAt: Sequelize.DATE,
-                completedAt: Sequelize.DATE,
-                createdAt: Sequelize.DATE,
-                updatedAt: Sequelize.DATE,
-                deletedAt: Sequelize.DATE
-            }
-        );
-
-        await queryInterface.addIndex(AnnotationTableName, ["status"]);
     },
 
     down: async (queryInterface: QueryInterface, _: any) => {
-        await queryInterface.dropTable(AnnotationTableName);
+        await queryInterface.dropTable(ReconstructionTableName);
         await queryInterface.dropTable(TracingNodeTableName);
         await queryInterface.dropTable(TracingTableName);
     }

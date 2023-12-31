@@ -3,8 +3,7 @@ import {BelongsToGetAssociationMixin, DataTypes, HasManyGetAssociationsMixin, Op
 import {BaseModel, DeleteOutput} from "./baseModel";
 import {TracingStructure} from "./tracingStructure";
 import {TracingNode, TracingNodeMutationData} from "./tracingNode";
-import {Neuron} from "./neuron";
-import {IErrorOutput, ITracingPage, ITracingPageInput, IUpdateTracingOutput, IUploadOutput} from "../graphql/serverResolvers";
+import {IUpdateTracingOutput, IUploadOutput} from "../graphql/serverResolvers";
 import {swcParse} from "../util/SwcParser";
 import {StructureIdentifier, StructureIdentifiers} from "./structureIdentifier";
 import * as fs from "fs";
@@ -12,9 +11,7 @@ import {ServiceOptions} from "../options/serviceOptions";
 import {performNodeMap} from "../transform/tracingTransformWorker";
 import {SearchContent} from "./searchContent";
 import {addTracingToMiddlewareCache} from "../rawquery/tracingQueryMiddleware";
-import {User} from "./user";
-import {Annotation} from "./annotation";
-import {AnnotationStatus} from "./annotationStatus";
+import {Reconstruction} from "./reconstruction";
 
 const debug = require("debug")("mnb:sample-api:tracing");
 
@@ -41,62 +38,14 @@ export class Tracing extends BaseModel {
     public branchCount?: number;
     public endCount?: number;
     public somaNodeId: string;
-    public neuronId: string;
+    public reconstructionId: string;
     public tracingStructureId?: string;
 
     public getTracingStructure!: BelongsToGetAssociationMixin<TracingStructure>;
-    public getNeuron!: BelongsToGetAssociationMixin<Neuron>;
+    public getReconstruction!: BelongsToGetAssociationMixin<Reconstruction>;
     public getNodes!: HasManyGetAssociationsMixin<TracingNode>;
 
     public Nodes?: TracingNode[];
-
-    public static async getTracings(queryInput: ITracingPageInput): Promise<ITracingPage> {
-        let out: ITracingPage = {
-            offset: 0,
-            limit: 0,
-            totalCount: 0,
-            matchCount: 0,
-            tracings: []
-        };
-
-        let options = {where: {}};
-
-        out.totalCount = await Tracing.count(options);
-
-        if (queryInput) {
-            if (queryInput.tracingStructureId) {
-                options.where["tracingStructureId"] = queryInput.tracingStructureId;
-            }
-
-            if (queryInput.neuronIds && queryInput.neuronIds.length > 0) {
-                options.where["neuronId"] = {[Op.in]: queryInput.neuronIds}
-            }
-
-            out.matchCount = await Tracing.count(options);
-
-            options["order"] = [["createdAt", "DESC"]];
-
-            if (queryInput.offset) {
-                options["offset"] = queryInput.offset;
-                out.offset = queryInput.offset;
-            }
-
-            if (queryInput.limit) {
-                options["limit"] = queryInput.limit;
-                out.limit = queryInput.limit;
-            }
-        } else {
-            out.matchCount = out.totalCount;
-        }
-
-        if (out.limit === 1) {
-            out.tracings = [await Tracing.findOne(options)];
-        } else {
-            out.tracings = await Tracing.findAll(options);
-        }
-
-        return out;
-    }
 
     public static async findOneForTransform(id: string): Promise<Tracing> {
         return Tracing.findByPk(id, {
@@ -112,33 +61,36 @@ export class Tracing extends BaseModel {
         });
     }
 
-    public static async getForNeuron(neuronId: string): Promise<Tracing[]> {
-        if (!neuronId || neuronId.length === 0) {
+    public static async getForReconstruction(reconstructionId: string): Promise<Tracing[]> {
+        if (!reconstructionId || reconstructionId.length === 0) {
             return [];
         }
 
         let options = {where: {}};
 
-        options.where["neuronId"] = {[Op.eq]: neuronId}
+        options.where["reconstructionId"] = {[Op.eq]: reconstructionId}
 
         return Tracing.findAll(options);
     }
 
-    /**
-     * Count the number of tracings for a given neuron.
-     *
-     * @param neuronId
-     *
-     * @return the number of tracings
-     */
-    public static async getCountForNeuron(neuronId: string): Promise<number> {
+    public static async getForNeuron(neuronId: string):  Promise<Tracing[]> {
         if (!neuronId || neuronId.length === 0) {
+            return [];
+        }
+
+        const reconstructionIds = (await Reconstruction.getForNeuron(neuronId)).map(r => r.id);
+
+        return Tracing.findAll({where: {reconstructionId: {[Op.in]: reconstructionIds}}});
+    }
+
+    public static async getCountForReconstruction(reconstructionId: string): Promise<number> {
+        if (!reconstructionId || reconstructionId.length === 0) {
             return 0;
         }
 
         let options = {where: {}};
 
-        options.where["neuronId"] = {[Op.eq]: neuronId}
+        options.where["reconstructionId"] = {[Op.eq]: reconstructionId}
 
         return Tracing.count(options);
     }
@@ -195,17 +147,19 @@ export class Tracing extends BaseModel {
             return {id, error: err.message};
         }
 
-        const count = await Tracing.getCountForNeuron(tracing.neuronId);
+        const count = await Tracing.getCountForReconstruction(tracing.reconstructionId);
 
         if (removeAnnotations && count == 0) {
-            // If this is the last tracing associated with a neuron remove any annotations to reset the status.
-            await Annotation.removeForNeuron(tracing.neuronId);
+            // If this is the last tracing associated with a reconstruction, remove to reset the status.
+            await Reconstruction.remove(tracing.reconstructionId);
         }
 
         if (count == 1) {
-            // Was complete, one has been removed, mark as approved again so a replacement could be uploaded.
-            await Annotation.reopenAnnotation(tracing.neuronId);
+            // Was complete, one tracing has been removed, mark as approved again so a replacement could be uploaded.
+            await Reconstruction.reopenAnnotationAsApproved(tracing.reconstructionId);
         }
+
+        // TODO Remove from raw tracing cache
 
         return {id, error: null};
     }
@@ -258,29 +212,31 @@ export class Tracing extends BaseModel {
                 };
             }
 
-            // Only allow one axon/dendrite per neuron.
+            // Reconstruction for this user and neuron
+            const reconstruction = await Reconstruction.findOne({
+                where: {annotatorId: userId, neuronId: neuronId}
+            });
+
+            // Only allow one axon/dendrite per reconstruction.
             const existing = await Tracing.findOne({
                 where: {
-                    neuronId: neuronId,
+                    reconstructionId: reconstruction.id,
                     tracingStructureId: tracingStructureId
                 }
             });
 
             if (existing) {
                 await Tracing.deleteTracing(existing.id, false);
-            }
-
-            const neuron = await Neuron.findByPk(neuronId);
+            };
 
             const tracingData = {
                 filename: file.filename,
                 fileComments: parseOutput.comments,
-                visibility: neuron.visibility,
                 nodeCount: parseOutput.rows.length,
                 pathCount: parseOutput.pathCount,
                 branchCount: parseOutput.branchCount,
                 endCount: parseOutput.endCount,
-                neuronId,
+                reconstructionId: reconstruction.id,
                 tracingStructureId
             };
 
@@ -325,10 +281,10 @@ export class Tracing extends BaseModel {
             }
 
             // If axon and dendrite are ready, mark as complete.
-            const count = await Tracing.getCountForNeuron(tracing.neuronId);
+            const count = await Tracing.getCountForReconstruction(reconstruction.id);
 
             if (count == 2) {
-                await Annotation.completeAnnotation(userId, neuronId, duration, length);
+                await Reconstruction.completeAnnotation(userId, neuronId, duration, length);
             }
 
             addTracingToMiddlewareCache(tracing);
@@ -399,6 +355,6 @@ export const modelInit = (sequelize: Sequelize) => {
 export const modelAssociate = () => {
     Tracing.hasMany(TracingNode, {foreignKey: "tracingId", as: "Nodes"});
     Tracing.belongsTo(TracingStructure, {foreignKey: "tracingStructureId"});
-    Tracing.belongsTo(Neuron, {foreignKey: "neuronId"});
+    Tracing.belongsTo(Reconstruction, {foreignKey: "reconstructionId", as: "Reconstruction"});
     Tracing.belongsTo(TracingNode, {foreignKey: "somaNodeId", as: "Soma"});
 };

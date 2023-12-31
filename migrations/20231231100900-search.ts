@@ -1,14 +1,6 @@
 import {QueryInterface} from "sequelize";
 
-const BrainStructureTableName = "BrainStructure";
-const NeuronTableName = "Neuron";
-
-const TracingStructureTableName = "TracingStructure";
-const TracingTableName = "Tracing";
-
-const SearchContentTable = "SearchContent";
-
-const SynchronizationMarkerTableName = "SynchronizationMarker";
+import {BrainStructureTableName, NeuronTableName, SearchContentTable, SynchronizationMarkerTableName, TracingStructureTableName, TracingTableName} from "../src/models/TableNames";
 
 export = {
     up: async (queryInterface: QueryInterface, Sequelize: any) => {
