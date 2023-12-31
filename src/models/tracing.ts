@@ -215,9 +215,11 @@ export class Tracing extends BaseModel {
      * @param userId
      * @param neuronId
      * @param tracingStructureId
+     * @param duration
+     * @param length
      * @param uploadFile
      */
-    public static async createApprovedTracing(userId: string, neuronId: string, tracingStructureId: string, uploadFile: Promise<any>): Promise<IUploadOutput> {
+    public static async createApprovedTracing(userId: string, neuronId: string, tracingStructureId: string, duration: number, length: number, uploadFile: Promise<any>): Promise<IUploadOutput> {
         if (!uploadFile) {
             return {
                 tracing: null,
@@ -326,7 +328,7 @@ export class Tracing extends BaseModel {
             const count = await Tracing.getCountForNeuron(tracing.neuronId);
 
             if (count == 2) {
-                await Annotation.completeAnnotation(userId, neuronId);
+                await Annotation.completeAnnotation(userId, neuronId, duration, length);
             }
 
             addTracingToMiddlewareCache(tracing);

@@ -92,6 +92,8 @@ interface IAnnotationUploadArguments {
 interface ITracingUploadArguments {
     neuronId: string;
     structureId: string;
+    duration: number;
+    length: number;
     file: Promise<IUploadFile>;
 }
 
@@ -378,7 +380,7 @@ export const resolvers = {
         },
 
         async uploadSwc(_, args: ITracingUploadArguments, context: User): Promise<IUploadOutput> {
-            const output = await Tracing.createApprovedTracing(context.id, args.neuronId, args.structureId, args.file);
+            const output = await Tracing.createApprovedTracing(context.id, args.neuronId, args.structureId, args.duration, args.length, args.file);
 
             return output;
         },
@@ -421,11 +423,11 @@ export const resolvers = {
         },
         async approveAnnotation(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
             // TODO verify permissions on User
-            return Annotation.approveAnnotation(args.id);
+            return Annotation.approveAnnotation(args.id, context.id);
         },
         async declineAnnotation(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
             // TODO verify permissions on User
-            return Annotation.declineAnnotation(args.id);
+            return Annotation.declineAnnotation(args.id, context.id);
         },
         async cancelAnnotation(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
             return Annotation.cancelAnnotation(args.id);
@@ -521,6 +523,9 @@ export const resolvers = {
     Annotation: {
         annotator(annotation: Annotation): Promise<User> {
             return annotation.getAnnotator();
+        },
+        proofreader(annotation: Annotation): Promise<User> {
+            return annotation.getProofreader();
         },
         neuron(annotation: Annotation): Promise<Neuron> {
             return annotation.getNeuron();

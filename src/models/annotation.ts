@@ -8,13 +8,16 @@ import {IErrorOutput} from "../graphql/serverResolvers";
 export class Annotation extends BaseModel {
     status: AnnotationStatus;
     notes: string;
-    durationMinutes: number;
+    durationHours: number;
+    lengthMillimeters: number;
     annotatorId: string;
+    proofreaderId: string;
     tracingId: string;
     startedAt: Date;
     completedAt: Date;
 
     public getAnnotator!: BelongsToGetAssociationMixin<User>;
+    public getProofreader!: BelongsToGetAssociationMixin<User>;
     public getNeuron!: BelongsToGetAssociationMixin<Neuron>;
 
     public static async getAnnotationsForUser(userId: string): Promise<Annotation[]> {
@@ -59,7 +62,7 @@ export class Annotation extends BaseModel {
         return null;
     }
 
-    public static async approveAnnotation(id: string): Promise<IErrorOutput> {
+    public static async approveAnnotation(id: string, proofreaderId: string): Promise<IErrorOutput> {
         const annotation = await Annotation.findByPk(id);
 
         if (!annotation) {
@@ -69,12 +72,12 @@ export class Annotation extends BaseModel {
             }
         }
 
-        await annotation.update({status: AnnotationStatus.Approved});
+        await annotation.update({status: AnnotationStatus.Approved, proofreaderId: proofreaderId});
 
         return null;
     }
 
-    public static async declineAnnotation(id: string): Promise<IErrorOutput> {
+    public static async declineAnnotation(id: string, proofreaderId: string): Promise<IErrorOutput> {
         const annotation = await Annotation.findByPk(id);
 
         if (!annotation) {
@@ -84,12 +87,12 @@ export class Annotation extends BaseModel {
             }
         }
 
-        await annotation.update({status: AnnotationStatus.Rejected});
+        await annotation.update({status: AnnotationStatus.Rejected, proofreaderId: proofreaderId});
 
         return null;
     }
 
-    public static async completeAnnotation(annotatorId: string, neuronId: string): Promise<boolean> {
+    public static async completeAnnotation(annotatorId: string, neuronId: string, duration: number, length: number): Promise<boolean> {
         const annotation = await Annotation.findOne({
             where: {annotatorId: annotatorId, neuronId: neuronId}
         });
@@ -98,7 +101,11 @@ export class Annotation extends BaseModel {
             return false;
         }
 
-        await annotation.update({status: AnnotationStatus.Complete});
+        await annotation.update({
+            status: AnnotationStatus.Complete,
+            durationHours: duration,
+            lengthMillimeters: length,
+            completedAt: Date.now()});
 
         return true;
     }
@@ -148,7 +155,8 @@ export const modelInit = (sequelize: Sequelize) => {
         },
         status: DataTypes.INTEGER,
         notes: DataTypes.TEXT,
-        durationMinutes: DataTypes.INTEGER,
+        durationHours: DataTypes.DOUBLE,
+        lengthMillimeters: DataTypes.DOUBLE,
         startedAt: DataTypes.DATE,
         completedAt: DataTypes.DATE,
     }, {
@@ -161,5 +169,6 @@ export const modelInit = (sequelize: Sequelize) => {
 
 export const modelAssociate = () => {
     Annotation.belongsTo(User, {foreignKey: "annotatorId", as: "Annotator"});
+    Annotation.belongsTo(User, {foreignKey: "proofreaderId", as: "Proofreader"});
     Annotation.belongsTo(Neuron, {foreignKey: "neuronId", as: "Neuron"});
 };

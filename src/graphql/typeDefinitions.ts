@@ -144,7 +144,6 @@ let typeDefinitions = gql`
         id: String!
         filename: String
         fileComments: String
-        annotator: String
         nodeCount: Int
         pathCount: Int
         branchCount: Int
@@ -192,9 +191,11 @@ let typeDefinitions = gql`
         id: String!
         status: Int
         notes: String
-        durationMinutes: Int
+        durationHours: Float
+        lengthMillimeters: Float
         annotatorId: String
         annotator: User
+        proofreader: User
         neuron: Neuron
         startedAt: Date
         completedAt: Date
@@ -607,7 +608,8 @@ let typeDefinitions = gql`
 
         uploadAnnotationMetadata(neuronId: String, file: Upload): UploadAnnotationMetadataOutput!
 
-        uploadSwc(neuronId: String, structureId: String, file: Upload): TracingUploadOutput!
+        uploadSwc(neuronId: String, structureId: String, duration: Float, length: Float, file: Upload): TracingUploadOutput!
+        
         updateTracing(tracing: TracingInput): UpdateTracingOutput!
         deleteTracing(id: String!): DeleteOutput!
 

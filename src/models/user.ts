@@ -62,4 +62,5 @@ export const modelInit = (sequelize: Sequelize) => {
 
 export const modelAssociate = () => {
     User.hasMany(Annotation, {foreignKey: "annotatorId", as: "Annotations"});
+    User.hasMany(Annotation, {foreignKey: "proofreaderId", as: "Approvals"});
 };

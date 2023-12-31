@@ -19,6 +19,13 @@ export function synchronizationManagerStart(){
 
     proc.on("exit", code => {
         debugWorker(`synchronization worker exit: ${code}`);
+
+        if (code != 0) {
+            setTimeout(() => {
+                debugWorker(`restarting synchronization worker`);
+                synchronizationManagerStart();
+            }, 5000);
+        }
     });
 
     proc.on("message", (data: any)=> {
