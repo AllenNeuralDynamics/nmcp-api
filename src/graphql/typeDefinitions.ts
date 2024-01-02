@@ -607,9 +607,8 @@ let typeDefinitions = gql`
 
         uploadAnnotationMetadata(neuronId: String, file: Upload): UploadAnnotationMetadataOutput!
 
-        uploadSwc(neuronId: String, structureId: String, duration: Float, length: Float, file: Upload): TracingUploadOutput!
+        uploadSwc(neuronId: String, structureId: String, file: Upload): TracingUploadOutput!
         
-        updateTracing(tracing: TracingInput): UpdateTracingOutput!
         deleteTracing(id: String!): DeleteOutput!
 
         applyTransform(id: String!): TransformResult
@@ -620,6 +619,7 @@ let typeDefinitions = gql`
         approveReconstruction(id: String!): Error
         declineReconstruction(id: String!): Error
         cancelReconstruction(id: String!): Error
+        completeReconstruction(id: String!, duration: Float!, length: Float!, notes: String!, checks: String!): Error
     }
 
     schema {

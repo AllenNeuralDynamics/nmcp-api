@@ -92,9 +92,15 @@ interface IAnnotationUploadArguments {
 interface ITracingUploadArguments {
     neuronId: string;
     structureId: string;
+    file: Promise<IUploadFile>;
+}
+
+interface IMarkReconstructionCompleteArguments {
+    id: string;
     duration: number;
     length: number;
-    file: Promise<IUploadFile>;
+    notes: string;
+    checks: string;
 }
 
 export interface IReconstructionPageInput {
@@ -115,15 +121,6 @@ export interface IReconstructionPage {
 }
 
 export interface IUploadOutput {
-    tracing: Tracing;
-    error: Error;
-}
-
-interface IUpdateTracingArguments {
-    tracing: ITracingInput;
-}
-
-export interface IUpdateTracingOutput {
     tracing: Tracing;
     error: Error;
 }
@@ -378,12 +375,9 @@ export const resolvers = {
         },
 
         async uploadSwc(_, args: ITracingUploadArguments, context: User): Promise<IUploadOutput> {
-            const output = await Tracing.createApprovedTracing(context.id, args.neuronId, args.structureId, args.duration, args.length, args.file);
+            const output = await Tracing.createApprovedTracing(context.id, args.neuronId, args.structureId, args.file);
 
             return output;
-        },
-        updateTracing(_, args: IUpdateTracingArguments, context: User): Promise<IUpdateTracingOutput> {
-            return Tracing.updateTracing(args.tracing);
         },
         deleteTracing(_, args: IIdOnlyArguments, context: User): Promise<DeleteOutput> {
             return Tracing.deleteTracing(args.id);
@@ -429,6 +423,10 @@ export const resolvers = {
         },
         async cancelReconstruction(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
             return Reconstruction.cancelAnnotation(args.id);
+        },
+        async completeReconstruction(_, args: IMarkReconstructionCompleteArguments, context: User): Promise<IErrorOutput> {
+            // TODO verify User matches annotator or that User permissions are high e.g., admin
+            return Reconstruction.completeAnnotation(args.id, args.duration, args.length, args.notes, args.checks);
         }
     },
     BrainArea: {

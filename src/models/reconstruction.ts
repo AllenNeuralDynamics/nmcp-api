@@ -108,7 +108,7 @@ export class Reconstruction extends BaseModel {
 
         if (!annotation) {
             return {
-                message: "The annotation could not be found",
+                message: "The reconstruction could not be found",
                 name: "NotFound"
             }
         }
@@ -123,7 +123,7 @@ export class Reconstruction extends BaseModel {
 
         if (!annotation) {
             return {
-                message: "The annotation could not be found",
+                message: "The reconstruction could not be found",
                 name: "NotFound"
             }
         }
@@ -138,7 +138,7 @@ export class Reconstruction extends BaseModel {
 
         if (!annotation) {
             return {
-                message: "The annotation could not be found",
+                message: "The reconstruction could not be found",
                 name: "NotFound"
             }
         }
@@ -153,7 +153,7 @@ export class Reconstruction extends BaseModel {
 
         if (!annotation) {
             return {
-                message: "The annotation could not be found",
+                message: "The reconstruction could not be found",
                 name: "NotFound"
             }
         }
@@ -163,23 +163,26 @@ export class Reconstruction extends BaseModel {
         return null;
     }
 
-    public static async completeAnnotation(annotatorId: string, neuronId: string, duration: number, length: number): Promise<boolean> {
-        const annotation = await Reconstruction.findOne({
-            where: {annotatorId: annotatorId, neuronId: neuronId}
-        });
+    public static async completeAnnotation(id: string, duration: number, length: number, notes: string, checks: string): Promise<IErrorOutput> {
+        const reconstruction = await Reconstruction.findByPk(id);
 
-        if (!annotation) {
-            return false;
+        if (!reconstruction) {
+            return {
+                message: "The reconstruction could not be found",
+                name: "NotFound"
+            }
         }
 
-        await annotation.update({
+        await reconstruction.update({
             status: ReconstructionStatus.Complete,
             durationHours: duration,
             lengthMillimeters: length,
+            notes: notes,
+            checks: checks,
             completedAt: Date.now()
         });
 
-        return true;
+        return null;
     }
 
     public static async reopenAnnotationAsApproved(id: string): Promise<void> {
@@ -193,7 +196,7 @@ export class Reconstruction extends BaseModel {
 
         if (!annotation) {
             return {
-                message: "The annotation could not be found",
+                message: "The reconstruction could not be found",
                 name: "NotFound"
             }
         }

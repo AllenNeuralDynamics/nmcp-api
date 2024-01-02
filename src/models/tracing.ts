@@ -3,7 +3,7 @@ import {BelongsToGetAssociationMixin, DataTypes, HasManyGetAssociationsMixin, Op
 import {BaseModel, DeleteOutput} from "./baseModel";
 import {TracingStructure} from "./tracingStructure";
 import {TracingNode, TracingNodeMutationData} from "./tracingNode";
-import {IUpdateTracingOutput, IUploadOutput} from "../graphql/serverResolvers";
+import {IUploadOutput} from "../graphql/serverResolvers";
 import {swcParse} from "../util/SwcParser";
 import {StructureIdentifier, StructureIdentifiers} from "./structureIdentifier";
 import * as fs from "fs";
@@ -103,27 +103,6 @@ export class Tracing extends BaseModel {
         return Tracing.findAll(options);
     }
 
-    public static async updateTracing(tracingInput: ITracingInput): Promise<IUpdateTracingOutput> {
-        try {
-            let tracing = await Tracing.findByPk(tracingInput.id);
-
-            if (!tracing) {
-                return {
-                    tracing: null,
-                    error: {name: "UpdateTracingError", message: "The tracing could not be found"}
-                };
-            }
-
-            await tracing.update(tracingInput);
-
-            const updatedTracing = await Tracing.findByPk(tracingInput.id);
-
-            return {tracing: updatedTracing, error: null};
-        } catch (error) {
-            return {tracing: null, error}
-        }
-    }
-
     public static async deleteTracing(id: string, removeAnnotations: boolean = true): Promise<DeleteOutput> {
         let tracing = await Tracing.findByPk(id);
 
@@ -173,7 +152,7 @@ export class Tracing extends BaseModel {
      * @param length
      * @param uploadFile
      */
-    public static async createApprovedTracing(userId: string, neuronId: string, tracingStructureId: string, duration: number, length: number, uploadFile: Promise<any>): Promise<IUploadOutput> {
+    public static async createApprovedTracing(userId: string, neuronId: string, tracingStructureId: string, uploadFile: Promise<any>): Promise<IUploadOutput> {
         if (!uploadFile) {
             return {
                 tracing: null,
@@ -279,13 +258,6 @@ export class Tracing extends BaseModel {
 
             if (soma) {
                 await tracing.update({somaNodeId: soma.id});
-            }
-
-            // If axon and dendrite are ready, mark as complete.
-            const count = await Tracing.getCountForReconstruction(reconstruction.id);
-
-            if (count == 2) {
-                await Reconstruction.completeAnnotation(userId, neuronId, duration, length);
             }
 
             addTracingToMiddlewareCache(tracing);
