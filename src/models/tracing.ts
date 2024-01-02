@@ -186,23 +186,23 @@ export class Tracing extends BaseModel {
         let tracing: Tracing = null;
 
         try {
-            const parseOutput = await swcParse(file.createReadStream());
+            const swcData = await swcParse(file.createReadStream());
 
-            if (parseOutput.rows.length === 0) {
+            if (swcData.sampleCount === 0) {
                 return {
                     tracing: null,
                     error: {name: "UploadSwcError", message: "Could not find any identifiable node rows"}
                 };
             }
 
-            if (parseOutput.somaCount === 0) {
+            if (swcData.somaCount === 0) {
                 return {
                     tracing: null,
                     error: {name: "UploadSwcError", message: "There are no soma/root/un-parented nodes in the tracing"}
                 };
             }
 
-            if (parseOutput.somaCount > 1) {
+            if (swcData.somaCount > 1) {
                 return {
                     tracing: null,
                     error: {
@@ -231,26 +231,27 @@ export class Tracing extends BaseModel {
 
             const tracingData = {
                 filename: file.filename,
-                fileComments: parseOutput.comments,
-                nodeCount: parseOutput.rows.length,
-                pathCount: parseOutput.pathCount,
-                branchCount: parseOutput.branchCount,
-                endCount: parseOutput.endCount,
+                fileComments: swcData.comments,
+                nodeCount: swcData.sampleCount,
+                pathCount: swcData.pathCount,
+                branchCount: swcData.branchCount,
+                endCount: swcData.endCount,
                 reconstructionId: reconstruction.id,
                 tracingStructureId
             };
 
-            let nodeData: TracingNodeMutationData[] = parseOutput.rows.map(row => {
+            let nodeData: TracingNodeMutationData[] = swcData.getSamples().map(sample => {
                 return {
                     tracingId: null,
-                    sampleNumber: row.sampleNumber,
-                    parentNumber: row.parentNumber,
-                    structureIdentifierId: StructureIdentifier.idForValue(row.structure),
-                    x: row.x,
-                    y: row.y,
-                    z: row.z,
-                    radius: row.radius,
-                    lengthToParent: 0
+                    sampleNumber: sample.sampleNumber,
+                    parentNumber: sample.parentNumber,
+                    structureIdentifierId: StructureIdentifier.idForValue(sample.structure),
+                    x: sample.x,
+                    y: sample.y,
+                    z: sample.z,
+                    radius: sample.radius,
+                    lengthToParent: sample.lengthToParent,
+                    brainStructureId: null
                 }
             });
 
