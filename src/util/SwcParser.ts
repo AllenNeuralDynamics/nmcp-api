@@ -97,11 +97,12 @@ export class SwcData {
                 if (this.samples.has(s.parentNumber)) {
                     const parent = this.samples.get(s.parentNumber);
 
+                    // Length to parent in millimeters
                     s.lengthToParent = Math.sqrt(
                         Math.pow(s.x - parent.x, 2) +
                         Math.pow(s.y - parent.y, 2) +
                         Math.pow(s.z - parent.z, 2)
-                    )
+                    ) / 1000;
                 }
             }
 
