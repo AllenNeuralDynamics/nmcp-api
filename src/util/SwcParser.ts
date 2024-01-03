@@ -14,6 +14,10 @@ export interface ISwcSample {
 }
 
 export class SwcData {
+    public offsetX: number;
+    public offsetY: number;
+    public offsetZ: number;
+
     private somas: number;
     private paths;
     private branches;
@@ -32,6 +36,10 @@ export class SwcData {
 
         this.samples = new Map<number, ISwcSample>();
         this.sampleChildCount = new Map<number, number>();
+
+        this.offsetX = 0;
+        this.offsetY = 0;
+        this.offsetZ = 0;
     }
 
     public get sampleCount(): number {
@@ -155,6 +163,23 @@ function oneSwcLine(line: string, swcData: SwcData) {
 
     if (lineContent[0] === "#") {
         swcData.addComment(lineContent + "\n");
+
+        if (lineContent.startsWith("# OFFSET")) {
+            const sub = lineContent.substring(9);
+            const points = sub.split(/\s/);
+            if (points.length === 3) {
+                const x = parseFloat(points[0]);
+                const y = parseFloat(points[1]);
+                const z = parseFloat(points[2]);
+
+                if (!Number.isNaN(x) && !Number.isNaN(y) && !Number.isNaN(z)) {
+                    swcData.offsetX = x;
+                    swcData.offsetY = y;
+                    swcData.offsetZ = z;
+                }
+            }
+        }
+
         return;
     }
 
@@ -184,9 +209,9 @@ function oneSwcLine(line: string, swcData: SwcData) {
         sampleNumber: sampleNumber,
         parentNumber: parentNumber,
         structure: structure,
-        x: parseFloat(data[2]),
-        y: parseFloat(data[3]),
-        z: parseFloat(data[4]),
+        x: swcData.offsetX + parseFloat(data[2]),
+        y: swcData.offsetY + parseFloat(data[3]),
+        z: swcData.offsetZ + parseFloat(data[4]),
         radius: parseFloat(data[5]),
         lengthToParent: 0
     });
