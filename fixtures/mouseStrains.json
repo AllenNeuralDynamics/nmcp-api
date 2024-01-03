@@ -1,7 +1,14 @@
 [
   {
     "id": "e3fda807-f57c-4b14-b4fd-0accfd668017",
-    "name": "C57BL/6J",
+    "name": "Slc17a6-IRES-Cre/wt",
+    "createdAt": "2017-05-22 19:17:12.677000 +00:00",
+    "updatedAt": "2017-05-22 19:17:12.677000 +00:00",
+    "deletedAt": null
+  },
+  {
+    "id": "f3fda807-f57c-4b14-b4fd-0accfd668017",
+    "name": "Dbh-Cre-KI/wt; Ai166(TIT2L-MORF-ICL-tTA2)/wt",
     "createdAt": "2017-05-22 19:17:12.677000 +00:00",
     "updatedAt": "2017-05-22 19:17:12.677000 +00:00",
     "deletedAt": null
