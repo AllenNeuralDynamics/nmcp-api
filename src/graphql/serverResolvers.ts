@@ -116,7 +116,6 @@ export interface IReconstructionPage {
     offset: number;
     limit: number;
     totalCount: number;
-    matchCount: number;
     reconstructions: Reconstruction[];
 }
 

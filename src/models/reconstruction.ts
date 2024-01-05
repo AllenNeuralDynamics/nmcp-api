@@ -29,7 +29,6 @@ export class Reconstruction extends BaseModel {
             offset: 0,
             limit: 0,
             totalCount: 0,
-            matchCount: 0,
             reconstructions: []
         };
 
@@ -38,8 +37,6 @@ export class Reconstruction extends BaseModel {
         out.totalCount = await Reconstruction.count(options);
 
         if (queryInput) {
-            out.matchCount = await Reconstruction.count(options);
-
             options["order"] = [["startedAt", "DESC"]];
 
             if (queryInput.offset) {
@@ -51,8 +48,6 @@ export class Reconstruction extends BaseModel {
                 options["limit"] = queryInput.limit;
                 out.limit = queryInput.limit;
             }
-        } else {
-            out.matchCount = out.totalCount;
         }
 
         if (out.limit === 1) {

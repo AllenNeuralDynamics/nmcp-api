@@ -188,7 +188,9 @@ let typeDefinitions = gql`
         lengthMillimeters: Float
         annotatorId: String
         annotator: User
+        proofreaderId: String
         proofreader: User
+        neuronId: String
         neuron: Neuron
         tracings: [Tracing!]
         axon: Tracing
@@ -201,7 +203,6 @@ let typeDefinitions = gql`
         offset: Int
         limit: Int
         totalCount: Int
-        matchCount: Int
         reconstructions: [Reconstruction!]!
     }
 
@@ -493,7 +494,7 @@ let typeDefinitions = gql`
         tracingStructureId: String
     }
     
-    input ReconstructionPageInput {
+    input PageInput {
         offset: Int
         limit: Int
     }
@@ -568,7 +569,7 @@ let typeDefinitions = gql`
         tomographyMetadata: [TomographyMetadata!]
 
 
-        reconstructions(pageInput: ReconstructionPageInput): ReconstructionPage!
+        reconstructions(pageInput: PageInput): ReconstructionPage!
         reconstructionsForUser: [Reconstruction!]!
         candidatesForUser: [Neuron!]!
         reviewableReconstructions: [Reconstruction!]!
