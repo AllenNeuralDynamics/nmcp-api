@@ -491,6 +491,16 @@ export const resolvers = {
         },
         reconstructions(neuron: Neuron): Promise<Reconstruction[]> {
             return neuron.getReconstructions();
+        },
+        async tracings(neuron: Neuron): Promise<Tracing[]> {
+            const reconstructions = await neuron.getReconstructions();
+
+            if (reconstructions.length == 0) {
+                return [];
+            }
+
+            // TODO first complete reconstruction not simply the first one.
+            return [await reconstructions[0].getAxon(), await reconstructions[0].getDendrite()];
         }
     },
     Tracing: {

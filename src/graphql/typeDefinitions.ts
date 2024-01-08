@@ -112,6 +112,7 @@ let typeDefinitions = gql`
         brainArea: BrainArea
         sample: Sample
         reconstructions: [Reconstruction]
+        tracings: [Tracing]
         createdAt: Date
         updatedAt: Date
     }
