@@ -11,6 +11,7 @@ export interface IServiceOptions {
     graphQLEndpoint: string;
     fixturePath: string;
     requireAuthentication: boolean;
+    serverAuthenticationKey: string;
     seedUserItems: boolean;
     ccfv30OntologyPath: string;
     tracingLoadMaxDelay: number;
@@ -24,6 +25,7 @@ const configuration: IServiceOptions = {
     graphQLEndpoint: "/graphql",
     fixturePath: "fixtures",
     requireAuthentication: true,
+    serverAuthenticationKey: null,
     seedUserItems: false,
     ccfv30OntologyPath: "ccfv30_raw.nrrd",
     tracingLoadMaxDelay: 10,
@@ -52,6 +54,8 @@ function loadConfiguration() {
     c.release = process.env.SEARCH_API_RELEASE_LEVEL ? ReleaseLevel[process.env.SEARCH_API_RELEASE_LEVEL] : c.release;
     c.release = c.release === undefined ? ReleaseLevel.Public : c.release;
     c.version = readSystemVersion();
+
+    c.serverAuthenticationKey = process.env.SERVER_AUTHENTICATION_KEY || null;
 
     return c;
 }

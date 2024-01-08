@@ -61,6 +61,11 @@ async function start() {
                 let user = null;
 
                 if (requireAuthentication) {
+                    if (ServiceOptions.serverAuthenticationKey != null && token == ServiceOptions.serverAuthenticationKey)
+                    {
+                        return user;
+                    }
+
                     const [scopes, tokenUser] = await validateToken(token);
 
                     if (scopes == null) {
