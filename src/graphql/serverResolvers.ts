@@ -120,7 +120,7 @@ export interface IReconstructionPage {
 }
 
 export interface IUploadOutput {
-    tracing: Tracing;
+    tracings: Tracing[];
     error: Error;
 }
 

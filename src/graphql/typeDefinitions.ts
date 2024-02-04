@@ -299,7 +299,7 @@ let typeDefinitions = gql`
     }
 
     type TracingUploadOutput {
-        tracing: Tracing
+        tracings: [Tracing]
         error: Error
     }
     type UpdateTracingOutput {

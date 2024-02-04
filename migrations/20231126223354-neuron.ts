@@ -9,7 +9,7 @@ import {
     NeuronTableName,
     SampleTableName,
     StructureIdentifierTableName, TracingStructureTableName, UserTableName
-} from "../src/models/TableNames";
+} from "./src/TableNames";
 
 export = {
     up: async (queryInterface: QueryInterface, Sequelize: any) => {

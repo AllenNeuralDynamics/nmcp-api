@@ -1,10 +1,10 @@
 import {BelongsToGetAssociationMixin, DataTypes, HasManyGetAssociationsMixin, Op, Sequelize} from "sequelize";
 
 import {BaseModel, DeleteOutput} from "./baseModel";
-import {TracingStructure} from "./tracingStructure";
+import {AxonStructureId, DendriteStructureId, TracingStructure} from "./tracingStructure";
 import {TracingNode, TracingNodeMutationData} from "./tracingNode";
 import {IUploadOutput} from "../graphql/serverResolvers";
-import {swcParse} from "../util/SwcParser";
+import {SwcData, swcParse} from "../util/SwcParser";
 import {StructureIdentifier, StructureIdentifiers} from "./structureIdentifier";
 import * as fs from "fs";
 import {ServiceOptions} from "../options/serviceOptions";
@@ -12,6 +12,7 @@ import {performNodeMap} from "../transform/tracingTransformWorker";
 import {SearchContent} from "./searchContent";
 import {addTracingToMiddlewareCache} from "../rawquery/tracingQueryMiddleware";
 import {Reconstruction} from "./reconstruction";
+import {jsonParse} from "../util/JsonParser";
 
 const debug = require("debug")("mnb:sample-api:tracing");
 
@@ -23,10 +24,19 @@ export interface ITracingInput {
     neuronId?: string;
 }
 
-
 export interface TransformResult {
     tracing: Tracing;
     error: string;
+}
+
+interface IUploadIntermediate {
+    tracing: Tracing;
+    error: Error;
+}
+
+interface ITracingDataInput {
+    input: SwcData;
+    tracingStructureId: string;
 }
 
 export class Tracing extends BaseModel {
@@ -73,7 +83,7 @@ export class Tracing extends BaseModel {
         return Tracing.findAll(options);
     }
 
-    public static async getForNeuron(neuronId: string):  Promise<Tracing[]> {
+    public static async getForNeuron(neuronId: string): Promise<Tracing[]> {
         if (!neuronId || neuronId.length === 0) {
             return [];
         }
@@ -152,120 +162,144 @@ export class Tracing extends BaseModel {
      * @param length
      * @param uploadFile
      */
-    public static async createApprovedTracing(userId: string, neuronId: string, tracingStructureId: string, uploadFile: Promise<any>): Promise<IUploadOutput> {
+    public static async createApprovedTracing(userId: string, neuronId: string, tStructureId: string, uploadFile: Promise<any>): Promise<IUploadOutput> {
         if (!uploadFile) {
             return {
-                tracing: null,
+                tracings: null,
                 error: {name: "UploadSwcError", message: "There are no files attached to parse"}
             };
         }
 
         let file = await uploadFile;
 
-        let tracing: Tracing = null;
+        let tracingInputs: ITracingDataInput[] = [];
 
         try {
-            const swcData = await swcParse(file.createReadStream());
+            if (file.filename.endsWith(".json")) {
+                const [axonData, dendriteData] = await jsonParse(file.createReadStream());
 
-            if (swcData.sampleCount === 0) {
-                return {
-                    tracing: null,
-                    error: {name: "UploadSwcError", message: "Could not find any identifiable node rows"}
-                };
+                tracingInputs.push({input: axonData, tracingStructureId: AxonStructureId});
+                tracingInputs.push({input: dendriteData, tracingStructureId: DendriteStructureId});
+            } else {
+                const data = await swcParse(file.createReadStream());
+                tracingInputs.push({input: data, tracingStructureId: tStructureId});
             }
 
-            if (swcData.somaCount === 0) {
-                return {
-                    tracing: null,
-                    error: {name: "UploadSwcError", message: "There are no soma/root/un-parented nodes in the tracing"}
-                };
-            }
+            const promises: Promise<IUploadIntermediate>[] = tracingInputs.map(async (input) => {
+                const swcData = input.input;
+                const tracingStructureId = input.tracingStructureId;
 
-            if (swcData.somaCount > 1) {
-                return {
-                    tracing: null,
-                    error: {
-                        name: "UploadSwcError",
-                        message: "There is more than one soma/root/un-parented nodes in the tracing"
-                    }
-                };
-            }
-
-            // Reconstruction for this user and neuron
-            const reconstruction = await Reconstruction.findOne({
-                where: {annotatorId: userId, neuronId: neuronId}
-            });
-
-            // Only allow one axon/dendrite per reconstruction.
-            const existing = await Tracing.findOne({
-                where: {
-                    reconstructionId: reconstruction.id,
-                    tracingStructureId: tracingStructureId
+                if (swcData.sampleCount === 0) {
+                    return {
+                        tracing: null,
+                        error: {name: "UploadSwcError", message: "Could not find any identifiable node rows"}
+                    };
                 }
-            });
 
-            if (existing) {
-                await Tracing.deleteTracing(existing.id, false);
-            };
-
-            const tracingData = {
-                filename: file.filename,
-                fileComments: swcData.comments,
-                nodeCount: swcData.sampleCount,
-                pathCount: swcData.pathCount,
-                branchCount: swcData.branchCount,
-                endCount: swcData.endCount,
-                reconstructionId: reconstruction.id,
-                tracingStructureId
-            };
-
-            let nodeData: TracingNodeMutationData[] = swcData.getSamples().map(sample => {
-                return {
-                    tracingId: null,
-                    sampleNumber: sample.sampleNumber,
-                    parentNumber: sample.parentNumber,
-                    structureIdentifierId: StructureIdentifier.idForValue(sample.structure),
-                    x: sample.x,
-                    y: sample.y,
-                    z: sample.z,
-                    radius: sample.radius,
-                    lengthToParent: sample.lengthToParent,
-                    brainStructureId: null
+                if (swcData.somaCount === 0) {
+                    return {
+                        tracing: null,
+                        error: {name: "UploadSwcError", message: "There are no soma/root/un-parented nodes in the tracing"}
+                    };
                 }
-            });
 
-            await Tracing.sequelize.transaction(async (t) => {
-                tracing = await Tracing.create(tracingData, {transaction: t});
+                if (swcData.somaCount > 1) {
+                    return {
+                        tracing: null,
+                        error: {
+                            name: "UploadSwcError",
+                            message: "There is more than one soma/root/un-parented nodes in the tracing"
+                        }
+                    };
+                }
 
-                nodeData = nodeData.map(node => {
-                    node.tracingId = tracing.id;
-                    return node;
+                let tracing: Tracing = null;
+
+                // Reconstruction for this user and neuron
+                const reconstruction = await Reconstruction.findOne({
+                    where: {annotatorId: userId, neuronId: neuronId}
                 });
 
-                tracing.Nodes = await TracingNode.bulkCreate(nodeData, {transaction: t});
-            });
+                // Only allow one axon/dendrite per reconstruction.
+                const existing = await Tracing.findOne({
+                    where: {
+                        reconstructionId: reconstruction.id,
+                        tracingStructureId: tracingStructureId
+                    }
+                });
 
-            debug(`inserted ${nodeData.length} nodes from ${file.filename}`);
-
-            const somaStructureIdentifier = await StructureIdentifier.findOne({where: {value: StructureIdentifiers.soma}});
-
-            const soma = await TracingNode.findOne({
-                where: {
-                    tracingId: tracing.id,
-                    structureIdentifierId: somaStructureIdentifier.id
+                if (existing) {
+                    await Tracing.deleteTracing(existing.id, false);
                 }
+
+                const tracingData = {
+                    filename: file.filename,
+                    fileComments: swcData.comments,
+                    nodeCount: swcData.sampleCount,
+                    pathCount: swcData.pathCount,
+                    branchCount: swcData.branchCount,
+                    endCount: swcData.endCount,
+                    reconstructionId: reconstruction.id,
+                    tracingStructureId
+                };
+
+                let nodeData: TracingNodeMutationData[] = swcData.getSamples().map(sample => {
+                    return {
+                        tracingId: null,
+                        sampleNumber: sample.sampleNumber,
+                        parentNumber: sample.parentNumber,
+                        structureIdentifierId: StructureIdentifier.idForValue(sample.structure),
+                        x: sample.x,
+                        y: sample.y,
+                        z: sample.z,
+                        radius: sample.radius,
+                        lengthToParent: sample.lengthToParent,
+                        brainStructureId: null
+                    }
+                });
+
+                await Tracing.sequelize.transaction(async (t) => {
+                    tracing = await Tracing.create(tracingData, {transaction: t});
+
+                    nodeData = nodeData.map(node => {
+                        node.tracingId = tracing.id;
+                        return node;
+                    });
+
+                    tracing.Nodes = await TracingNode.bulkCreate(nodeData, {transaction: t});
+                });
+
+                debug(`inserted ${nodeData.length} nodes from ${file.filename}`);
+
+                const somaStructureIdentifier = await StructureIdentifier.findOne({where: {value: StructureIdentifiers.soma}});
+
+                const soma = await TracingNode.findOne({
+                    where: {
+                        tracingId: tracing.id,
+                        structureIdentifierId: somaStructureIdentifier.id
+                    }
+                });
+
+                if (soma) {
+                    await tracing.update({somaNodeId: soma.id});
+                }
+
+                addTracingToMiddlewareCache(tracing);
+
+                return {tracing, error: null};
             });
 
-            if (soma) {
-                await tracing.update({somaNodeId: soma.id});
+            const output: IUploadIntermediate[] = await Promise.all(promises);
+
+            const errors = output.filter(o => o).map(o => o.error);
+
+            return {
+                tracings: output.map(o => o.tracing),
+                error: errors.length > 0 ? errors[0] : null
             }
-
-            addTracingToMiddlewareCache(tracing);
         } catch (error) {
-            return {tracing: null, error};
+            return {tracings: null, error};
         }
-
-        return {tracing, error: null};
     }
 
     public static async applyTransform(id: string): Promise<TransformResult> {
