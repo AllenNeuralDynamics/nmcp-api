@@ -94,21 +94,31 @@ export class Reconstruction extends BaseModel {
 
     public static async getReviewableAnnotations(): Promise<Reconstruction[]> {
         return Reconstruction.findAll({
-            where: {status: ReconstructionStatus.InReview}
+            where: {
+                [Op.or]: [
+                    {status: ReconstructionStatus.InReview},
+                    {status: ReconstructionStatus.Approved}
+                ]}
         });
     }
 
-    public static async markAnnotationForReview(id: string): Promise<IErrorOutput> {
-        const annotation = await Reconstruction.findByPk(id);
+    public static async markAnnotationForReview(id: string, duration: number, length: number, notes: string, checks: string): Promise<IErrorOutput> {
+        const reconstruction = await Reconstruction.findByPk(id);
 
-        if (!annotation) {
+        if (!reconstruction) {
             return {
                 message: "The reconstruction could not be found",
                 name: "NotFound"
             }
         }
 
-        await annotation.update({status: ReconstructionStatus.InReview});
+        await reconstruction.update({
+            status: ReconstructionStatus.InReview,
+            durationHours: duration,
+            lengthMillimeters: length,
+            notes: notes,
+            checks: checks
+        });
 
         return null;
     }
@@ -158,7 +168,7 @@ export class Reconstruction extends BaseModel {
         return null;
     }
 
-    public static async completeAnnotation(id: string, duration: number, length: number, notes: string, checks: string): Promise<IErrorOutput> {
+    public static async completeAnnotation(id: string): Promise<IErrorOutput> {
         const reconstruction = await Reconstruction.findByPk(id);
 
         if (!reconstruction) {
@@ -170,10 +180,6 @@ export class Reconstruction extends BaseModel {
 
         await reconstruction.update({
             status: ReconstructionStatus.Complete,
-            durationHours: duration,
-            lengthMillimeters: length,
-            notes: notes,
-            checks: checks,
             completedAt: Date.now()
         });
 

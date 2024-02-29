@@ -1,6 +1,7 @@
 import {BaseModel} from "./baseModel";
 import {DataTypes, HasManyGetAssociationsMixin, Sequelize} from "sequelize";
 import {Reconstruction} from "./reconstruction";
+const debug = require("debug")("mnb:sample-api:user");
 
 export class User extends BaseModel {
     public firstName: string;
@@ -20,6 +21,7 @@ export class User extends BaseModel {
         let user = await User.findByPk(userId);
 
         if (!user) {
+            debug(`user ${userId} not found`)
             user = await User.create({
                 id: userId,
                 firstName: firstName,
@@ -30,6 +32,7 @@ export class User extends BaseModel {
                 isAnonymousForCandidate: true,
                 crossAuthenticationId: null
             });
+            debug(`user ${user.id} created`)
         }
 
         return user;

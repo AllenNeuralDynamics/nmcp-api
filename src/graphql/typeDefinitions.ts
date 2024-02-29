@@ -569,10 +569,10 @@ let typeDefinitions = gql`
         """Provides all tomography metadata."""
         tomographyMetadata: [TomographyMetadata!]
 
-
         reconstructions(pageInput: PageInput): ReconstructionPage!
         reconstructionsForUser: [Reconstruction!]!
         candidatesForUser: [Neuron!]!
+        candidatesForReview: [Neuron!]!
         reviewableReconstructions: [Reconstruction!]!
 
         systemSettings(searchScope: Int): SystemSettings
@@ -616,12 +616,12 @@ let typeDefinitions = gql`
         applyTransform(id: String!): TransformResult
 
         requestReconstruction(id: String!): Tracing
-        requestReconstructionReview(id: String!): Error
+        requestReconstructionReview(id: String!, duration: Float!, length: Float!, notes: String!, checks: String!): Error
         requestReconstructionHold(id: String!): Error
         approveReconstruction(id: String!): Error
         declineReconstruction(id: String!): Error
         cancelReconstruction(id: String!): Error
-        completeReconstruction(id: String!, duration: Float!, length: Float!, notes: String!, checks: String!): Error
+        completeReconstruction(id: String!): Error
     }
 
     schema {

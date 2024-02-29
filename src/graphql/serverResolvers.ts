@@ -299,6 +299,11 @@ export const resolvers = {
             return Neuron.getCandidateNeuronsForUser(context.id);
         },
 
+        async candidatesForReview(_, __, context: User): Promise<Neuron[]> {
+            // TODO check permissions of User
+            return Neuron.getCandidateNeuronsForReview();
+        },
+
         async tomographyMetadata(_, args: any, context: User): Promise<[]> {
             try {
                 const resp = await staticApiClient.querySampleTomography();
@@ -404,9 +409,9 @@ export const resolvers = {
         async requestReconstruction(_, args: IIdOnlyArguments, context: User): Promise<Neuron> {
             return Neuron.requestAnnotation(args.id, context);
         },
-        async requestReconstructionReview(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
+        async requestReconstructionReview(_, args: IMarkReconstructionCompleteArguments, context: User): Promise<IErrorOutput> {
             // TODO verify User matches annotator or that User permissions are high e.g., admin
-            return Reconstruction.markAnnotationForReview(args.id);
+            return Reconstruction.markAnnotationForReview(args.id, args.duration, args.length, args.notes, args.checks);
         },
         async requestReconstructionHold(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
             // TODO verify User matches annotator or that User permissions are high e.g., admin
@@ -423,9 +428,9 @@ export const resolvers = {
         async cancelReconstruction(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
             return Reconstruction.cancelAnnotation(args.id);
         },
-        async completeReconstruction(_, args: IMarkReconstructionCompleteArguments, context: User): Promise<IErrorOutput> {
+        async completeReconstruction(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
             // TODO verify User matches annotator or that User permissions are high e.g., admin
-            return Reconstruction.completeAnnotation(args.id, args.duration, args.length, args.notes, args.checks);
+            return Reconstruction.completeAnnotation(args.id);
         }
     },
     BrainArea: {

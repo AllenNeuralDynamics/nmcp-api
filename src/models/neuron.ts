@@ -214,6 +214,18 @@ export class Neuron extends BaseModel {
         return await Promise.all(neuronPromises);
     }
 
+    public static async getCandidateNeuronsForReview(): Promise<Neuron[]> {
+        const annotations = await Reconstruction.findAll({
+            where: {status: ReconstructionStatus.Approved}
+        });
+
+        const neuronPromises = annotations.map(async(t) => {
+            return await t.getNeuron();
+        })
+
+        return await Promise.all(neuronPromises);
+    }
+
     public static async getCandidateNeurons(input: NeuronQueryInput): Promise<EntityQueryOutput<Neuron>> {
         const neuronIds = (await Neuron.findAll({attributes: ["id"]})).map(n => n.id);
 
