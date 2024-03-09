@@ -24,6 +24,7 @@ import {PredicateType} from "../models/queryPredicate";
 import {CcfVersion, ISearchContextInput, SearchContext} from "../models/searchContext";
 import {User} from "../models/user";
 import {Reconstruction} from "../models/reconstruction";
+import {ReconstructionStatus} from "../models/reconstructionStatus";
 
 //
 // GraphQL arguments
@@ -106,6 +107,8 @@ interface IMarkReconstructionCompleteArguments {
 export interface IReconstructionPageInput {
     offset: number;
     limit: number;
+    userOnly: boolean;
+    filters: ReconstructionStatus[];
 }
 
 interface IReconstructionArguments {
@@ -283,7 +286,11 @@ export const resolvers = {
         },
 
         async reconstructions(_, args: IReconstructionArguments, context: User): Promise<IReconstructionPage> {
-            return Reconstruction.getAll(args.pageInput);
+            if (args.pageInput.userOnly) {
+                return Reconstruction.getAll(args.pageInput, context.id);
+            } else {
+                return Reconstruction.getAll(args.pageInput);
+            }
         },
 
         async reconstructionsForUser(_, __, context: User): Promise<Reconstruction[]> {

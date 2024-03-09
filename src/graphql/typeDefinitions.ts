@@ -495,9 +495,11 @@ let typeDefinitions = gql`
         tracingStructureId: String
     }
     
-    input PageInput {
+    input ReconstructionPageInput {
         offset: Int
         limit: Int
+        userOnly: Boolean
+        filters: [Int!]
     }
 
     input InputPosition {
@@ -569,7 +571,7 @@ let typeDefinitions = gql`
         """Provides all tomography metadata."""
         tomographyMetadata: [TomographyMetadata!]
 
-        reconstructions(pageInput: PageInput): ReconstructionPage!
+        reconstructions(pageInput: ReconstructionPageInput): ReconstructionPage!
         reconstructionsForUser: [Reconstruction!]!
         candidatesForUser: [Neuron!]!
         candidatesForReview: [Neuron!]!

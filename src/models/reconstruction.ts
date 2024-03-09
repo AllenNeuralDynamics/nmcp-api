@@ -24,7 +24,7 @@ export class Reconstruction extends BaseModel {
     public getProofreader!: BelongsToGetAssociationMixin<User>;
     public getNeuron!: BelongsToGetAssociationMixin<Neuron>;
 
-    public static async getAll(queryInput: IReconstructionPageInput): Promise<IReconstructionPage> {
+    public static async getAll(queryInput: IReconstructionPageInput, userId: string = null): Promise<IReconstructionPage> {
         let out: IReconstructionPage = {
             offset: 0,
             limit: 0,
@@ -32,7 +32,12 @@ export class Reconstruction extends BaseModel {
             reconstructions: []
         };
 
-        let options = {where: {}};
+        let options = userId ?  {where: {annotatorId: userId}} : {where: {}};
+
+        if (queryInput.filters && queryInput.filters.length > 0) {
+            const filters = queryInput.filters.map(f => {return {status: f};});
+            options.where[Op.or] = filters
+        }
 
         out.totalCount = await Reconstruction.count(options);
 
