@@ -11,14 +11,11 @@ setTimeout(async () => {
 
 }, 10000);
 
-async function performSynchronization() {
-    console.log("perform synchronization");
+async function performSynchronization(){
 
     await verifyNeuronSearchContents();
 
     await verifyUntransformedTracings();
-
-    console.log("queue next perform synchronization");
 
     setTimeout(async () => {
         await performSynchronization();
