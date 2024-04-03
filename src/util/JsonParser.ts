@@ -25,16 +25,23 @@ function oneFileComplete(data: string, resolve) {
 
     const axonData = createSwcData(obj.neurons[0].axon);
 
-    axonData.finalize();
+    if (axonData) {
+        axonData.finalize();
+    }
 
     const dendriteData = createSwcData(obj.neurons[0].dendrite)
 
-    dendriteData.finalize();
+    if (dendriteData) {
+        dendriteData.finalize();
+    }
 
     resolve([axonData, dendriteData]);
 }
 
 function createSwcData(nodes: any[]): SwcData {
+    if (!nodes) {
+        return null;
+    }
     const axonData = new SwcData();
 
     const samples = parseSamples(nodes);

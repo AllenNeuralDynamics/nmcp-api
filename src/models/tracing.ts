@@ -178,8 +178,13 @@ export class Tracing extends BaseModel {
             if (file.filename.endsWith(".json")) {
                 const [axonData, dendriteData] = await jsonParse(file.createReadStream());
 
-                tracingInputs.push({input: axonData, tracingStructureId: AxonStructureId});
-                tracingInputs.push({input: dendriteData, tracingStructureId: DendriteStructureId});
+                if (axonData) {
+                    tracingInputs.push({input: axonData, tracingStructureId: AxonStructureId});
+                }
+
+                if (dendriteData) {
+                    tracingInputs.push({input: dendriteData, tracingStructureId: DendriteStructureId});
+                }
             } else {
                 const data = await swcParse(file.createReadStream());
                 tracingInputs.push({input: data, tracingStructureId: tStructureId});
