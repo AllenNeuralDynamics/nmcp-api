@@ -18,7 +18,7 @@ import {jwtDecode} from "jwt-decode";
 import moment = require("moment");
 import {tracingQueryMiddleware} from "./rawquery/tracingQueryMiddleware";
 import {synchronizationManagerStart} from "./synchronization/synchonizationManager";
-import {User} from "./models/user";
+import {User, UserPermissionsAll} from "./models/user";
 
 const config = require('./authConfig.json');
 
@@ -63,7 +63,9 @@ async function start() {
                 if (requireAuthentication) {
                     if (ServiceOptions.serverAuthenticationKey != null && token == ServiceOptions.serverAuthenticationKey)
                     {
-                        return user;
+                        return {
+                            permissions: UserPermissionsAll
+                        };
                     }
 
                     const [scopes, tokenUser] = await validateToken(token);

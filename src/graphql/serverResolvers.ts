@@ -8,7 +8,7 @@ import {IQueryDataPage, IUpdateAnnotationOutput, Neuron, NeuronInput, NeuronQuer
 import {BrainArea, CompartmentMutationData, CompartmentQueryInput} from "../models/brainArea";
 import {MouseStrain, MouseStrainInput, MouseStrainQueryInput} from "../models/mouseStrain";
 import {SampleInput, Sample, SampleQueryInput} from "../models/sample";
-import {DeleteOutput, EntityCount, EntityCountOutput, EntityMutateOutput, EntityQueryOutput, EntityType} from "../models/baseModel";
+import {DeleteOutput, EntityCount, EntityCountOutput, EntityMutateOutput, EntityQueryOutput, EntityType, SortAndLimit} from "../models/baseModel";
 import {StructureIdentifier} from "../models/structureIdentifier";
 import {TracingStructure} from "../models/tracingStructure";
 import {ITracingInput, Tracing, TransformResult} from "../models/tracing";
@@ -22,7 +22,7 @@ import {SearchScope} from "../models/SearchScope";
 import {staticApiClient} from "../data-access/staticApiService";
 import {PredicateType} from "../models/queryPredicate";
 import {CcfVersion, ISearchContextInput, SearchContext} from "../models/searchContext";
-import {User} from "../models/user";
+import {User, UserPermissions} from "../models/user";
 import {Reconstruction} from "../models/reconstruction";
 import {ReconstructionStatus} from "../models/reconstructionStatus";
 
@@ -47,6 +47,10 @@ export interface IUploadFile {
 
 interface IIdsArguments {
     ids: string[];
+}
+
+interface IUsersQueryArguments {
+    input: SortAndLimit;
 }
 
 interface IBrainAreaQueryArguments {
@@ -134,6 +138,13 @@ type SearchNeuronsArguments = {
 //
 // General mutate
 //
+interface IUserMutateArguments {
+    id: string;
+    permissions: number;
+    anonymousCandidate: boolean;
+    anonymousComplete: boolean;
+}
+
 interface IBrainAreaMutateArguments {
     brainArea: CompartmentMutationData;
 }
@@ -196,6 +207,17 @@ export const resolvers = {
 
         user(_, args: any, context: User): any {
             return context;
+        },
+
+        async users(_, args: IUsersQueryArguments, context: User): Promise<EntityQueryOutput<User>> {
+            if (context.permissions & UserPermissions.Admin) {
+                return await User.getAll(args.input);
+            }
+
+            return {
+                totalCount: 0,
+                items: []
+            };
         },
 
         async brainAreas(_, args: IBrainAreaQueryArguments): Promise<BrainArea[]> {
@@ -298,8 +320,11 @@ export const resolvers = {
         },
 
         async reviewableReconstructions(_, __, context: User): Promise<Reconstruction[]> {
-            // TODO check permissions of User
-            return Reconstruction.getReviewableAnnotations();
+            if (context.permissions & UserPermissions.Review) {
+                return Reconstruction.getReviewableAnnotations();
+            }
+
+            return [];
         },
 
         async candidatesForUser(_, __, context: User): Promise<Neuron[]> {
@@ -307,8 +332,11 @@ export const resolvers = {
         },
 
         async candidatesForReview(_, __, context: User): Promise<Neuron[]> {
-            // TODO check permissions of User
-            return Neuron.getCandidateNeuronsForReview();
+            if (context.permissions & UserPermissions.Review) {
+                return Neuron.getCandidateNeuronsForReview();
+            }
+
+            return [];
         },
 
         async tomographyMetadata(_, args: any, context: User): Promise<[]> {
@@ -330,6 +358,22 @@ export const resolvers = {
         }
     },
     Mutation: {
+        async updateUserPermissions(_, args: IUserMutateArguments, context: User): Promise<User> {
+            if (context.permissions & UserPermissions.Admin) {
+                return User.updatePermissions(args.id, args.permissions);
+            }
+
+            return null;
+        },
+
+        async updateUserAnonymity(_, args: IUserMutateArguments, context: User): Promise<User> {
+            if (context.permissions & UserPermissions.Admin) {
+                return User.updateAnonymity(args.id, args.anonymousCandidate, args.anonymousCandidate);
+            }
+
+            return null;
+        },
+
         updateBrainArea(_, args: IBrainAreaMutateArguments): Promise<EntityMutateOutput<BrainArea>> {
             return BrainArea.updateWith(args.brainArea);
         },
@@ -425,19 +469,37 @@ export const resolvers = {
             return Reconstruction.markAnnotationOnHold(args.id);
         },
         async approveReconstruction(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
-            // TODO verify permissions on User
-            return Reconstruction.approveAnnotation(args.id, context.id);
+            if (context.permissions & UserPermissions.Review) {
+                return Reconstruction.approveAnnotation(args.id, context.id);
+            }
+
+            return {
+                message: "Insufficient privileges",
+                name: ""
+            }
         },
         async declineReconstruction(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
-            // TODO verify permissions on User
-            return Reconstruction.declineAnnotation(args.id, context.id);
+            if (context.permissions & UserPermissions.Review) {
+                return Reconstruction.declineAnnotation(args.id, context.id);
+            }
+
+            return {
+                message: "Insufficient privileges",
+                name: ""
+            }
         },
         async cancelReconstruction(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
             return Reconstruction.cancelAnnotation(args.id);
         },
         async completeReconstruction(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
-            // TODO verify User matches annotator or that User permissions are high e.g., admin
-            return Reconstruction.completeAnnotation(args.id);
+            if (context.permissions & UserPermissions.Review) {
+                return Reconstruction.completeAnnotation(args.id);
+            }
+
+            return {
+                message: "Insufficient privileges",
+                name: ""
+            }
         }
     },
     BrainArea: {

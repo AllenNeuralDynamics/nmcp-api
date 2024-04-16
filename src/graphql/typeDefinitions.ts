@@ -207,6 +207,11 @@ let typeDefinitions = gql`
         reconstructions: [Reconstruction!]!
     }
 
+    type QueryUsers {
+        totalCount: Int!
+        items: [User!]!
+    }
+    
     type QueryBrainAreas {
         totalCount: Int!
         items: [BrainArea!]!
@@ -351,6 +356,13 @@ let typeDefinitions = gql`
         limits: SliceLimits
     }
 
+    input UserQueryInput {
+        sortField: String
+        sortOrder: String
+        offset: Int
+        limit: Int
+    }
+    
     input BrainAreaQueryInput {
         ids: [String!]
         injectionIds: [String!]
@@ -531,6 +543,7 @@ let typeDefinitions = gql`
 
     type Query {
         user: User
+        users(input: UserQueryInput): QueryUsers
 
         brainAreas(input: BrainAreaQueryInput): [BrainArea!]!
         brainAreaItems(input: BrainAreaQueryInput): QueryBrainAreas!
@@ -582,6 +595,9 @@ let typeDefinitions = gql`
     }
 
     type Mutation {
+        updateUserPermissions(id: String!, permissions: Int!): User
+        updateUserAnonymity(id: String!, anonymousCandidate: Boolean!, anonymousComplete: Boolean!): User
+        
         updateBrainArea(brainArea: BrainAreaInput): MutatedBrainArea!
         syncCompartments: String
 
