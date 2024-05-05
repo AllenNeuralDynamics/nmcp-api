@@ -3,6 +3,8 @@ import {Neuron} from "../models/neuron";
 import {SynchronizationMarker, SynchronizationMarkerKind} from "../models/synchronizationMarker";
 import {Op} from "sequelize";
 import {Tracing} from "../models/tracing";
+import {Reconstruction} from "../models/reconstruction";
+import {ReconstructionStatus} from "../models/reconstructionStatus";
 
 setTimeout(async () => {
     await RemoteDatabaseClient.Start(false);
@@ -75,7 +77,17 @@ async function verifyNeuronSearchContents() {
  * to be generated.
  */
 async function verifyUntransformedTracings() {
-    const tracings = await Tracing.getUntransformed();
+    const untransformedTracings = await Tracing.getUntransformed();
+
+    const readyPromises = untransformedTracings.map(async(t) => {
+        const reconstruction  = await Reconstruction.findByPk(t.reconstructionId);
+
+        return reconstruction.status == ReconstructionStatus.Complete
+    });
+
+    const ready = await Promise.all(readyPromises);
+
+    const tracings = untransformedTracings.filter((t, index) => ready[index]);
 
     if(tracings.length > 0) {
         console.log(`${tracings.length} tracings have not been transformed`);
