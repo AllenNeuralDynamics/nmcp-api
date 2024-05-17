@@ -38,6 +38,7 @@ export interface SampleInput {
     mouseStrainId?: string;
     mouseStrainName?: string;
     visibility?: number;
+    tomography?: string;
 }
 
 export class Sample extends BaseModel {
@@ -47,6 +48,7 @@ export class Sample extends BaseModel {
     public comment: string;
     public sampleDate: Date;
     public visibility: number;
+    public tomography: string;
 
     public getMouseStrain!: BelongsToGetAssociationMixin<MouseStrain>;
     public getNeurons!: HasManyGetAssociationsMixin<Neuron>;
@@ -117,6 +119,7 @@ export class Sample extends BaseModel {
             const comment = sampleInput.comment || "";
             const mouseStrainId = sampleInput.mouseStrainId || null;
             const visibility = sampleInput.visibility || 0;
+            const tomography = sampleInput.tomography || "";
 
             const sample = await Sample.create({
                 idNumber: idNumber,
@@ -125,7 +128,8 @@ export class Sample extends BaseModel {
                 tag: tag,
                 comment: comment,
                 visibility: visibility,
-                mouseStrainId: mouseStrainId
+                mouseStrainId: mouseStrainId,
+                tomography: tomography
             });
 
             return {source: sample, error: null};
@@ -166,6 +170,10 @@ export class Sample extends BaseModel {
 
             if (sampleInput.visibility === null) {
                 sampleInput.visibility = 0;
+            }
+
+            if (sampleInput.tomography === null) {
+                sampleInput.tomography = "";
             }
 
             // Ok to be null.
@@ -270,6 +278,10 @@ export const modelInit = (sequelize: Sequelize) => {
         visibility: {
             type: DataTypes.INTEGER,
             defaultValue: 0
+        },
+        tomography: {
+            type: DataTypes.TEXT,
+            defaultValue: ""
         }
     }, {
         tableName: "Sample",

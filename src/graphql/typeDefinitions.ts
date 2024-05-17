@@ -87,6 +87,7 @@ let typeDefinitions = gql`
         comment: String
         sampleDate: Date
         visibility: Int
+        tomography: String
         mouseStrain: MouseStrain
         injections: [Injection!]!
         neurons: [Neuron!]!
@@ -472,6 +473,7 @@ let typeDefinitions = gql`
         comment: String
         sampleDate: Date
         visibility: Int
+        tomography: String
         mouseStrainId: String
         mouseStrainName: String
         neuronIds: [String]
