@@ -428,7 +428,7 @@ let typeDefinitions = gql`
         ids: [String!]
         injectionIds: [String!]
         sampleIds: [String!]
-        brainAreaIds: [String!]
+        brainStructureIds: [String!]
         sortField: String
         sortOrder: String
         offset: Int

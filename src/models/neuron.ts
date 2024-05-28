@@ -235,9 +235,27 @@ export class Neuron extends BaseModel {
 
         const candidateNeuronIds = _.difference(neuronIds, neuronsWithCompletedReconstruction);
 
-        const candidateNeurons = await Neuron.findAll({where: {id: {[Op.in]: candidateNeuronIds}}})
+        const where = {id: {[Op.in]: candidateNeuronIds}};
 
-        return {totalCount: candidateNeuronIds.length, items: candidateNeurons};
+        const include = [];
+
+        if (input.brainStructureIds && input.brainStructureIds.length > 0) {
+            where["brainStructureId"] = {[Op.in]: input.brainStructureIds}
+        }
+
+        if (input.sampleIds && input.sampleIds.length > 0) {
+            where["$Sample.id$"] = {[Op.in]: input.sampleIds}
+            where["$Sample.id$"] = {[Op.in]: input.sampleIds}
+            include.push({model: Sample, as: "Sample"})
+        }
+
+        try {
+            const candidateNeurons = await Neuron.findAll({where: where, include: include})
+
+            return {totalCount: candidateNeuronIds.length, items: candidateNeurons};
+        } catch (e) {
+            return {totalCount: 0, items: []}
+        }
     }
 
     public static async isDuplicate(idString: string, sampleId: string, id: string = null): Promise<boolean> {
