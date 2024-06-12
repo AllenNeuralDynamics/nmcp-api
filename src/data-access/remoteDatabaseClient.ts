@@ -15,6 +15,7 @@ import {Neuron} from "../models/neuron";
 import {StructureIdentifier} from "../models/structureIdentifier";
 import {TracingStructure} from "../models/tracingStructure";
 import {loadTracingCache} from "../rawquery/tracingQueryMiddleware";
+import {Reconstruction} from "../models/reconstruction";
 
 export class RemoteDatabaseClient {
     public static async Start(prepareSearchContents = false, options: Options = SequelizeOptions): Promise<RemoteDatabaseClient> {
@@ -185,6 +186,8 @@ export class RemoteDatabaseClient {
         await BrainArea.loadCompartmentCache();
 
         await Neuron.loadNeuronCache();
+
+        await Reconstruction.loadReconstructionCache();
 
         await loadTracingCache();
     }

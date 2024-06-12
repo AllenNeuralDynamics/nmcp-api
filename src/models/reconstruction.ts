@@ -8,6 +8,8 @@ import {Tracing} from "./tracing";
 import {ReconstructionTableName} from "./TableNames";
 import {AxonStructureId, DendriteStructureId} from "./tracingStructure";
 
+const debug = require("debug")("mnb:nmcp-api:reconstruction-model");
+
 export class Reconstruction extends BaseModel {
     status: ReconstructionStatus;
     notes: string;
@@ -24,6 +26,8 @@ export class Reconstruction extends BaseModel {
     public getProofreader!: BelongsToGetAssociationMixin<User>;
     public getNeuron!: BelongsToGetAssociationMixin<Neuron>;
 
+    private static _reconstructionCount: number = 0;
+
     public static async getAll(queryInput: IReconstructionPageInput, userId: string = null): Promise<IReconstructionPage> {
         let out: IReconstructionPage = {
             offset: 0,
@@ -32,10 +36,12 @@ export class Reconstruction extends BaseModel {
             reconstructions: []
         };
 
-        let options = userId ?  {where: {annotatorId: userId}} : {where: {}};
+        let options = userId ? {where: {annotatorId: userId}} : {where: {}};
 
         if (queryInput.filters && queryInput.filters.length > 0) {
-            const filters = queryInput.filters.map(f => {return {status: f};});
+            const filters = queryInput.filters.map(f => {
+                return {status: f};
+            });
             options.where[Op.or] = filters
         }
 
@@ -83,12 +89,12 @@ export class Reconstruction extends BaseModel {
         return Reconstruction.count(options);
     }
 
-    public static async getForNeuron(neuronId: string):Promise<Reconstruction[]> {
+    public static async getForNeuron(neuronId: string): Promise<Reconstruction[]> {
         if (!neuronId || neuronId.length === 0) {
             return [];
         }
 
-        return await Reconstruction.findAll({where:{neuronId: neuronId}})
+        return await Reconstruction.findAll({where: {neuronId: neuronId}})
     }
 
     public static async getAnnotationsForUser(userId: string): Promise<Reconstruction[]> {
@@ -103,7 +109,8 @@ export class Reconstruction extends BaseModel {
                 [Op.or]: [
                     {status: ReconstructionStatus.InReview},
                     {status: ReconstructionStatus.Approved}
-                ]}
+                ]
+            }
         });
     }
 
@@ -232,6 +239,28 @@ export class Reconstruction extends BaseModel {
         return await Tracing.findOne({
             where: {reconstructionId: this.id, tracingStructureId: DendriteStructureId}
         });
+    }
+
+    public static reconstructionCount() {
+        return this._reconstructionCount;
+    }
+
+    public static async loadReconstructionCache() {
+        try {
+            debug(`loading reconstructions`);
+
+            const reconstructions: Reconstruction[] = await Reconstruction.findAll({
+                where: {
+                    status: ReconstructionStatus.Complete
+                }
+            });
+
+            this._reconstructionCount = reconstructions.length;
+
+            debug(`${this._reconstructionCount} completed reconstructions`);
+        } catch (err) {
+            debug(err)
+        }
     }
 }
 

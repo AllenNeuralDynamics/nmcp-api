@@ -18,7 +18,7 @@ import {jwtDecode} from "jwt-decode";
 import moment = require("moment");
 import {tracingQueryMiddleware} from "./rawquery/tracingQueryMiddleware";
 import {synchronizationManagerStart} from "./synchronization/synchonizationManager";
-import {User, UserPermissionsAll} from "./models/user";
+import {User, UserPermissions, UserPermissionsAll} from "./models/user";
 
 const config = require('./authConfig.json');
 
@@ -56,33 +56,39 @@ async function start() {
         express.json(),
         expressMiddleware(server, {
             context: async ({req, res}) => {
-                const token = req.headers.authorization || "null";
+                const token = req.headers.authorization || null;
 
                 let user = null;
 
                 if (requireAuthentication) {
-                    if (ServiceOptions.serverAuthenticationKey != null && token == ServiceOptions.serverAuthenticationKey)
-                    {
+                    if (ServiceOptions.serverAuthenticationKey != null && token == ServiceOptions.serverAuthenticationKey) {
                         return {
+                            id: "00000000-0000-0000-0000-000000000000",
                             permissions: UserPermissionsAll
                         };
                     }
 
-                    const [scopes, tokenUser] = await validateToken(token);
+                    let [scopes, tokenUser] = await validateToken(token);
 
                     if (scopes == null) {
+                        /*
                         throw new GraphQLError('User is not authenticated', {
                             extensions: {
                                 code: 'UNAUTHENTICATED',
                                 http: {status: 401},
                             },
                         });
+                         */
+                        tokenUser = null;
                     }
 
                     user = tokenUser;
                 }
 
-                return user;
+                return user ||  {
+                    id: "00000000-0000-0000-0000-000000000000",
+                    permissions: UserPermissions.None
+                };
             }
         })
     );
@@ -104,37 +110,41 @@ const authOptions = {
 export type TokenOutput = [scopes: string[], user: User];
 
 async function validateToken(token: string): Promise<TokenOutput> {
+    if (token == null) {
+        return [[], null];
+    }
+
     let decoded = null;
 
     try {
         decoded = jwtDecode(token);
     } catch {
-        return null;
+        return [[], null];
     }
 
     if (decoded.aud != authOptions.audience) {
-        return null;
+        return [[], null];
     }
 
     //@ts-ignore
     if (decoded.tfp != authOptions.policyName) {
-        return null;
+        return [[], null];
     }
 
     //@ts-ignore
     if (decoded.azp != authOptions.clientID) {
-        return null;
+        return [[], null];
     }
 
     let now = moment.utc().valueOf()
 
     // JWT time is in seconds
     if (now < decoded.nbf * 1000 || now > decoded.exp * 1000) {
-        return null;
+        return [[], null];
     }
 
     //@ts-ignore
-    const user= await User.getUser(decoded.sub, decoded.given_name, decoded.family_name, decoded.emails.length > 0 ? decoded.emails[0] :"")
+    const user = await User.getUser(decoded.sub, decoded.given_name, decoded.family_name, decoded.emails.length > 0 ? decoded.emails[0] : "")
 
     //@ts-ignore
     return [decoded.scp.split(" "), user];

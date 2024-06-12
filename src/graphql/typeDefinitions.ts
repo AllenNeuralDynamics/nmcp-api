@@ -593,7 +593,6 @@ let typeDefinitions = gql`
         reviewableReconstructions: [Reconstruction!]!
 
         systemSettings(searchScope: Int): SystemSettings
-        systemMessage: String
     }
 
     type Mutation {

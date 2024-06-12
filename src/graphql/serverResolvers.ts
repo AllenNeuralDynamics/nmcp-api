@@ -22,7 +22,7 @@ import {SearchScope} from "../models/SearchScope";
 import {staticApiClient} from "../data-access/staticApiService";
 import {PredicateType} from "../models/queryPredicate";
 import {CcfVersion, ISearchContextInput, SearchContext} from "../models/searchContext";
-import {User, UserPermissions} from "../models/user";
+import {User, UserPermissions, UserPermissionsAll} from "../models/user";
 import {Reconstruction} from "../models/reconstruction";
 import {ReconstructionStatus} from "../models/reconstructionStatus";
 
@@ -194,11 +194,8 @@ export const resolvers = {
     Upload: GraphQLUpload,
 
     Query: {
-        systemMessage(): String {
-            return systemMessage;
-        },
-        systemSettings(_, {searchScope}): any {
-            return getSystemSettings(searchScope);
+        systemSettings(_, {searchScope}, context: User): any {
+            return getSystemSettings();
         },
 
         queryOperators(): IQueryOperator[] {
@@ -206,7 +203,10 @@ export const resolvers = {
         },
 
         user(_, args: any, context: User): any {
-            return context;
+            return context || {
+                id: "00000000-0000-0000-0000-000000000000",
+                permissions: UserPermissions.None
+            };
         },
 
         async users(_, args: IUsersQueryArguments, context: User): Promise<EntityQueryOutput<User>> {
@@ -647,12 +647,12 @@ interface ISystemSettings {
     neuronCount: number;
 }
 
-async function getSystemSettings(searchScope: SearchScope): Promise<ISystemSettings> {
-    const neuronCount = await Neuron.neuronCount(searchScope);
+async function getSystemSettings(): Promise<ISystemSettings> {
+    const reconstructionCount = Reconstruction.reconstructionCount();
 
     return {
         apiVersion: ServiceOptions.version,
         apiRelease: ServiceOptions.release,
-        neuronCount
+        neuronCount: reconstructionCount
     }
 }
