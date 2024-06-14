@@ -186,6 +186,7 @@ let typeDefinitions = gql`
         id: String!
         status: Int
         notes: String
+        checks: String
         durationHours: Float
         lengthMillimeters: Float
         annotatorId: String
@@ -634,6 +635,7 @@ let typeDefinitions = gql`
 
         applyTransform(id: String!): TransformResult
 
+        updateReconstruction(id: String!, duration: Float!, length: Float!, notes: String!, checks: String!): Error
         requestReconstruction(id: String!): Tracing
         requestReconstructionReview(id: String!, duration: Float!, length: Float!, notes: String!, checks: String!): Error
         requestReconstructionHold(id: String!): Error

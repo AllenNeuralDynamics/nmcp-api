@@ -457,12 +457,16 @@ export const resolvers = {
             return Tracing.applyTransform(args.id);
         },
 
+        async updateReconstruction(_, args: IMarkReconstructionCompleteArguments, context: User): Promise<IErrorOutput> {
+            // TODO verify User matches annotator or that User permissions are high e.g., admin
+            return Reconstruction.updateReconstruction(args.id, args.duration, args.length, args.notes, args.checks);
+        },
         async requestReconstruction(_, args: IIdOnlyArguments, context: User): Promise<Neuron> {
             return Neuron.requestAnnotation(args.id, context);
         },
         async requestReconstructionReview(_, args: IMarkReconstructionCompleteArguments, context: User): Promise<IErrorOutput> {
             // TODO verify User matches annotator or that User permissions are high e.g., admin
-            return Reconstruction.markAnnotationForReview(args.id, args.duration, args.length, args.notes, args.checks);
+            return Reconstruction.updateReconstruction(args.id, args.duration, args.length, args.notes, args.checks, true);
         },
         async requestReconstructionHold(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
             // TODO verify User matches annotator or that User permissions are high e.g., admin

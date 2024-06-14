@@ -114,7 +114,7 @@ export class Reconstruction extends BaseModel {
         });
     }
 
-    public static async markAnnotationForReview(id: string, duration: number, length: number, notes: string, checks: string): Promise<IErrorOutput> {
+    public static async updateReconstruction(id: string, duration: number, length: number, notes: string, checks: string, markForReview: boolean = false): Promise<IErrorOutput> {
         const reconstruction = await Reconstruction.findByPk(id);
 
         if (!reconstruction) {
@@ -124,13 +124,18 @@ export class Reconstruction extends BaseModel {
             }
         }
 
-        await reconstruction.update({
-            status: ReconstructionStatus.InReview,
+        const update = {
             durationHours: duration,
             lengthMillimeters: length,
             notes: notes,
             checks: checks
-        });
+        }
+
+        if (markForReview) {
+            update["status"] = ReconstructionStatus.InReview;
+        }
+
+        await reconstruction.update(update);
 
         return null;
     }
