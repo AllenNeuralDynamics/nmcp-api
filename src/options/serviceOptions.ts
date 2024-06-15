@@ -1,11 +1,6 @@
 import * as path from "path";
 import * as fs from "fs";
 
-export enum ReleaseLevel {
-    Internal = 0,
-    Public
-}
-
 export interface IServiceOptions {
     port: number;
     graphQLEndpoint: string;
@@ -16,7 +11,6 @@ export interface IServiceOptions {
     ccfv30OntologyPath: string;
     tracingLoadMaxDelay: number;
     tracingLoadLimit: number;
-    release: ReleaseLevel;
     version: string;
 }
 
@@ -30,7 +24,6 @@ const configuration: IServiceOptions = {
     ccfv30OntologyPath: "ccfv30_raw.nrrd",
     tracingLoadMaxDelay: 10,
     tracingLoadLimit: 100,
-    release: ReleaseLevel.Public,
     version: ""
 };
 
@@ -51,8 +44,6 @@ function loadConfiguration() {
     c.tracingLoadMaxDelay = parseInt(process.env.NEURON_BROWSER_LOAD_MAX_DELAY) || c.tracingLoadMaxDelay;
     c.tracingLoadLimit = parseInt(process.env.NEURON_BROWSER_LOAD_LIMIT) || c.tracingLoadLimit;
 
-    c.release = process.env.SEARCH_API_RELEASE_LEVEL ? ReleaseLevel[process.env.SEARCH_API_RELEASE_LEVEL] : c.release;
-    c.release = c.release === undefined ? ReleaseLevel.Public : c.release;
     c.version = readSystemVersion();
 
     c.serverAuthenticationKey = process.env.SERVER_AUTHENTICATION_KEY || null;

@@ -12,7 +12,7 @@ export class StaticApiClient {
     private _client: any;
 
     constructor() {
-        const url = `http://${StaticServiceOptions.host}:${StaticServiceOptions.port}/${StaticServiceOptions.graphQLEndpoint}`;
+        const url = `http://${StaticServiceOptions.host}:${StaticServiceOptions.port}${StaticServiceOptions.graphQLEndpoint}`;
 
         debug(`creating apollo client for static service ${url}`);
 

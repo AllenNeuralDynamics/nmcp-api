@@ -20,9 +20,8 @@ import {Sample} from "./sample";
 import {IAnnotationMetadata} from "./annotationMetadata";
 import {Tracing} from "./tracing";
 import {TracingNode} from "./tracingNode";
-import {SearchScope} from "./SearchScope";
 import {ConsensusStatus} from "./ConsensusStatus";
-import {CcfVersion, SearchContext} from "./searchContext";
+import {SearchContext} from "./searchContext";
 import {SearchContent} from "./searchContent";
 import {PredicateType} from "./queryPredicate";
 import {TracingStructure} from "./tracingStructure";
@@ -33,10 +32,6 @@ import {User} from "./user";
 const debug = require("debug")("mnb:nmcp-api:neuron-model");
 
 type NeuronCache = Map<string, Neuron>;
-
-class NeuronCounts {
-    [key: number]: number;
-}
 
 export type NeuronQueryInput =
     EntityQueryInput
@@ -67,7 +62,6 @@ export interface IUpdateAnnotationOutput {
 
 export interface IQueryDataPage {
     nonce: string;
-    ccfVersion: CcfVersion;
     queryTime: number;
     totalCount: number;
     neurons: Neuron[];
@@ -104,10 +98,11 @@ export class Neuron extends BaseModel {
     public tracings?: Tracing[];
     public brainStructure: BrainArea;
     public Reconstructions?: Reconstruction[];
+    public Sample?: Sample;
 
     private static _neuronCache: NeuronCache = new Map<string, Neuron>();
 
-    private static _neuronCounts = new NeuronCounts();
+    private static _neuronCount = 0;
 
     public static getOneFromCache(id: string): Neuron {
         return this._neuronCache.get(id);
@@ -137,12 +132,8 @@ export class Neuron extends BaseModel {
         this._neuronCache.set(neuron.id, neuron);
     }
 
-    public static neuronCount(scope: SearchScope) {
-        if (scope === null || scope === undefined) {
-            return this._neuronCounts[SearchScope.Published];
-        }
-
-        return this._neuronCounts[scope];
+    public static get neuronCount() {
+        return this._neuronCount;
     }
 
     public static async loadNeuronCache() {
@@ -164,15 +155,9 @@ export class Neuron extends BaseModel {
                 this._neuronCache.set(n.id, n);
             });
 
-            this._neuronCounts[SearchScope.Private] = this._neuronCounts[SearchScope.Team] = neurons.length;
+            this._neuronCount = 0;
 
-            this._neuronCounts[SearchScope.Division] = this._neuronCounts[SearchScope.Internal] = this._neuronCounts[SearchScope.Moderated] = neurons.filter(n => n.visibility >= SearchScope.Division).length;
-
-            this._neuronCounts[SearchScope.External] = this._neuronCounts[SearchScope.Public] = this._neuronCounts[SearchScope.Published] = neurons.filter(n => n.visibility >= SearchScope.External).length;
-
-            debug(`${this.neuronCount(SearchScope.Team)} team-visible neurons`);
-            debug(`${this.neuronCount(SearchScope.Internal)} internal-visible neurons`);
-            debug(`${this.neuronCount(SearchScope.Public)} public-visible neurons`);
+            debug(`${this.neuronCount} public-visible neurons`);
         } catch (err) {
             debug(err)
         }
@@ -493,16 +478,16 @@ export class Neuron extends BaseModel {
 
             const duration = Date.now() - start;
 
-            const totalCount = Neuron.neuronCount(context.Scope);
+            const totalCount = Neuron.neuronCount;
 
             neurons = neurons.sort((b, a) => a.idString.localeCompare(b.idString));
 
-            return {nonce: context.Nonce, ccfVersion: context.CcfVersion, queryTime: duration, totalCount, neurons, error: null};
+            return {nonce: context.Nonce, queryTime: duration, totalCount, neurons, error: null};
 
         } catch (err) {
             debug(err);
 
-            return {nonce: context.Nonce, ccfVersion: context.CcfVersion, queryTime: -1, totalCount: 0, neurons: [], error: err};
+            return {nonce: context.Nonce, queryTime: -1, totalCount: 0, neurons: [], error: err};
         }
     }
 
@@ -510,7 +495,7 @@ export class Neuron extends BaseModel {
         const start = Date.now();
 
         const queries = context.Predicates.map((predicate) => {
-            return predicate.createFindOptions(context.Scope);
+            return predicate.createFindOptions();
         });
 
         const contentPromises: Promise<SearchContent[]>[] = queries.map(async (query) => {

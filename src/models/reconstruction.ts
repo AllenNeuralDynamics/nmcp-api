@@ -1,12 +1,13 @@
-import {BaseModel} from "./baseModel";
 import {BelongsToGetAssociationMixin, DataTypes, Op, Sequelize} from "sequelize";
-import {User} from "./user";
-import {ReconstructionStatus} from "./reconstructionStatus";
-import {Neuron} from "./neuron";
-import {IErrorOutput, IReconstructionPage, IReconstructionPageInput} from "../graphql/serverResolvers";
-import {Tracing} from "./tracing";
+
 import {ReconstructionTableName} from "./TableNames";
+import {BaseModel} from "./baseModel";
+import {Neuron} from "./neuron";
+import {ReconstructionStatus} from "./reconstructionStatus";
+import {Tracing} from "./tracing";
 import {AxonStructureId, DendriteStructureId} from "./tracingStructure";
+import {User} from "./user";
+import {IErrorOutput, IReconstructionPage, IReconstructionPageInput} from "../graphql/serverResolvers";
 
 const debug = require("debug")("mnb:nmcp-api:reconstruction-model");
 
@@ -25,6 +26,8 @@ export class Reconstruction extends BaseModel {
     public getAnnotator!: BelongsToGetAssociationMixin<User>;
     public getProofreader!: BelongsToGetAssociationMixin<User>;
     public getNeuron!: BelongsToGetAssociationMixin<Neuron>;
+
+    public readonly Neuron: Neuron;
 
     private static _reconstructionCount: number = 0;
 

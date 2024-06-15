@@ -8,9 +8,6 @@ import {CompartmentStatistics, ICompartmentStatistics} from "./compartmentStatis
 import {TracingNode} from "../models/tracingNode";
 import {StructureIdentifier} from "../models/structureIdentifier";
 import {SearchContent} from "../models/searchContent";
-import {Sample} from "../models/sample";
-import {Neuron} from "../models/neuron";
-import {SearchScope} from "../models/SearchScope";
 
 export interface ITransformOperationProgressStatus {
     inputNodeCount?: number;
@@ -73,6 +70,8 @@ export class TransformOperation {
 
         this._ccfv30CompartmentMap = new Map<string, ICompartmentStatistics>();
 
+        let failedLookup = 0;
+
         nodes.map(async (swcNode, index) => {
             let brainAreaIdCcfv30: string = null;
 
@@ -90,13 +89,18 @@ export class TransformOperation {
             }
 
             if (!brainAreaIdCcfv30) {
-                this.logMessage(`failed brain structure lookup for ${swcNode.sampleNumber}`);
+                failedLookup++;
+                // this.logMessage(`failed brain structure lookup for ${swcNode.sampleNumber}`);
                 brainAreaIdCcfv30 = this._context.compartmentMap.get(997).id;
             }
             this.populateCompartmentMap(brainAreaIdCcfv30, swcNode);
 
             await swcNode.update({brainStructureId: brainAreaIdCcfv30});
         });
+
+        if (failedLookup > 0) {
+            this.logMessage(`${failedLookup} node(s) failed the brain structure lookup`);
+        }
 
         this.logMessage("assignment complete");
 
@@ -161,7 +165,7 @@ export class TransformOperation {
                 neuronIdString: neuron.idString,
                 neuronDOI: neuron.doi,
                 neuronConsensus: neuron.consensus,
-                visibility: this.computeVisibility(neuron, sample),
+                visibility: 0,
                 brainAreaId: entry[0],
                 nodeCount: entry[1].Node,
                 somaCount: entry[1].Soma,
@@ -184,19 +188,6 @@ export class TransformOperation {
                 this.logMessage(`\t${c.branchCount}`);
                 this.logMessage(`\t${c.endCount}`);
             });
-        }
-    }
-
-    private computeVisibility(neuron: Neuron, sample: Sample): SearchScope {
-        const visibility = neuron.visibility == 1 ? sample.visibility : neuron.visibility;
-
-        switch (visibility) {
-            case 2:
-                return SearchScope.Internal;
-            case 4:
-                return SearchScope.Public;
-            default:
-                return SearchScope.Private;
         }
     }
 

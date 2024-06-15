@@ -18,10 +18,9 @@ import {Fluorophore, FluorophoreInput, FluorophoreQueryInput} from "../models/fl
 import {InjectionVirus, InjectionVirusInput, InjectionVirusQueryInput} from "../models/injectionVirus";
 import {IQueryOperator, operators} from "../models/queryOperator";
 import {ServiceOptions} from "../options/serviceOptions";
-import {SearchScope} from "../models/SearchScope";
 import {staticApiClient} from "../data-access/staticApiService";
 import {PredicateType} from "../models/queryPredicate";
-import {CcfVersion, ISearchContextInput, SearchContext} from "../models/searchContext";
+import {ISearchContextInput, SearchContext} from "../models/searchContext";
 import {User, UserPermissions, UserPermissionsAll} from "../models/user";
 import {Reconstruction} from "../models/reconstruction";
 import {ReconstructionStatus} from "../models/reconstructionStatus";
@@ -194,7 +193,7 @@ export const resolvers = {
     Upload: GraphQLUpload,
 
     Query: {
-        systemSettings(_, {searchScope}, context: User): any {
+        systemSettings(): any {
             return getSystemSettings();
         },
 
@@ -647,7 +646,6 @@ let systemMessage: String = "";
 
 interface ISystemSettings {
     apiVersion: string;
-    apiRelease: number;
     neuronCount: number;
 }
 
@@ -656,7 +654,6 @@ async function getSystemSettings(): Promise<ISystemSettings> {
 
     return {
         apiVersion: ServiceOptions.version,
-        apiRelease: ServiceOptions.release,
         neuronCount: reconstructionCount
     }
 }

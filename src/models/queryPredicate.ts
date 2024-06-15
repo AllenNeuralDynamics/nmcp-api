@@ -1,6 +1,5 @@
 import {FindOptions, Op} from "sequelize";
 
-import {SearchScope} from "./SearchScope";
 import {BrainArea} from "./brainArea";
 import {operatorIdValueMap} from "./queryOperator";
 import {StructureIdentifier} from "./structureIdentifier";
@@ -46,7 +45,7 @@ export interface IFilterInput extends IPredicateAttributes{
 }
 
 export interface IQueryPredicate extends IPredicateAttributes {
-    createFindOptions(scope: SearchScope) : FindOptions;
+    createFindOptions() : FindOptions;
 }
 
 export function predicateTypeForFilter(filter: IFilterInput): PredicateType {
@@ -108,7 +107,9 @@ export class QueryPredicate implements IQueryPredicate {
         this.amount = source.amount;
     }
 
-    public createFindOptions(scope: SearchScope) : FindOptions {
+    public createFindOptions() : FindOptions {
+        // TODO ignoring now
+        const scope = 0;
         const findOptions: FindOptions = {};
 
         switch (this.predicateType) {

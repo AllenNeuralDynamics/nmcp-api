@@ -1,10 +1,13 @@
+import {Op} from "sequelize";
+
 import {RemoteDatabaseClient} from "../data-access/remoteDatabaseClient";
 import {Neuron} from "../models/neuron";
-import {SynchronizationMarker, SynchronizationMarkerKind} from "../models/synchronizationMarker";
-import {Op} from "sequelize";
 import {Tracing} from "../models/tracing";
 import {Reconstruction} from "../models/reconstruction";
 import {ReconstructionStatus} from "../models/reconstructionStatus";
+import {SharingVisibility} from "../models/sharingVisibility";
+import {Sample} from "../models/sample";
+import {SynchronizationMarker, SynchronizationMarkerKind} from "../models/synchronizationMarker";
 
 setTimeout(async () => {
     await RemoteDatabaseClient.Start(false);
@@ -13,7 +16,7 @@ setTimeout(async () => {
 
 }, 10000);
 
-async function performSynchronization(){
+async function performSynchronization() {
 
     await verifyNeuronSearchContents();
 
@@ -32,7 +35,9 @@ async function performSynchronization(){
  * Currently implemented for any property change, even ones that do not have downstream SearchContents implications.
  *
  * TODO Changing Sample visibility where the Neuron has inherited will not trigger this.  Changing sample visibility
- * needs to change the updatedAt value for any Neuron w/inherited visibility
+ * needs to change the updatedAt value for any Neuron w/inherited visibility.
+ *
+ * TODO Does not remove something from the transformed data set if the visibility is reduced (e.g., public to internal or not shared)
  */
 async function verifyNeuronSearchContents() {
     const when = Date.now();
@@ -41,25 +46,36 @@ async function verifyNeuronSearchContents() {
 
     let neurons: Neuron[] = [];
 
+    const options = {
+        where: {
+            visibility: {[Op.or]: [SharingVisibility.ShareAllExternal, SharingVisibility.Inherited]}
+        },
+        include: {
+            model: Sample,
+            as: "Sample",
+            attributes: ["id", "visibility"]
+        }
+    };
+
     if (lastMarker == null) {
         lastMarker = await SynchronizationMarker.create({markerKind: SynchronizationMarkerKind.Neuron});
-
-        neurons = await Neuron.findAll();
     } else {
-        neurons = await Neuron.findAll({
-            where: {updatedAt: {[Op.gt]: lastMarker.updatedAt}}
-        });
+        options.where["updatedAt"] =  {[Op.gt]: lastMarker.updatedAt};
     }
+
+    neurons = await Neuron.findAll(options);
+
+    neurons = neurons.filter(isPublicNeuron);
 
     if (neurons.length > 0) {
         console.log(`${neurons.length} neurons updated since last synchronization`);
 
-        const updatePromises = neurons.map(async(n) => {
+        const updatePromises = neurons.map(async (n) => {
             const tracings = await Tracing.getForNeuron(n.id);
 
             console.log(`${tracings.length} tracings for neuron ${n.id}`);
 
-            const tracingPromises = tracings.map(async(t) => {
+            const tracingPromises = tracings.map(async (t) => {
                 await Tracing.applyTransform(t.id);
             });
 
@@ -79,17 +95,33 @@ async function verifyNeuronSearchContents() {
 async function verifyUntransformedTracings() {
     const untransformedTracings = await Tracing.getUntransformed();
 
-    const readyPromises = untransformedTracings.map(async(t) => {
-        const reconstruction  = await Reconstruction.findByPk(t.reconstructionId);
+    const readyPromises = untransformedTracings.map(async (t) => {
+        const reconstruction = await Reconstruction.findByPk(t.reconstructionId,
+            {
+                include: [{
+                    model: Neuron,
+                    as: "Neuron",
+                    attributes: ["id", "visibility"],
+                    include: [{
+                        model: Sample,
+                        as: "Sample",
+                        attributes: ["id", "visibility"]
+                    }]
+                }]
+            });
 
-        return reconstruction.status == ReconstructionStatus.Complete
+        if (reconstruction && isPublicNeuron(reconstruction.Neuron)) {
+            return reconstruction.status == ReconstructionStatus.Complete;
+        }
+
+        return false;
     });
 
     const ready = await Promise.all(readyPromises);
 
     const tracings = untransformedTracings.filter((t, index) => ready[index]);
 
-    if(tracings.length > 0) {
+    if (tracings.length > 0) {
         console.log(`${tracings.length} tracings have not been transformed`);
 
         const updatePromises = tracings.map(async (t) => {
@@ -98,4 +130,9 @@ async function verifyUntransformedTracings() {
 
         await Promise.all(updatePromises);
     }
+}
+
+function isPublicNeuron(neuron: Neuron): boolean {
+    return neuron.visibility == SharingVisibility.ShareAllExternal
+        || (neuron.visibility == SharingVisibility.Inherited && neuron.Sample.visibility == SharingVisibility.ShareAllExternal);
 }

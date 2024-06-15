@@ -6,26 +6,6 @@ import {TracingStructure} from "./tracingStructure";
 import {Tracing} from "./tracing";
 import {BrainArea} from "./brainArea";
 
-export interface ISearchContent {
-    id?: string;
-    visibility: number;
-    neuronIdString: string;
-    neuronDOI: string;
-    neuronConsensus: number;
-    somaX: number;
-    somaY: number;
-    somaZ: number;
-    nodeCount: number;
-    somaCount: number;
-    pathCount: number;
-    branchCount: number;
-    endCount: number;
-    tracingId: string;
-    tracingStructureId: string;
-    brainAreaId: string;
-    neuronId: string;
-}
-
 export class SearchContent extends BaseModel {
     public visibility: number;
     public neuronIdString: string;

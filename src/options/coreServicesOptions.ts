@@ -19,25 +19,10 @@ const databaseServices = {
 };
 
 const graphQLServices = {
-    swc: {
-        host: "swc-api",
-        port: 5000,
-        graphQLEndpoint: "graphql"
-    },
-    transform: {
-        host: "transform-api",
-        port: 5000,
-        graphQLEndpoint: "graphql"
-    },
-    search: {
-        host: "search-api",
-        port: 5000,
-        graphQLEndpoint: "graphql"
-    },
     staticApi: {
         host: "static-api",
         port: 5000,
-        graphQLEndpoint: "graphql"
+        graphQLEndpoint: "/graphql"
     }
 };
 
@@ -56,18 +41,6 @@ function loadDatabaseOptions(options): any {
 }
 
 function loadGraphQLOptions(options): any {
-    options.swc.host = process.env.SWC_API_HOST || process.env.CORE_SERVICES_HOST || options.swc.host;
-    options.swc.port = parseInt(process.env.SWC_API_PORT) || options.swc.port;
-    options.swc.graphQLEndpoint = process.env.SWC_API_ENDPOINT || process.env.CORE_SERVICES_ENDPOINT || options.swc.graphQLEndpoint;
-
-    options.transform.host = process.env.TRANSFORM_API_HOST || process.env.CORE_SERVICES_HOST || options.transform.host;
-    options.transform.port = parseInt(process.env.TRANSFORM_API_PORT) || options.transform.port;
-    options.transform.graphQLEndpoint = process.env.TRANSFORM_API_ENDPOINT || process.env.CORE_SERVICES_ENDPOINT || options.transform.graphQLEndpoint;
-
-    options.search.host = process.env.SEARCH_API_HOST || process.env.CORE_SERVICES_HOST || options.search.host;
-    options.search.port = parseInt(process.env.SEARCH_API_PORT) || options.search.port;
-    options.search.graphQLEndpoint = process.env.SEARCH_API_ENDPOINT || process.env.CORE_SERVICES_ENDPOINT || options.search.graphQLEndpoint;
-
     options.staticApi.host = process.env.STATIC_API_HOST || process.env.CORE_SERVICES_HOST || options.staticApi.host;
     options.staticApi.port = parseInt(process.env.STATIC_API_PORT) || options.staticApi.port;
     options.staticApi.graphQLEndpoint = process.env.STATIC_API_ENDPOINT || process.env.CORE_SERVICES_ENDPOINT || options.staticApi.graphQLEndpoint;
@@ -87,11 +60,5 @@ function loadConfiguration() {
 export const CoreServiceOptions = loadConfiguration();
 
 export const SequelizeOptions: Options = CoreServiceOptions.database.sample;
-
-export const SwcServiceOptions: IGraphQLServiceOptions = CoreServiceOptions.graphQL.swc;
-
-export const TransformServiceOptions: IGraphQLServiceOptions = CoreServiceOptions.graphQL.transform;
-
-export const SearchServiceOptions: IGraphQLServiceOptions = CoreServiceOptions.graphQL.search;
 
 export const StaticServiceOptions: IGraphQLServiceOptions = CoreServiceOptions.graphQL.staticApi;

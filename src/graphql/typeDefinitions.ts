@@ -12,7 +12,6 @@ let typeDefinitions = gql`
 
     type SystemSettings {
         apiVersion: String
-        apiRelease: Int
         neuronCount: Int
     }
 
@@ -593,7 +592,7 @@ let typeDefinitions = gql`
         candidatesForReview: [Neuron!]!
         reviewableReconstructions: [Reconstruction!]!
 
-        systemSettings(searchScope: Int): SystemSettings
+        systemSettings: SystemSettings
     }
 
     type Mutation {
