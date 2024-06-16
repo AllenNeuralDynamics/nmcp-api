@@ -1,0 +1,55 @@
+# https://taskfile.dev
+
+version: '3'
+
+vars:
+  REPOSITORY: leapscientific
+  IMAGE: sample-api
+  REPOIMAGE: "{{.REPOSITORY}}/{{.IMAGE}}"
+  VERSION:
+    sh: jq -r .version package.json
+  MAJOR:
+    sh: bash -c 'string={{.VERSION}} && arr=(${string//"."/ }) && echo ${arr[0]}'
+  MINOR:
+    sh: bash -c 'string={{.VERSION}} && arr=(${string//"."/ }) && echo ${arr[1]}'
+  REVISION:
+    sh: bash -c 'string={{.VERSION}} && arr=(${string//"."/ }) && echo ${arr[2]}'
+  IMAGEWITHVERSION: "{{.REPOIMAGE}}:{{.MAJOR}}"
+  IMAGEWITHMINORVERSION: "{{.IMAGEWITHVERSION}}.{{.MINOR}}"
+  IMAGEWITHREVERSION: "{{.IMAGEWITHMINORVERSION}}.{{.REVISION}}"
+  IMAGELATEST: "{{.REPOIMAGE}}:latest"
+
+tasks:
+  clean:
+    cmds:
+      - rm -rf dist
+  compile:
+    cmds:
+      - task: clean
+      - tsc -p tsconfig.prod.json
+  build:
+    cmds:
+      - task: compile
+      - cp package.json dist/
+      - cp package-lock.json dist/
+      - cp LICENSE dist/
+      - cp docker-entry.sh dist/
+      - cp src/authConfig.json dist/
+      - cp .sequelizerc dist/
+      - cp migrate.sh dist/
+      - cp -r migrations dist/
+      - cp -r fixtures dist/
+  docker-build:
+    cmds:
+      - task: build
+      - docker build --platform linux/amd64 --tag {{.IMAGEWITHVERSION}} .
+      - docker tag {{.IMAGEWITHVERSION}} {{.IMAGEWITHMINORVERSION}}
+      - docker tag {{.IMAGEWITHMINORVERSION}} {{.IMAGEWITHREVERSION}}
+      - docker tag {{.IMAGEWITHREVERSION}} {{.IMAGELATEST}}
+  release:
+    cmds:
+      - task: docker-build
+      - docker push {{.IMAGEWITHVERSION}}
+      - docker push {{.IMAGEWITHMINORVERSION}}
+      - docker push {{.IMAGEWITHREVERSION}}
+      - docker push {{.IMAGELATEST}}

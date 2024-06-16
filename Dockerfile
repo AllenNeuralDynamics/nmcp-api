@@ -4,9 +4,9 @@ WORKDIR /app
 
 COPY dist .
 
-RUN yarn global add sequelize-cli@5
+RUN npm -g add sequelize-cli@5
 
-RUN yarn install --production=true
+RUN npm install --production=true
 
 CMD ["./docker-entry.sh"]
 
