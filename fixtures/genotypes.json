@@ -7,8 +7,15 @@
     "deletedAt": null
   },
   {
-    "id": "f3fda807-f57c-4b14-b4fd-0accfd668017",
+    "id": "7c5b406e-3576-11ef-840c-00155d46f4c9",
     "name": "Dbh-Cre-KI/wt; Ai166(TIT2L-MORF-ICL-tTA2)/wt",
+    "createdAt": "2017-05-22 19:17:12.677000 +00:00",
+    "updatedAt": "2017-05-22 19:17:12.677000 +00:00",
+    "deletedAt": null
+  },
+  {
+    "id": "73f5ab44-3576-11ef-8157-00155d46f4c9",
+    "name": "Gal-Cre_KI87/wt",
     "createdAt": "2017-05-22 19:17:12.677000 +00:00",
     "updatedAt": "2017-05-22 19:17:12.677000 +00:00",
     "deletedAt": null

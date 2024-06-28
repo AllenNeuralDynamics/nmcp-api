@@ -209,7 +209,7 @@ function loadBrainStructures(when: Date): IBrainArea[] {
 }
 
 function loadMouseStrains(when: Date) {
-    const fixtureDataPath = path.join(ServiceOptions.fixturePath, "mouseStrains.json");
+    const fixtureDataPath = path.join(ServiceOptions.fixturePath, "genotypes.json");
 
     const fileData = fs.readFileSync(fixtureDataPath, {encoding: "UTF-8"});
 

@@ -19,10 +19,23 @@
     "tag": "MGI: 4417960, MGI: 6441963",
     "comment": "",
     "sampleDate": "2023-03-06T15:13:25Z",
-    "mouseStrainId": "f3fda807-f57c-4b14-b4fd-0accfd668017",
+    "mouseStrainId": "7c5b406e-3576-11ef-840c-00155d46f4c9",
     "createdAt": "2017-05-23 16:28:49.851000 +00:00",
     "updatedAt": "2018-07-08 17:10:37.437000 +00:00",
     "deletedAt": null,
-    "visibility": 4
+    "visibility": 2
+  },
+  {
+    "id": "87293bd6-3576-11ef-9616-00155d46f4c9",
+    "idNumber": 3,
+    "animalId": "653158",
+    "tag": "MGI: 4367008",
+    "comment": "",
+    "sampleDate": "2023-06-01T15:13:25Z",
+    "mouseStrainId": "73f5ab44-3576-11ef-8157-00155d46f4c9",
+    "createdAt": "2017-05-23 16:28:49.851000 +00:00",
+    "updatedAt": "2018-07-08 17:10:37.437000 +00:00",
+    "deletedAt": null,
+    "visibility": 0
   }
 ]
