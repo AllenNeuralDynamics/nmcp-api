@@ -31,9 +31,9 @@ async function start() {
 
     const app = express();
 
-    app.use(bodyParser.urlencoded({extended: true}));
+    app.use(bodyParser.urlencoded({extended: true, limit: "1000mb"}));
 
-    app.use(bodyParser.json());
+    app.use(bodyParser.json({limit: "1000mb"}));
 
     app.use("/tracings", tracingQueryMiddleware);
 
