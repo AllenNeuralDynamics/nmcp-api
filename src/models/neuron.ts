@@ -220,6 +220,10 @@ export class Neuron extends BaseModel {
 
         const candidateNeuronIds = _.difference(neuronIds, neuronsWithCompletedReconstruction);
 
+        const options = {}
+
+        await this.setSortAndLimiting(options, input);
+
         const where = {id: {[Op.in]: candidateNeuronIds}};
 
         const include = [];
@@ -235,7 +239,10 @@ export class Neuron extends BaseModel {
         }
 
         try {
-            const candidateNeurons = await Neuron.findAll({where: where, include: include})
+            options["where"] = where
+            options["include"] = include
+
+            const candidateNeurons = await Neuron.findAll(options)
 
             return {totalCount: candidateNeuronIds.length, items: candidateNeurons};
         } catch (e) {
