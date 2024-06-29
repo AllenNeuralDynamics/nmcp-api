@@ -25,7 +25,7 @@ const config = require('./authConfig.json');
 start().then().catch((err) => debug(err));
 
 async function start() {
-    await RemoteDatabaseClient.Start(true);
+    await RemoteDatabaseClient.Start(true, true);
 
     synchronizationManagerStart();
 

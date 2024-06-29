@@ -102,8 +102,6 @@ export class Neuron extends BaseModel {
 
     private static _neuronCache: NeuronCache = new Map<string, Neuron>();
 
-    private static _neuronCount = 0;
-
     public static getOneFromCache(id: string): Neuron {
         return this._neuronCache.get(id);
     }
@@ -132,10 +130,6 @@ export class Neuron extends BaseModel {
         this._neuronCache.set(neuron.id, neuron);
     }
 
-    public static get neuronCount() {
-        return this._neuronCount;
-    }
-
     public static async loadNeuronCache() {
         try {
             debug(`loading neurons`);
@@ -154,10 +148,6 @@ export class Neuron extends BaseModel {
             neurons.map((n) => {
                 this._neuronCache.set(n.id, n);
             });
-
-            this._neuronCount = 0;
-
-            debug(`${this.neuronCount} public-visible neurons`);
         } catch (err) {
             debug(err)
         }
@@ -485,7 +475,7 @@ export class Neuron extends BaseModel {
 
             const duration = Date.now() - start;
 
-            const totalCount = Neuron.neuronCount;
+            const totalCount = Reconstruction.reconstructionCount();
 
             neurons = neurons.sort((b, a) => a.idString.localeCompare(b.idString));
 

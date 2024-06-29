@@ -2,14 +2,11 @@ import * as path from "path";
 
 import {ServiceOptions} from "../options/serviceOptions";
 import {Tracing} from "../models/tracing";
-import {TracingNode} from "../models/tracingNode";
 import {StaticPool} from "node-worker-threads-pool";
 
 const debug = require("debug")("mnb:search-db-api:raw-query");
 
 const compiledMap = new Map<string, any>();
-
-let cacheReady = false;
 
 let timerStart;
 
@@ -63,15 +60,15 @@ export async function loadTracingCache(performDelay = true) {
     timerStart = process.hrtime();
 
     for (let idx = 0; idx < totalCount; idx += ServiceOptions.tracingLoadLimit) {
-        (async () => {
+        await (async () => {
             const res: any[] = await pool.exec({offset: idx, limit: ServiceOptions.tracingLoadLimit}) as any[];
 
             res.forEach(r => compiledMap.set(r.id, r));
 
             if (compiledMap.size == totalCount) {
-                const hrend = process.hrtime(timerStart);
+                const hr_end = process.hrtime(timerStart);
                 debug("tracing cache loaded");
-                debug('execution time (hr): %ds %dms', hrend[0], hrend[1] / 1000000);
+                debug('execution time (hr): %ds %dms', hr_end[0], hr_end[1] / 1000000);
             }
         })();
         // debug(res);

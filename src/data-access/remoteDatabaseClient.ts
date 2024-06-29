@@ -1,8 +1,6 @@
 import * as path from "path";
 import * as fs from "fs";
-import uuid = require("uuid");
-import {parse} from "csv/lib/sync";
-import {Sequelize, QueryInterface, Options, Op} from "sequelize";
+import {Sequelize, QueryInterface, Options} from "sequelize";
 
 const debug = require("debug")("mnb:sample-api:database-connector");
 
@@ -18,27 +16,30 @@ import {loadTracingCache} from "../rawquery/tracingQueryMiddleware";
 import {Reconstruction} from "../models/reconstruction";
 
 export class RemoteDatabaseClient {
-    public static async Start(prepareSearchContents = false, options: Options = SequelizeOptions): Promise<RemoteDatabaseClient> {
+    public static async Start(prepareSearchContents = false, enableLog: boolean = false, options: Options = SequelizeOptions): Promise<RemoteDatabaseClient> {
         const client = new RemoteDatabaseClient(options);
-        await client.start(prepareSearchContents);
+        await client.start(prepareSearchContents, enableLog);
         return client;
     }
 
     private _connection: Sequelize;
+    private _enableLog: boolean;
     private readonly _options: Options;
 
     private constructor(options: Options) {
         this._options = options;
     }
 
-    private async start(prepareSearchContents: boolean) {
+    private async start(prepareSearchContents: boolean, enableLog: boolean) {
+        this._enableLog = enableLog;
+
         this.createConnection(this._options);
 
         await this.authenticate("sample");
 
-        await this.seedIfRequired();
-
         if (prepareSearchContents) {
+            await this.seedIfRequired();
+
             await this.prepareSearchContents();
         }
     }
@@ -53,14 +54,14 @@ export class RemoteDatabaseClient {
         try {
             await this._connection.authenticate();
 
-            debug(`successful database connection: ${name}`);
+            this.log(`successful database connection: ${name}`);
 
         } catch (err) {
             if (err.name === "SequelizeConnectionRefusedError") {
-                debug(`failed database connection: ${name} (connection refused - is it running?) - delaying 5 seconds`);
+                this.log(`failed database connection: ${name} (connection refused - is it running?) - delaying 5 seconds`);
             } else {
-                debug(`failed database connection: ${name} - delaying 5 seconds`);
-                debug(err);
+                this.log(`failed database connection: ${name} - delaying 5 seconds`);
+                this.log(err);
             }
 
             setTimeout(() => this.authenticate(name), 5000);
@@ -97,7 +98,7 @@ export class RemoteDatabaseClient {
             let count = await BrainArea.count();
 
             if (count < 1327) {
-                debug("seeding brain structures");
+                this.log("seeding brain structures");
 
                 const chunkSize = 250;
 
@@ -125,63 +126,63 @@ export class RemoteDatabaseClient {
                     await queryInterface.bulkInsert("BrainStructure", newItems, {});
                 }
             } else {
-                debug("skipping brain structure seed");
+                this.log("skipping brain structure seed");
             }
 
             count = await MouseStrain.count();
             if (count == 0) {
-                debug("seeding mouse strains");
+                this.log("seeding mouse strains");
                 await queryInterface.bulkInsert("Genotype", loadMouseStrains(when), {});
             } else {
-                debug("skipping mouse strain seed");
+                this.log("skipping mouse strain seed");
             }
 
             count = await StructureIdentifier.count();
             if (count == 0) {
-                debug("seeding structure identifiers");
+                this.log("seeding structure identifiers");
                 await queryInterface.bulkInsert("StructureIdentifier", loadStructureIdentifiers(when), {});
             } else {
-                debug("skipping structure identifier seed");
+                this.log("skipping structure identifier seed");
             }
 
             count = await TracingStructure.count();
             if (count == 0) {
-                debug("seeding tracing structures");
+                this.log("seeding tracing structures");
                 await queryInterface.bulkInsert("TracingStructure", loadTracingStructures(when), {});
             } else {
-                debug("skipping structure seed");
+                this.log("skipping structure seed");
             }
 
             if (ServiceOptions.seedUserItems) {
-                debug("seeding user-defined items");
+                this.log("seeding user-defined items");
 
                 count = await Sample.count();
 
                 if (count == 0) {
-                    debug("seeding samples");
+                    this.log("seeding samples");
                     await queryInterface.bulkInsert("Sample", loadSamples(when), {});
                 } else {
-                    debug("skipping sample seed");
+                    this.log("skipping sample seed");
                 }
 
                 count = await Neuron.count();
 
                 if (count == 0) {
-                    debug("seeding neurons");
+                    this.log("seeding neurons");
                     await queryInterface.bulkInsert("Neuron", loadNeurons(when), {});
                 } else {
-                    debug("skipping neuron seed");
+                    this.log("skipping neuron seed");
                 }
             }
         } catch (err) {
-            debug(err);
+            this.log(err);
         }
 
-        debug("seed complete");
+        this.log("seed complete");
     }
 
     private async prepareSearchContents() {
-        debug(`preparing search contents`);
+        this.log(`preparing search contents`);
 
         await BrainArea.loadCompartmentCache();
 
@@ -190,6 +191,12 @@ export class RemoteDatabaseClient {
         await Reconstruction.loadReconstructionCache();
 
         await loadTracingCache();
+    }
+
+    private log(message: any) {
+        if (this._enableLog) {
+            debug(`${message}`);
+        }
     }
 }
 

@@ -13,6 +13,7 @@ import {SearchContent} from "./searchContent";
 import {addTracingToMiddlewareCache} from "../rawquery/tracingQueryMiddleware";
 import {Reconstruction} from "./reconstruction";
 import {jsonParse} from "../util/JsonParser";
+import {ReconstructionStatus} from "./reconstructionStatus";
 
 const debug = require("debug")("mnb:sample-api:tracing");
 
@@ -105,10 +106,26 @@ export class Tracing extends BaseModel {
         return Tracing.count(options);
     }
 
-    public static async getUntransformed(): Promise<Tracing[]> {
-        let options = {where: {}};
+    public static async getUntransformed(publishedOnly: boolean): Promise<Tracing[]> {
+        let options = {
+            where: {
+                "searchTransformAt": null
+            }
+        };
 
-        options.where["searchTransformAt"] = {[Op.eq]: null}
+        if (publishedOnly) {
+            options.where["$Reconstruction.status$"] = ReconstructionStatus.Complete
+            options["include"] = [
+                {
+                    model: Reconstruction,
+                    as: "Reconstruction",
+                    attributes: ["id", "status"],
+                    required: true
+                }
+            ]
+        }
+
+        // options.where["searchTransformAt"] = {[Op.eq]: null}
 
         return Tracing.findAll(options);
     }
@@ -289,8 +306,6 @@ export class Tracing extends BaseModel {
                     await tracing.update({somaNodeId: soma.id});
                 }
 
-                addTracingToMiddlewareCache(tracing);
-
                 return {tracing, error: null};
             });
 
@@ -322,6 +337,8 @@ export class Tracing extends BaseModel {
                     const fullTracing = await Tracing.findOneForTransform(id);
 
                     await performNodeMap(fullTracing);
+
+                    addTracingToMiddlewareCache(tracing);
 
                     resolve({tracing: fullTracing, error: null});
                 }, 0);
