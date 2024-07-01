@@ -1,8 +1,6 @@
 import {QueryInterface} from "sequelize";
 
-import {
-    SampleTableName
-} from "./src/TableNames";
+import {SampleTableName} from "./src/TableNames";
 
 export = {
     up: async (queryInterface: QueryInterface, Sequelize: any) => {
@@ -12,6 +10,6 @@ export = {
     },
 
     down: async (queryInterface: QueryInterface, _: any) => {
-        await queryInterface.removeColumn(SampleTableName, "tomography")
+        await queryInterface.removeColumn(SampleTableName, "tomography");
     }
 }

@@ -8,7 +8,9 @@ import {
     InjectionVirusTableName,
     NeuronTableName,
     SampleTableName,
-    StructureIdentifierTableName, TracingStructureTableName, UserTableName
+    StructureIdentifierTableName,
+    TracingStructureTableName,
+    UserTableName
 } from "./src/TableNames";
 
 export = {

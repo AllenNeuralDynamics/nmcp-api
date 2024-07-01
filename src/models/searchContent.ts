@@ -7,7 +7,6 @@ import {Tracing} from "./tracing";
 import {BrainArea} from "./brainArea";
 
 export class SearchContent extends BaseModel {
-    public visibility: number;
     public neuronIdString: string;
     public neuronDOI: string;
     public neuronConsensus: number;
@@ -39,7 +38,6 @@ export const SearchContentModelAttributes = {
     },
     neuronIdString: DataTypes.TEXT,
     neuronDOI: DataTypes.TEXT,
-    visibility: DataTypes.INTEGER,
     neuronConsensus: DataTypes.INTEGER,
     somaX: DataTypes.DOUBLE,
     somaY: DataTypes.DOUBLE,

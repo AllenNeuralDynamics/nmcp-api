@@ -114,7 +114,7 @@ export class QueryPredicate implements IQueryPredicate {
 
         switch (this.predicateType) {
             case PredicateType.AnatomicalRegion:
-                findOptions.where = {visibility: {[Op.gte]: scope}};
+                findOptions.where = {};
 
                 // Zero means any, two is explicitly both types - either way, do not need to filter on structure id
                 if (this.tracingStructureIds?.length === 1) {
@@ -140,7 +140,7 @@ export class QueryPredicate implements IQueryPredicate {
                 }
                 break;
             case PredicateType.CustomRegion:
-                findOptions.where = {visibility: {[Op.gte]: scope}};
+                findOptions.where = {};
                 break;
             case PredicateType.IdOrDoi:
                 let where = null;
@@ -198,17 +198,6 @@ export class QueryPredicate implements IQueryPredicate {
                             [Op.or]: ors
                         }
                     }
-                }
-
-                if (where) {
-                    findOptions.where = {
-                        [Op.and]: [
-                            where,
-                            {visibility: {[Op.gte]: scope}}
-                        ]
-                    }
-                } else {
-                    findOptions.where = {visibility: {[Op.gte]: scope}};
                 }
                 break;
         }

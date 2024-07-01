@@ -17,6 +17,8 @@ export const TracingNodeTableName = "TracingNode";
 
 export const ReconstructionTableName = "Reconstruction";
 
+export const PrecomputedTableName = "Precomputed";
+
 export const SearchContentTable = "SearchContent";
 
 export const SynchronizationMarkerTableName = "SynchronizationMarker";

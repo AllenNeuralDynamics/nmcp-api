@@ -10,7 +10,7 @@ import {
     EntityCount,
     EntityCountOutput, EntityMutateOutput,
     EntityQueryInput,
-    EntityQueryOutput, EntityType,
+    EntityQueryOutput,
     RawEntityCount
 } from "./baseModel";
 import {
@@ -37,7 +37,6 @@ export interface SampleInput {
     sampleDate?: number;
     mouseStrainId?: string;
     mouseStrainName?: string;
-    visibility?: number;
     tomography?: string;
 }
 
@@ -47,7 +46,6 @@ export class Sample extends BaseModel {
     public tag: string;
     public comment: string;
     public sampleDate: Date;
-    public visibility: number;
     public tomography: string;
 
     public getMouseStrain!: BelongsToGetAssociationMixin<MouseStrain>;
@@ -118,7 +116,6 @@ export class Sample extends BaseModel {
             const tag = sampleInput.tag || "";
             const comment = sampleInput.comment || "";
             const mouseStrainId = sampleInput.mouseStrainId || null;
-            const visibility = sampleInput.visibility || 0;
             const tomography = sampleInput.tomography || "";
 
             const sample = await Sample.create({
@@ -127,7 +124,6 @@ export class Sample extends BaseModel {
                 animalId: animalId,
                 tag: tag,
                 comment: comment,
-                visibility: visibility,
                 mouseStrainId: mouseStrainId,
                 tomography: tomography
             });
@@ -166,10 +162,6 @@ export class Sample extends BaseModel {
 
             if (sampleInput.comment === null) {
                 sampleInput.comment = "";
-            }
-
-            if (sampleInput.visibility === null) {
-                sampleInput.visibility = 0;
             }
 
             if (sampleInput.tomography === null) {
@@ -240,13 +232,11 @@ export class Sample extends BaseModel {
             const [, counts] = await this.rawNeuronCounts(sampleIds);
 
             return {
-                entityType: EntityType.Sample,
                 counts,
                 error: null
             };
         } catch (err) {
             return {
-                entityType: EntityType.Sample,
                 counts: [],
                 error: err
             }
@@ -275,10 +265,6 @@ export const modelInit = (sequelize: Sequelize) => {
             defaultValue: ""
         },
         sampleDate: DataTypes.DATE,
-        visibility: {
-            type: DataTypes.INTEGER,
-            defaultValue: 0
-        },
         tomography: {
             type: DataTypes.TEXT,
             defaultValue: ""

@@ -6,13 +6,14 @@ import {Tracing} from "../models/tracing";
 import {Reconstruction} from "../models/reconstruction";
 import {ReconstructionStatus} from "../models/reconstructionStatus";
 import {SynchronizationMarker, SynchronizationMarkerKind} from "../models/synchronizationMarker";
+import {Precomputed} from "../models/precomputed";
 
 setTimeout(async () => {
     await RemoteDatabaseClient.Start();
 
     await performSynchronization();
 
-}, 10000);
+}, 1000);
 
 /**
  * Perform one pass of synchronizing published reconstruction data.
@@ -25,6 +26,8 @@ async function performSynchronization(repeat: boolean = true, intervalSeconds = 
     await republishUpdatedNeurons();
 
     await publishUntransformedTracings();
+
+    await notifyPrecomputed();
 
     if (repeat) {
         setTimeout(async () => {
@@ -77,9 +80,6 @@ async function republishUpdatedNeurons() {
 
             console.log(`\t${tracings.length} tracings for neuron ${n.id}`);
 
-            // TEMPORARY
-            return;
-
             const tracingPromises = tracings.map(async (t) => {
                 await Tracing.applyTransform(t.id);
             });
@@ -107,5 +107,35 @@ async function publishUntransformedTracings() {
         })
 
         await Promise.all(updatePromises);
+    }
+}
+
+/**
+ * Create an empty Precomputed entry for where needed for the python precomputed skeleton service to pick up.
+ */
+async function notifyPrecomputed() {
+    const options = {
+        where: {
+            "status": ReconstructionStatus.Complete,
+            "$Precomputed$": null
+        },
+        include: [
+            {
+                model: Precomputed,
+                as: "Precomputed"
+            }
+        ]
+    };
+
+    const ready = await Reconstruction.findAll(options);
+
+    if (ready.length > 0) {
+        const precomputed = ready.map(r => {
+            return {
+                "reconstructionId": r.id
+            }
+        });
+
+        await Precomputed.bulkCreate(precomputed);
     }
 }

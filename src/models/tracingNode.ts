@@ -32,12 +32,14 @@ export class TracingNode extends BaseModel {
 
     public getStructureIdentifier!: BelongsToGetAssociationMixin<StructureIdentifier>;
     public getTracing!: BelongsToGetAssociationMixin<Tracing>;
+    public getBrainArea!: BelongsToGetAssociationMixin<BrainArea>;
 
-    public readonly structureIdentifier?: StructureIdentifier;
+    public readonly StructureIdentifier?: StructureIdentifier;
+    public readonly BrainArea?: BrainArea;
 }
 
 export const modelInit = (sequelize: Sequelize) => {
-    TracingNode.init( {
+    TracingNode.init({
         id: {
             primaryKey: true,
             type: DataTypes.UUID,
@@ -59,7 +61,7 @@ export const modelInit = (sequelize: Sequelize) => {
 };
 
 export const modelAssociate = () => {
-    TracingNode.belongsTo(StructureIdentifier, {foreignKey: "structureIdentifierId"});
-    TracingNode.belongsTo(BrainArea, {foreignKey: "brainStructureId"});
-    TracingNode.belongsTo(Tracing, {foreignKey: "tracingId", as: "tracing"});
+    TracingNode.belongsTo(StructureIdentifier, {foreignKey: "structureIdentifierId", as: "StructureIdentifier"});
+    TracingNode.belongsTo(BrainArea, {foreignKey: "brainStructureId", as: "BrainArea"});
+    TracingNode.belongsTo(Tracing, {foreignKey: "tracingId", as: "Tracing"});
 };

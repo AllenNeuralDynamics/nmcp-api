@@ -165,7 +165,6 @@ export class TransformOperation {
                 neuronIdString: neuron.idString,
                 neuronDOI: neuron.doi,
                 neuronConsensus: neuron.consensus,
-                visibility: 0,
                 brainAreaId: entry[0],
                 nodeCount: entry[1].Node,
                 somaCount: entry[1].Soma,

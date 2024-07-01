@@ -1,17 +1,6 @@
 import {Sequelize, Model, FindOptions} from "sequelize";
 const validate = require("uuid-validate");
 
-export enum EntityType {
-    MouseStrain,
-    InjectionVirus,
-    Fluorophore,
-    RegistrationTransform,
-    Sample,
-    Injection,
-    Neuron,
-    Tracing
-}
-
 export type SortOrder = "ASC" | "DESC";
 
 export type SortAndLimit = {
@@ -36,7 +25,6 @@ export type EntityCount = {
 }
 
 export type EntityCountOutput = {
-    entityType: EntityType;
     counts: EntityCount[];
     error: string;
 }

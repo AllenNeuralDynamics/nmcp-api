@@ -85,7 +85,6 @@ let typeDefinitions = gql`
         tag: String
         comment: String
         sampleDate: Date
-        visibility: Int
         tomography: String
         mouseStrain: MouseStrain
         injections: [Injection!]!
@@ -104,7 +103,6 @@ let typeDefinitions = gql`
         x: Float
         y: Float
         z: Float
-        visibility: Int
         doi: String
         consensus: Int
         metadata: String
@@ -200,6 +198,16 @@ let typeDefinitions = gql`
         startedAt: Date
         completedAt: Date
     }
+    
+    type Precomputed {
+        id: String!
+        skeletonSegmentId: Int
+        version: Int
+        generatedAt: Date
+        reconstructionId: String!
+        createdAt: Date
+        updatedAt: Date
+    }
 
     type ReconstructionPage {
         offset: Int
@@ -234,7 +242,6 @@ let typeDefinitions = gql`
     }
 
     type EntityCountOutput {
-        entityType: Int
         counts: [EntityCount]
         error: String
     }
@@ -472,7 +479,6 @@ let typeDefinitions = gql`
         tag: String
         comment: String
         sampleDate: Date
-        visibility: Int
         tomography: String
         mouseStrainId: String
         mouseStrainName: String
@@ -488,7 +494,6 @@ let typeDefinitions = gql`
         x: Float
         y: Float
         z: Float
-        visibility: Int
         doi: String
         consensus: Int
         brainStructureId: String
@@ -571,14 +576,14 @@ let typeDefinitions = gql`
         neuronsForSample(sampleId: String): [Neuron!]!
         candidateNeurons(input: NeuronQueryInput): QueryNeurons
 
-        neuronCountsForInjections(ids: [String!]): EntityCountOutput
-        neuronCountsForSamples(ids: [String!]): EntityCountOutput
         reconstructionCountsForNeurons(ids: [String!]): EntityCountOutput
 
         structureIdentifiers: [StructureIdentifier!]!
         structureIdentifier(id: String): StructureIdentifier!
 
         tracingStructures: [TracingStructure!]!
+
+        pendingPrecomputed: [Precomputed!]!
 
         queryOperators: [QueryOperator!]!
         searchNeurons(context: SearchContext): SearchOutput
@@ -591,6 +596,7 @@ let typeDefinitions = gql`
         candidatesForUser: [Neuron!]!
         candidatesForReview: [Neuron!]!
         reviewableReconstructions: [Reconstruction!]!
+        reconstructionData(id: String!): String
 
         systemSettings: SystemSettings
     }
@@ -622,6 +628,9 @@ let typeDefinitions = gql`
         createNeuron(neuron: NeuronInput): MutatedNeuron!
         updateNeuron(neuron: NeuronInput): MutatedNeuron!
         deleteNeuron(id: String!): DeleteOutput!
+
+        updatePrecomputed(id: String!, version: Int!, generatedAt: Date!): Precomputed
+        invalidatePrecomputed(ids: [String!]!): [String!]!
 
         setSystemMessage(message: String): Boolean
         clearSystemMessage: Boolean

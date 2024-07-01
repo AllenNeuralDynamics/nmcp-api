@@ -8,10 +8,10 @@ import {IQueryDataPage, IUpdateAnnotationOutput, Neuron, NeuronInput, NeuronQuer
 import {BrainArea, CompartmentMutationData, CompartmentQueryInput} from "../models/brainArea";
 import {MouseStrain, MouseStrainInput, MouseStrainQueryInput} from "../models/mouseStrain";
 import {SampleInput, Sample, SampleQueryInput} from "../models/sample";
-import {DeleteOutput, EntityCount, EntityCountOutput, EntityMutateOutput, EntityQueryOutput, EntityType, SortAndLimit} from "../models/baseModel";
+import {DeleteOutput, EntityCount, EntityCountOutput, EntityMutateOutput, EntityQueryOutput, SortAndLimit} from "../models/baseModel";
 import {StructureIdentifier} from "../models/structureIdentifier";
 import {TracingStructure} from "../models/tracingStructure";
-import {ITracingInput, Tracing, TransformResult} from "../models/tracing";
+import {Tracing, TransformResult} from "../models/tracing";
 import {TracingNode} from "../models/tracingNode";
 import {Injection, InjectionInput, InjectionQueryInput} from "../models/injection";
 import {Fluorophore, FluorophoreInput, FluorophoreQueryInput} from "../models/fluorophore";
@@ -21,9 +21,10 @@ import {ServiceOptions} from "../options/serviceOptions";
 import {staticApiClient} from "../data-access/staticApiService";
 import {PredicateType} from "../models/queryPredicate";
 import {ISearchContextInput, SearchContext} from "../models/searchContext";
-import {User, UserPermissions, UserPermissionsAll} from "../models/user";
+import {User, UserPermissions} from "../models/user";
 import {Reconstruction} from "../models/reconstruction";
 import {ReconstructionStatus} from "../models/reconstructionStatus";
+import {Precomputed} from "../models/precomputed";
 
 //
 // GraphQL arguments
@@ -173,17 +174,15 @@ interface INeuronMutateArguments {
     neuron: NeuronInput;
 }
 
-
-export interface ITracingsCount {
-    tracingId: string;
-    count: number;
+interface IPrecomputedUpdateArguments {
+    id: string;
+    version: number;
+    generatedAt: number;
 }
 
-export interface IQueryTracingsCountOutput {
-    counts: ITracingsCount[];
-    error: Error;
-}
-
+//
+// Output
+//
 export interface IErrorOutput {
     message: string;
     name: string;
@@ -280,10 +279,6 @@ export const resolvers = {
             return Neuron.getCandidateNeurons(args.input);
         },
 
-        neuronCountsForSamples(_, args: ICountsArguments): Promise<EntityCountOutput> {
-            return Sample.neuronCountsPerSample(args.ids);
-        },
-
         async reconstructionCountsForNeurons(_, args: ICountsArguments): Promise<EntityCountOutput> {
             const counts: EntityCount[] = await Promise.all(args.ids.map(async (id) => {
                 return {
@@ -293,7 +288,6 @@ export const resolvers = {
             }));
 
             return {
-                entityType: EntityType.Tracing,
                 counts: counts,
                 error: null
             }
@@ -311,6 +305,12 @@ export const resolvers = {
                 return Reconstruction.getAll(args.pageInput, context.id);
             } else {
                 return Reconstruction.getAll(args.pageInput);
+            }
+        },
+
+        async reconstructionData(_, args: IIdOnlyArguments, context: User): Promise<string> {
+            if (context.permissions & UserPermissions.ViewReconstructions) {
+                return await Reconstruction.getAsData(args.id);
             }
         },
 
@@ -348,11 +348,18 @@ export const resolvers = {
 
             return [];
         },
+
         async searchNeurons(_, args: SearchNeuronsArguments, context: User): Promise<IQueryDataPage> {
             try {
                 return Neuron.getNeuronsWithPredicates(new SearchContext(args.context));
             } catch (err) {
                 console.log(err);
+            }
+        },
+
+        async pendingPrecomputed(_, __, context: User): Promise<Precomputed[]> {
+            if (context.permissions & UserPermissions.InternalSystem) {
+                return Precomputed.getPending();
             }
         }
     },
@@ -502,6 +509,17 @@ export const resolvers = {
             return {
                 message: "Insufficient privileges",
                 name: ""
+            }
+        },
+
+        async updatePrecomputed(_, args: IPrecomputedUpdateArguments, context: User): Promise<Precomputed> {
+            if (context.permissions & UserPermissions.InternalSystem) {
+                return await Precomputed.markAsGenerated(args.id, args.version, args.generatedAt);
+            }
+        },
+        async invalidatePrecomputed(_, args: any, context: User): Promise<string[]> {
+            if (context.permissions & UserPermissions.InternalSystem) {
+                return await Precomputed.invalidate(args.ids);
             }
         }
     },

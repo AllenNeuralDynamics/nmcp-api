@@ -6,7 +6,6 @@ import {
     EntityCount,
     EntityCountOutput, EntityMutateOutput,
     EntityQueryInput,
-    EntityType,
     RawEntityCount
 } from "./baseModel";
 import {BrainArea} from "./brainArea";
@@ -261,13 +260,11 @@ export class Injection extends BaseModel {
             const [, counts] = await this.rawNeuronCountsPerInjection(ids);
 
             return {
-                entityType: EntityType.Injection,
                 counts,
                 error: null
             };
         } catch (err) {
             return {
-                entityType: EntityType.Injection,
                 counts: [],
                 error: err
             }

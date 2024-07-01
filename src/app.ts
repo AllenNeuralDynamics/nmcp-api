@@ -63,8 +63,8 @@ async function start() {
                 if (requireAuthentication) {
                     if (ServiceOptions.serverAuthenticationKey != null && token == ServiceOptions.serverAuthenticationKey) {
                         return {
-                            id: "00000000-0000-0000-0000-000000000000",
-                            permissions: UserPermissionsAll
+                            id: "00000000-FFFF-FFFF-FFFF-000000000000",
+                            permissions: UserPermissions.InternalSystem
                         };
                     }
 

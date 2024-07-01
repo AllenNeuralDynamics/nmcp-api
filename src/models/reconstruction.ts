@@ -1,4 +1,5 @@
 import {BelongsToGetAssociationMixin, DataTypes, Op, Sequelize} from "sequelize";
+import {concat, uniqBy} from "lodash"
 
 import {ReconstructionTableName} from "./TableNames";
 import {BaseModel} from "./baseModel";
@@ -8,6 +9,10 @@ import {Tracing} from "./tracing";
 import {AxonStructureId, DendriteStructureId} from "./tracingStructure";
 import {User} from "./user";
 import {IErrorOutput, IReconstructionPage, IReconstructionPageInput} from "../graphql/serverResolvers";
+import {Precomputed} from "./precomputed";
+import {TracingNode} from "./tracingNode";
+import {StructureIdentifier} from "./structureIdentifier";
+import {BrainArea} from "./brainArea";
 
 const debug = require("debug")("mnb:nmcp-api:reconstruction-model");
 
@@ -28,6 +33,7 @@ export class Reconstruction extends BaseModel {
     public getNeuron!: BelongsToGetAssociationMixin<Neuron>;
 
     public readonly Neuron: Neuron;
+    public readonly Tracings: Tracing[];
 
     private static _reconstructionCount: number = 0;
 
@@ -270,6 +276,103 @@ export class Reconstruction extends BaseModel {
             debug(err)
         }
     }
+
+    public static async getAsData(id: string): Promise<string> {
+        const reconstruction = await Reconstruction.findByPk(id, {
+            include: [{
+                model: Neuron,
+                as: "Neuron"
+            }, {
+                model: Tracing,
+                as: "Tracings",
+                include: [{
+                    model: TracingNode,
+                    as: "Nodes",
+                    include: [{
+                        model: StructureIdentifier,
+                        as: "StructureIdentifier"
+                    }, {
+                        model: BrainArea,
+                        as: "BrainArea"
+                    }]
+                }]
+            }]
+        });
+
+
+        if (reconstruction && reconstruction.Tracings.length == 2) {
+            let axon = [];
+
+            let dendrite = [];
+
+            let nodes = mapNodes(reconstruction.Tracings[0].Nodes).sort((a, b) => a.sampleNumber - b.sampleNumber);
+
+            if (reconstruction.Tracings[0].tracingStructureId == "68e76074-1777-42b6-bbf9-93a6a5f02fa4") {
+                axon = nodes;
+            } else {
+                dendrite = nodes
+            }
+
+            const structures1 = reconstruction.Tracings[0].Nodes.filter(n => n.BrainArea).map(n => n.BrainArea);
+
+            nodes = mapNodes(reconstruction.Tracings[1].Nodes).sort((a, b) => a.sampleNumber - b.sampleNumber);
+
+            if (reconstruction.Tracings[1].tracingStructureId == "68e76074-1777-42b6-bbf9-93a6a5f02fa4") {
+                axon = nodes;
+            } else {
+                dendrite = nodes
+            }
+
+            const structures2 = reconstruction.Tracings[1].Nodes.filter(n => n.BrainArea).map(n => n.BrainArea);
+
+            const structures = uniqBy(concat(structures1, structures2), "id")
+
+            const soma = nodes.filter(n => n.sampleNumber == 1);
+
+            const allenInfo = structures.map(s => {
+                return {
+                    allenId: s.structureId,
+                    name: s.name,
+                    safeName: s.safeName,
+                    acronym: s.acronym,
+                    graphOrder: s.graphOrder,
+                    structurePath: s.structureIdPath,
+                    colorHex: s.geometryColor
+                }
+            })
+
+            if (soma.length > 0) {
+                const obj = {
+                    comment: "",
+                    neurons: [
+                        {
+                            idString: reconstruction.Neuron.idString,
+                            DOI: reconstruction.Neuron.doi,
+                            sample: null,
+                            label: null,
+                            annotationSpace: {
+                                version: 3,
+                                description: "Annotation Space: CCFv3.0 Axes> X: Anterior-Posterior; Y: Inferior-Superior; Z:Left-Right"
+                            },
+                            soma: {
+                                x: soma[0].x,
+                                y: soma[0].y,
+                                z: soma[0].z,
+                                allenId: soma[0].allenId
+                            },
+                            axon: axon,
+                            dendrite: dendrite,
+                            allenInformation: allenInfo
+                        }
+                    ]
+                }
+
+                return JSON.stringify(obj);
+            }
+        }
+
+        return null;
+    }
 }
 
 export const modelInit = (sequelize: Sequelize) => {
@@ -299,4 +402,20 @@ export const modelAssociate = () => {
     Reconstruction.belongsTo(User, {foreignKey: "proofreaderId", as: "Proofreader"});
     Reconstruction.belongsTo(Neuron, {foreignKey: "neuronId", as: "Neuron"});
     Reconstruction.hasMany(Tracing, {foreignKey: "reconstructionId", as: "Tracings"});
+    Reconstruction.hasOne(Precomputed, {foreignKey: "reconstructionId", as: "Precomputed"});
 };
+
+function mapNodes(nodes: TracingNode[]) {
+    return nodes.map(n => {
+        return {
+            sampleNumber: n.sampleNumber,
+            structureIdentifier: n.StructureIdentifier.value,
+            x: n.z,
+            y: n.y,
+            z: n.x,
+            radius: n.radius,
+            parentNumber: n.parentNumber,
+            allenId: n.BrainArea ? n.BrainArea.structureId : null
+        }
+    });
+}

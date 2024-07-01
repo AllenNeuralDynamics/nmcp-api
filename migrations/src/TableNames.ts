@@ -19,4 +19,6 @@ export const ReconstructionTableName = "Reconstruction";
 
 export const SearchContentTable = "SearchContent";
 
+export const PrecomputedTableName = "Precomputed";
+
 export const SynchronizationMarkerTableName = "SynchronizationMarker";

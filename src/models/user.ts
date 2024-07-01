@@ -18,7 +18,9 @@ export enum UserPermissions {
     ReviewAll = Review,
     Admin = 0x1000,
     // Any admin permutations through 0x80000
-    AdminAll = Admin
+    AdminAll = Admin,
+    InternalAccess = 0x1000000,
+    InternalSystem = 0xFFFFFFF
 }
 
 export const UserPermissionsAll = UserPermissions.ViewAll | UserPermissions.EditAll | UserPermissions.ReviewAll | UserPermissions.AdminAll;

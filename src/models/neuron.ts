@@ -50,7 +50,6 @@ export interface NeuronInput {
     doi?: string;
     metadata?: string;
     consensus?: ConsensusStatus;
-    visibility?: number;
     brainStructureId?: string;
     sampleId?: string;
 }
@@ -84,7 +83,6 @@ export class Neuron extends BaseModel {
     public z: number;
     public doi: string;
     public metadata?: string;
-    public visibility: number;
     public consensus: ConsensusStatus;
     public brainStructureId?: string;
 
@@ -291,7 +289,6 @@ export class Neuron extends BaseModel {
                 x: neuronInput.x || 0,
                 y: neuronInput.y || 0,
                 z: neuronInput.z || 0,
-                visibility: 1,
                 consensus: neuronInput.consensus || ConsensusStatus.None,
                 brainStructureId: neuronInput.brainStructureId,
                 sampleId: neuronInput.sampleId
@@ -374,10 +371,6 @@ export class Neuron extends BaseModel {
 
             if (neuronInput.z === null) {
                 neuronInput.z = 0;
-            }
-
-            if (neuronInput.visibility === null) {
-                neuronInput.visibility = 1;
             }
 
             if (neuronInput.consensus === null) {
@@ -611,10 +604,6 @@ export const modelInit = (sequelize: Sequelize) => {
         z: {
             type: DataTypes.DOUBLE,
             defaultValue: 0
-        },
-        visibility: {
-            type: DataTypes.INTEGER,
-            defaultValue: 1
         },
         doi: {
             type: DataTypes.TEXT
