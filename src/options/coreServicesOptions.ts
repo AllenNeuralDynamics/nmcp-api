@@ -8,9 +8,9 @@ export interface IGraphQLServiceOptions {
 
 const databaseServices = {
     sample: {
-        host: "sample-db",
+        host: "nmcp-db",
         port: 5432,
-        database: "samples_production",
+        database: "nmcp_production",
         username: "postgres",
         password: "pgsecret",
         dialect: "postgres" as Dialect,

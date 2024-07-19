@@ -1,12 +1,10 @@
 {
   "name": "nmcp-sample-api",
-  "version": "2.0.11",
+  "version": "2.0.12",
   "main": "dist/app.js",
   "repository": "https://github.com/AllenNeuralDynamics/nmcp-sample-api",
   "author": "Patrick Edson <pedson@leapscientific.com>",
   "license": "SEE LICENSE IN LICENSE",
-  "dockerRepository": "leapscientific",
-  "dockerImageName": "sample-api",
   "scripts": {
     "debug": "tsc && node --trace-warnings --max-old-space-size=8192 --optimize-for-size src/app.js",
     "express": "node dist/app.js"
