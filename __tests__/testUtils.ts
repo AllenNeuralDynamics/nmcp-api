@@ -4,10 +4,12 @@ import uuid = require("uuid");
 import {Dialect} from "sequelize";
 import {ApolloServer} from "apollo-server";
 import {ApolloServerTestClient, createTestClient} from "apollo-server-testing";
+import { merge } from 'lodash';
 
 import {RemoteDatabaseClient} from "../src/data-access/remoteDatabaseClient";
 import typeDefinitions from "../src/graphql/typeDefinitions";
-import {resolvers} from "../src/graphql/serverResolvers";
+import {openResolvers} from "../src/graphql/secureResolvers";
+import {secureResolvers} from "../src/graphql/secureResolvers";
 
 export const copyDatabase = async (): Promise<string> => {
     const tempName = `${uuid.v4()}.sqlite`;
@@ -32,7 +34,7 @@ export const removeDatabase = (name) => {
 export function createServerTestClient(): ApolloServerTestClient {
     const server = new ApolloServer({
         typeDefs: typeDefinitions,
-        resolvers
+        resolvers: merge(openResolvers, secureResolvers)
     });
 
     return createTestClient(server);

@@ -15,11 +15,6 @@ const WHOLE_BRAIN_STRUCTURE_ID = 997;
 
 export type CompartmentQueryInput = EntityQueryInput & WithNeuronsQueryInput;
 
-export type CompartmentMutationData = {
-    id: string;
-    aliasList: string[];
-}
-
 export interface IBrainArea {
     id: string;
     structureId: number;
@@ -129,30 +124,6 @@ export class BrainArea extends BaseModel {
                 }
             }
         }))?.id;
-    }
-
-    public static async updateWith(input: CompartmentMutationData): Promise<EntityMutateOutput<BrainArea>> {
-        try {
-            if (!input) {
-                return {source: null, error: "Brain area properties are a required input"};
-            }
-
-            if (!input.id) {
-                return {source: null, error: "Brain area input must contain the id of the object to update"};
-            }
-
-            let row = await BrainArea.findByPk(input.id);
-
-            if (!row) {
-                return {source: null, error: "The brain area could not be found"};
-            }
-
-            const update = await row.update(input);
-
-            return {source: update, error: null};
-        } catch (error) {
-            return {source: null, error: error.message};
-        }
     }
 
     protected static defaultSortField(): string {

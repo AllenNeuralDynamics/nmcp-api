@@ -4,21 +4,23 @@ import * as bodyParser from "body-parser";
 import * as cors from 'cors';
 import {ApolloServer} from '@apollo/server';
 import {expressMiddleware} from '@apollo/server/express4';
-
 const graphqlUploadExpress = require('graphql-upload/graphqlUploadExpress.js');
+import { merge } from 'lodash';
+import {jwtDecode} from "jwt-decode";
+import moment = require("moment");
+
 const debug = require("debug")("mnb:sample-api:server");
 
 import {ServiceOptions} from "./options/serviceOptions";
-import typeDefinitions from "./graphql/typeDefinitions";
-import {resolvers} from "./graphql/serverResolvers";
+import {typeDefinitions} from "./graphql/typeDefinitions";
+import {openResolvers} from "./graphql/openResolvers";
+import {secureResolvers} from "./graphql/secureResolvers";
+import {internalResolvers} from "./graphql/internalResolvers";
 import {RemoteDatabaseClient} from "./data-access/remoteDatabaseClient";
-import {GraphQLError} from "graphql/error";
 
-import {jwtDecode} from "jwt-decode";
-import moment = require("moment");
 import {tracingQueryMiddleware} from "./rawquery/tracingQueryMiddleware";
 import {synchronizationManagerStart} from "./synchronization/synchonizationManager";
-import {User, UserPermissions, UserPermissionsAll} from "./models/user";
+import {User, UserPermissions} from "./models/user";
 
 const config = require('./authConfig.json');
 
@@ -39,8 +41,8 @@ async function start() {
 
     const server = new ApolloServer<User>({
         typeDefs: typeDefinitions,
-        resolvers,
-        introspection: true,
+        resolvers: merge(openResolvers, secureResolvers, internalResolvers),
+        introspection: process.env.NODE_ENV === "development",
         csrfPrevention: false
     });
 
@@ -70,19 +72,9 @@ async function start() {
 
                     let [scopes, tokenUser] = await validateToken(token);
 
-                    if (scopes == null) {
-                        /*
-                        throw new GraphQLError('User is not authenticated', {
-                            extensions: {
-                                code: 'UNAUTHENTICATED',
-                                http: {status: 401},
-                            },
-                        });
-                         */
-                        tokenUser = null;
+                    if (scopes != null) {
+                        user = tokenUser;
                     }
-
-                    user = tokenUser;
                 }
 
                 return user ||  {

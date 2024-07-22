@@ -3,7 +3,7 @@ import {BelongsToGetAssociationMixin, DataTypes, HasManyGetAssociationsMixin, Op
 import {BaseModel, DeleteOutput} from "./baseModel";
 import {AxonStructureId, DendriteStructureId, TracingStructure} from "./tracingStructure";
 import {TracingNode, TracingNodeMutationData} from "./tracingNode";
-import {IUploadOutput} from "../graphql/serverResolvers";
+import {IUploadOutput} from "../graphql/secureResolvers";
 import {SwcData, swcParse} from "../util/SwcParser";
 import {StructureIdentifier, StructureIdentifiers} from "./structureIdentifier";
 import * as fs from "fs";

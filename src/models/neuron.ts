@@ -54,11 +54,6 @@ export interface NeuronInput {
     sampleId?: string;
 }
 
-export interface IUpdateAnnotationOutput {
-    metadata: string;
-    error: string;
-}
-
 export interface IQueryDataPage {
     nonce: string;
     queryTime: number;
@@ -403,62 +398,6 @@ export class Neuron extends BaseModel {
             return {id, error: error.message};
         }
     }
-
-    public static async updateAnnotationMetadata(neuronId: string, upload: Promise<any>): Promise<IUpdateAnnotationOutput> {
-        if (upload == null) {
-            return {metadata: null, error: "ERROR: File not specified."};
-        }
-
-        const file = await upload;
-
-        if (file == null) {
-            return {metadata: null, error: "ERROR: File not specified."};
-        }
-
-        const neuron: Neuron = await Neuron.findByPk(neuronId);
-
-        if (!neuron) {
-            return {metadata: null, error: `ERROR: The neuron with id ${neuronId} could not be found.`};
-        }
-        const stream = file.createReadStream();
-
-        return new Promise((resolve) => {
-            let buffer: string = "";
-
-            stream.on("readable", () => {
-                let line: Buffer;
-
-                while ((line = stream.read()) !== null) {
-                    buffer += line.toString("utf8");
-                }
-            });
-
-            stream.on("end", () => {
-                console.log(buffer);
-
-                try {
-                    const data = JSON.parse(buffer) as IAnnotationMetadata;
-
-                    if (data != null) {
-                        neuron.annotationMetadata = data;
-                    } else {
-                        resolve({metadata: null, error: "ERROR: Could not parse annotation metadata."});
-                    }
-                } catch (error) {
-                    resolve({metadata: null, error: "ERROR: Could not parse annotation metadata.\n" + error.toString()});
-                }
-
-                try {
-                    neuron.save();
-                } catch (error) {
-                    resolve({metadata: null, error: "ERROR: Changes could not be committed.\n" + error.toString()});
-                }
-
-                resolve({metadata: buffer, error: null});
-            });
-        });
-    }
-
 
     public static async getNeuronsWithPredicates(context: SearchContext): Promise<IQueryDataPage> {
         try {

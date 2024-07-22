@@ -1,0 +1,54 @@
+import {gql} from "graphql-tag";
+
+export const queryTypeDefinitions = gql`
+    type ReconstructionPage {
+        offset: Int
+        limit: Int
+        totalCount: Int
+        reconstructions: [Reconstruction!]!
+    }
+
+    type QueryUsers {
+        totalCount: Int!
+        items: [User!]!
+    }
+
+    type QueryBrainAreas {
+        totalCount: Int!
+        items: [BrainArea!]!
+    }
+
+    type QuerySamples {
+        totalCount: Int!
+        items: [Sample!]!
+    }
+
+    type QueryNeurons {
+        totalCount: Int!
+        items: [Neuron!]!
+    }
+
+    type EntityCount {
+        id: String
+        count: Int
+    }
+
+    type EntityCountOutput {
+        counts: [EntityCount]
+        error: String
+    }
+
+    type SearchOutput {
+        nonce: String
+        queryTime: Int
+        totalCount: Int
+        neurons: [Neuron]
+        error: SearchError
+    }
+
+    type SearchError {
+        message: String
+        code: String
+        name: String
+    }
+`;

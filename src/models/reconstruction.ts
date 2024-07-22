@@ -8,7 +8,7 @@ import {ReconstructionStatus} from "./reconstructionStatus";
 import {Tracing} from "./tracing";
 import {AxonStructureId, DendriteStructureId} from "./tracingStructure";
 import {User} from "./user";
-import {IErrorOutput, IReconstructionPage, IReconstructionPageInput} from "../graphql/serverResolvers";
+import {IErrorOutput, IReconstructionPage, IReconstructionPageInput} from "../graphql/secureResolvers";
 import {Precomputed} from "./precomputed";
 import {TracingNode} from "./tracingNode";
 import {StructureIdentifier} from "./structureIdentifier";
@@ -77,6 +77,14 @@ export class Reconstruction extends BaseModel {
         }
 
         return out;
+    }
+
+    public static async isUserAnnotator(id: string, userId: string): Promise<boolean> {
+        const reconstruction = await Reconstruction.findByPk(id, {
+            attributes: ["annotatorId"]
+        })
+
+        return reconstruction && reconstruction.annotatorId == userId;
     }
 
     /**
