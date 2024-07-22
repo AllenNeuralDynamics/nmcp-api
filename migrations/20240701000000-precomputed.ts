@@ -1,6 +1,13 @@
 import {QueryInterface} from "sequelize";
 
-import {SampleTableName, NeuronTableName, SearchContentTable, PrecomputedTableName, ReconstructionTableName} from "./src/TableNames";
+import {
+    SampleTableName,
+    NeuronTableName,
+    SearchContentTable,
+    PrecomputedTableName,
+    ReconstructionTableName,
+    SynchronizationMarkerTableName
+} from "./src/TableNames";
 
 export = {
     up: async (queryInterface: QueryInterface, Sequelize: any) => {
@@ -54,5 +61,6 @@ export = {
             type: Sequelize.INTEGER,
             defaultValue: 0
         });
+        await queryInterface.dropTable(PrecomputedTableName);
     }
 }
