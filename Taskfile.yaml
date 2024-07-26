@@ -3,8 +3,8 @@
 version: '3'
 
 vars:
-  REPOSITORY: leapscientific
-  IMAGE: nmcp-api
+  REPOSITORY: ghcr.io
+  IMAGE: allenneuraldynamics/nmcp-api
   REPOIMAGE: "{{.REPOSITORY}}/{{.IMAGE}}"
   VERSION:
     sh: jq -r .version package.json
@@ -22,6 +22,7 @@ vars:
 tasks:
   clean:
     cmds:
+      - echo {{.MAJOR}}
       - rm -rf dist
   compile:
     cmds:
