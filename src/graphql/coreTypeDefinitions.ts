@@ -105,6 +105,7 @@ export const coreTypeDefinitions = gql`
         tomography: String
         mouseStrain: MouseStrain
         injections: [Injection!]!
+        collectionId: String
         neurons: [Neuron!]!
         neuronCount: Int
         createdAt: Date
@@ -210,6 +211,15 @@ export const coreTypeDefinitions = gql`
         version: Int
         generatedAt: Date
         reconstructionId: String!
+        createdAt: Date
+        updatedAt: Date
+    }
+    
+    type Collection {
+        id: String!
+        name: String!
+        description: String
+        reference: String
         createdAt: Date
         updatedAt: Date
     }

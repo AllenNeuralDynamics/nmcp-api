@@ -79,11 +79,6 @@ export const inputTypeDefinitions = gql`
         limit: Int
     }
 
-    input BrainAreaInput {
-        id: String
-        aliasList: [String]
-    }
-
     input MouseStrainInput {
         id: String
         name: String
@@ -119,6 +114,7 @@ export const inputTypeDefinitions = gql`
         tomography: String
         mouseStrainId: String
         mouseStrainName: String
+        collectionId: String
         neuronIds: [String]
     }
 
@@ -135,6 +131,13 @@ export const inputTypeDefinitions = gql`
         consensus: Int
         brainStructureId: String
         sampleId: String
+    }
+
+    input CollectionInput {
+        id: String
+        name: String
+        description: String
+        reference: String
     }
 
     input TracingPageInput {

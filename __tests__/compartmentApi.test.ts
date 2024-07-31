@@ -144,50 +144,6 @@ describe("compartment api associations", () => {
 
 // endregion
 
-// region Mutations
-
-describe("compartment api mutations", () => {
-    it("adds and removes a compartment aliases", async () => {
-        const original = await BrainArea.findByPk(WHOLE_BRAIN);
-
-        expect(original.aliasList.length).toBe(0);
-
-        await mutateAliasLists(testClient, ["default-view", "baseView"]);
-
-        await mutateAliasLists(testClient);
-    });
-});
-
-
-// endregion
-
-// region Helper
-
-async function mutateAliasLists(testClient: ApolloServerTestClient, aliases: string[] = []) {
-    let res = await testClient.mutate({
-        mutation: UPDATE_COMPARTMENT,
-        variables: {
-            brainArea: {
-                id: WHOLE_BRAIN,
-                aliasList: aliases
-            }
-        }
-    });
-
-    expect(res.data).toBeTruthy();
-    expect(res.data.updateBrainArea).toBeTruthy();
-
-    let wholeBrain = res.data.updateBrainArea.source;
-
-    expect(wholeBrain).toBeTruthy();
-    expect(wholeBrain.id).toBe(WHOLE_BRAIN);
-    expect(wholeBrain.aliasList.length).toBe(aliases.length);
-
-    aliases.forEach((alias => expect(wholeBrain.aliasList).toContain(alias)));
-}
-
-// endregion
-
 // region - setup/teardown
 
 let tempDatabaseName = "";
@@ -232,17 +188,6 @@ query brainAreas($input: BrainAreaQueryInput) {
         name
         safeName
         acronym
-    }
-}`;
-
-const UPDATE_COMPARTMENT = gql`
-mutation updateBrainArea($brainArea: BrainAreaInput) {
-    updateBrainArea(brainArea: $brainArea) {
-        source {
-            id
-            aliasList
-        }
-        error
     }
 }`;
 

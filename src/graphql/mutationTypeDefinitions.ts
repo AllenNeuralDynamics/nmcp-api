@@ -36,6 +36,11 @@ export const mutationTypeDefinitions = gql`
         error: String
     }
 
+    type MutatedCollection {
+        source: Collection
+        error: String
+    }
+
     type DeleteOutput {
         id: String
         error: String

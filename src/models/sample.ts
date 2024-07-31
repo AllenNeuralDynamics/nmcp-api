@@ -22,6 +22,7 @@ import {
 import {MouseStrain} from "./mouseStrain";
 import {Neuron} from "./neuron";
 import {Injection} from "./injection";
+import {Collection} from "./collection";
 
 export type SampleQueryInput =
     EntityQueryInput
@@ -37,6 +38,7 @@ export interface SampleInput {
     sampleDate?: number;
     mouseStrainId?: string;
     mouseStrainName?: string;
+    collectionId?: string;
     tomography?: string;
 }
 
@@ -117,6 +119,12 @@ export class Sample extends BaseModel {
             const comment = sampleInput.comment || "";
             const mouseStrainId = sampleInput.mouseStrainId || null;
             const tomography = sampleInput.tomography || "";
+            let collectionId = sampleInput.collectionId || null;
+
+            if (collectionId === null || collectionId.length == 0) {
+                const collection = await Collection.findOne();
+                collectionId = collection.id;
+            }
 
             const sample = await Sample.create({
                 idNumber: idNumber,
@@ -125,6 +133,7 @@ export class Sample extends BaseModel {
                 tag: tag,
                 comment: comment,
                 mouseStrainId: mouseStrainId,
+                collectionId: collectionId,
                 tomography: tomography
             });
 
@@ -177,6 +186,10 @@ export class Sample extends BaseModel {
                 sampleInput.mouseStrainId = out.id;
             } else if (sampleInput.mouseStrainName === null) {
                 sampleInput.mouseStrainId = null;
+            }
+
+            if (sampleInput.collectionId === null) {
+                delete sampleInput.collectionId;
             }
 
             const sample = await row.update(sampleInput);
@@ -279,6 +292,7 @@ export const modelInit = (sequelize: Sequelize) => {
 
 export const modelAssociate = () => {
     Sample.belongsTo(MouseStrain, {foreignKey: "mouseStrainId"});
+    Sample.belongsTo(Collection, {foreignKey: "collectionId"});
     Sample.hasMany(Neuron, {foreignKey: "sampleId"});
     Sample.hasMany(Injection, {foreignKey: "sampleId"});
 };

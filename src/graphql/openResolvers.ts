@@ -12,6 +12,7 @@ import {TracingStructure} from "../models/tracingStructure";
 import {staticApiClient} from "../data-access/staticApiService";
 import {IQueryDataPage, Neuron} from "../models/neuron";
 import {ISearchContextInput, SearchContext} from "../models/searchContext";
+import {Collection} from "../models/collection";
 
 export interface IIdOnlyArguments {
     id: string;
@@ -69,6 +70,10 @@ export const openResolvers = {
             }
 
             return [];
+        },
+
+        collections(): Promise<Collection[]> {
+            return Collection.findAll();
         },
 
         async searchNeurons(_, args: SearchNeuronsArguments, context: User): Promise<IQueryDataPage> {

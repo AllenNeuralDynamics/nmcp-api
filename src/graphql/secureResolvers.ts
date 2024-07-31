@@ -18,6 +18,7 @@ import {User, UserPermissions} from "../models/user";
 import {Reconstruction} from "../models/reconstruction";
 import {ReconstructionStatus} from "../models/reconstructionStatus";
 import {GraphQLError} from "graphql/error";
+import {Collection, CollectionInput} from "../models/collection";
 
 export class UnauthorizedError extends GraphQLError {
     public constructor() {
@@ -136,13 +137,16 @@ interface IInjectionMutateArguments {
     injectionInput: InjectionInput;
 }
 
-
 interface ISampleMutateArguments {
     sample: SampleInput;
 }
 
 interface INeuronMutateArguments {
     neuron: NeuronInput;
+}
+
+interface ICollectionMutateArguments {
+    collection: CollectionInput
 }
 
 //
@@ -589,6 +593,43 @@ export const secureResolvers = {
             });
         },
 
+        createCollection(_, args: ICollectionMutateArguments, context: User): Promise<EntityMutateOutput<Collection>> {
+            if (context.permissions & UserPermissions.Admin) {
+                return Collection.createWith(args.collection);
+            }
+
+            throw new GraphQLError('User is not authenticated', {
+                extensions: {
+                    code: 'UNAUTHENTICATED',
+                    http: {status: 401},
+                },
+            });
+        },
+        updateCollection(_, args: ICollectionMutateArguments, context: User): Promise<EntityMutateOutput<Collection>> {
+            if (context.permissions & UserPermissions.Admin) {
+                return Collection.updateWith(args.collection);
+            }
+
+            throw new GraphQLError('User is not authenticated', {
+                extensions: {
+                    code: 'UNAUTHENTICATED',
+                    http: {status: 401},
+                },
+            });
+        },
+        deleteCollection(_, args: IIdOnlyArguments, context: User): Promise<DeleteOutput> {
+            if (context.permissions & UserPermissions.Admin) {
+                return Collection.deleteFor(args.id);
+            }
+
+            throw new GraphQLError('User is not authenticated', {
+                extensions: {
+                    code: 'UNAUTHENTICATED',
+                    http: {status: 401},
+                },
+            });
+        },
+
         uploadSwc(_, args: ITracingUploadArguments, context: User): Promise<IUploadOutput> {
             if (context.permissions & UserPermissions.Review) {
                 return Tracing.createApprovedTracing(context.id, args.neuronId, args.structureId, args.file);
@@ -744,11 +785,11 @@ export const secureResolvers = {
         mouseStrain(sample: Sample, _, __): Promise<MouseStrain> {
             return sample.getMouseStrain();
         },
-        neurons(sample: Sample): Promise<Neuron[]> {
-            return sample.getNeurons();
-        },
         injections(sample: Sample): Promise<Injection[]> {
             return sample.getInjections();
+        },
+        neurons(sample: Sample): Promise<Neuron[]> {
+            return sample.getNeurons();
         },
         async neuronCount(sample: Sample): Promise<number> {
             const output = await Sample.neuronCountsPerSample([sample.id]);

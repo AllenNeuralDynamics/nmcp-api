@@ -42,6 +42,8 @@ export const typeDefinitions = gql`
 
         neurons(input: NeuronQueryInput): QueryNeurons
         neuron(id: String!): Neuron
+        
+        collections: [Collection!]!
 
         queryOperators: [QueryOperator!]!
 
@@ -84,6 +86,10 @@ export const typeDefinitions = gql`
         createNeuron(neuron: NeuronInput): MutatedNeuron!
         updateNeuron(neuron: NeuronInput): MutatedNeuron!
         deleteNeuron(id: String!): DeleteOutput!
+        
+        createCollection(collection: CollectionInput!): MutatedCollection!
+        updateCollection(collection: CollectionInput!): MutatedCollection!
+        deleteCollection(id: String!): DeleteOutput!
 
         updatePrecomputed(id: String!, version: Int!, generatedAt: Date!): Precomputed
         invalidatePrecomputed(ids: [String!]!): [String!]!
