@@ -22,7 +22,6 @@ vars:
 tasks:
   clean:
     cmds:
-      - echo {{.MAJOR}}
       - rm -rf dist
   compile:
     cmds:
