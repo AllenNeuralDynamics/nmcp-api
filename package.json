@@ -58,6 +58,7 @@
     "@types/validator": "^10.11.3",
     "jest": "^24.9.0",
     "sqlite3": "^4.1.0",
-    "ts-jest": "^24.1.0"
+    "ts-jest": "^24.1.0",
+    "typescript": "^5.3.3"
   }
 }

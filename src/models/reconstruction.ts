@@ -13,6 +13,7 @@ import {Precomputed} from "./precomputed";
 import {TracingNode} from "./tracingNode";
 import {StructureIdentifier} from "./structureIdentifier";
 import {BrainArea} from "./brainArea";
+import {Sample} from "./sample";
 
 const debug = require("debug")("mnb:nmcp-api:reconstruction-model");
 
@@ -289,7 +290,11 @@ export class Reconstruction extends BaseModel {
         const reconstruction = await Reconstruction.findByPk(id, {
             include: [{
                 model: Neuron,
-                as: "Neuron"
+                as: "Neuron",
+                include: [{
+                    model: Sample,
+                    as: "Sample",
+                }]
             }, {
                 model: Tracing,
                 as: "Tracings",
@@ -356,7 +361,7 @@ export class Reconstruction extends BaseModel {
                         {
                             idString: reconstruction.Neuron.idString,
                             DOI: reconstruction.Neuron.doi,
-                            sample: null,
+                            sample: reconstruction.Neuron.Sample?.animalId,
                             label: null,
                             annotationSpace: {
                                 version: 3,

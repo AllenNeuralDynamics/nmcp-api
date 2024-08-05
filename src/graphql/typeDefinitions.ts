@@ -59,7 +59,9 @@ export const typeDefinitions = gql`
         reconstructions(pageInput: ReconstructionPageInput): ReconstructionPage!
         candidatesForReview: [Neuron!]!
         reviewableReconstructions: [Reconstruction!]!
+        
         reconstructionData(id: String!): String
+        neuronReconstructionData(id: String!): String
     }
 
     type Mutation {        

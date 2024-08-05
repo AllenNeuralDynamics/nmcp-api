@@ -100,7 +100,7 @@ export class Neuron extends BaseModel {
     }
 
     public static async updateCache(id: string) {
-        const neuron = await Neuron.findByPk(id,{
+        const neuron = await Neuron.findByPk(id, {
             include: [
                 {
                     model: BrainArea,
@@ -175,7 +175,7 @@ export class Neuron extends BaseModel {
             where: {annotatorId: userId, status: ReconstructionStatus.Approved}
         });
 
-        const neuronPromises = annotations.map(async(t) => {
+        const neuronPromises = annotations.map(async (t) => {
             return await t.getNeuron();
         })
 
@@ -187,7 +187,7 @@ export class Neuron extends BaseModel {
             where: {status: ReconstructionStatus.Approved}
         });
 
-        const neuronPromises = annotations.map(async(t) => {
+        const neuronPromises = annotations.map(async (t) => {
             return await t.getNeuron();
         })
 
@@ -197,7 +197,10 @@ export class Neuron extends BaseModel {
     public static async getCandidateNeurons(input: NeuronQueryInput): Promise<EntityQueryOutput<Neuron>> {
         const neuronIds = (await Neuron.findAll({attributes: ["id"]})).map(n => n.id);
 
-        const neuronIdsWithCompletedReconstruction = (await Reconstruction.findAll({where: {status: ReconstructionStatus.Complete}, attributes: ["neuronId"]})).map(t => t.neuronId);
+        const neuronIdsWithCompletedReconstruction = (await Reconstruction.findAll({
+            where: {status: ReconstructionStatus.Complete},
+            attributes: ["neuronId"]
+        })).map(t => t.neuronId);
 
         const neuronsWithCompletedReconstruction = _.uniq(neuronIdsWithCompletedReconstruction);
 
@@ -506,6 +509,21 @@ export class Neuron extends BaseModel {
         }
 
         return neuron;
+    }
+
+    public static async getReconstructionsAsData(id: string): Promise<string> {
+        const reconstruction = await Reconstruction.findOne({
+            where: {
+                neuronId: id
+            },
+            attributes: ["id"]
+        });
+
+        if (reconstruction) {
+            return await Reconstruction.getAsData(reconstruction.id);
+        }
+
+        return null;
     }
 }
 

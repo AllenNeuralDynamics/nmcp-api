@@ -3,6 +3,7 @@ import {Precomputed} from "../models/precomputed";
 import {IIdOnlyArguments} from "./openResolvers";
 import {Reconstruction} from "../models/reconstruction";
 import {GraphQLError} from "graphql/error";
+import {Neuron} from "../models/neuron";
 
 const InternalPermission = UserPermissions.InternalSystem;
 
@@ -20,6 +21,18 @@ export const internalResolvers = {
         reconstructionData(_, args: IIdOnlyArguments, context: User): Promise<string> {
             if (context.permissions == InternalPermission) {
                 return Reconstruction.getAsData(args.id);
+            }
+
+            throw new GraphQLError('User is not authenticated', {
+                extensions: {
+                    code: 'UNAUTHENTICATED',
+                    http: {status: 401},
+                },
+            });
+        },
+        neuronReconstructionData(_, args: IIdOnlyArguments, context: User): Promise<string> {
+            if (context.permissions == InternalPermission) {
+                return Neuron.getReconstructionsAsData(args.id);
             }
 
             throw new GraphQLError('User is not authenticated', {
