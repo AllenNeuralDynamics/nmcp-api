@@ -7,7 +7,7 @@ export interface IGraphQLServiceOptions {
 }
 
 const databaseServices = {
-    sample: {
+    nmcp: {
         host: "nmcp-db",
         port: 5432,
         database: "nmcp_production",
@@ -32,18 +32,18 @@ const services = {
 };
 
 function loadDatabaseOptions(options): any {
-    options.sample.host = process.env.SAMPLE_DB_HOST || process.env.DATABASE_HOST || process.env.CORE_SERVICES_HOST || options.sample.host;
-    options.sample.port = parseInt(process.env.SAMPLE_DB_PORT) || parseInt(process.env.DATABASE_PORT) || options.sample.port;
-    options.sample.username = process.env.DATABASE_UN || options.sample.username;
-    options.sample.password = process.env.DATABASE_PW || options.sample.password;
+    options.nmcp.host = process.env.NMCP_DB_HOST || options.nmcp.host;
+    options.nmcp.port = parseInt(process.env.NMCP_DB_PORT) || options.nmcp.port;
+    options.nmcp.username = process.env.NMCP_DATABASE_UN || options.nmcp.username;
+    options.nmcp.password = process.env.NMCP_DATABASE_PW || options.nmcp.password;
 
     return options;
 }
 
 function loadGraphQLOptions(options): any {
-    options.staticApi.host = process.env.STATIC_API_HOST || process.env.CORE_SERVICES_HOST || options.staticApi.host;
+    options.staticApi.host = process.env.STATIC_API_HOST || options.staticApi.host;
     options.staticApi.port = parseInt(process.env.STATIC_API_PORT) || options.staticApi.port;
-    options.staticApi.graphQLEndpoint = process.env.STATIC_API_ENDPOINT || process.env.CORE_SERVICES_ENDPOINT || options.staticApi.graphQLEndpoint;
+    options.staticApi.graphQLEndpoint = process.env.STATIC_API_ENDPOINT || options.staticApi.graphQLEndpoint;
 
     return options;
 }
@@ -59,6 +59,6 @@ function loadConfiguration() {
 
 export const CoreServiceOptions = loadConfiguration();
 
-export const SequelizeOptions: Options = CoreServiceOptions.database.sample;
+export const SequelizeOptions: Options = CoreServiceOptions.database.nmcp;
 
 export const StaticServiceOptions: IGraphQLServiceOptions = CoreServiceOptions.graphQL.staticApi;

@@ -1,12 +1,20 @@
 import * as path from "path";
 import * as fs from "fs";
 
-export interface IServiceOptions {
+type B2CAuthenticationOptions = {
+    tenantName: string;
+    audience: string;
+    clientId: string;
+    policyName: string;
+}
+
+type IServiceOptions = {
     port: number;
     graphQLEndpoint: string;
-    fixturePath: string;
     requireAuthentication: boolean;
+    b2cAuthenticationOptions: B2CAuthenticationOptions;
     serverAuthenticationKey: string;
+    fixturePath: string;
     seedUserItems: boolean;
     ccfv30OntologyPath: string;
     tracingLoadMaxDelay: number;
@@ -18,9 +26,15 @@ const configuration: IServiceOptions = {
     port: 5000,
     graphQLEndpoint: "/graphql",
     fixturePath: "fixtures",
-    requireAuthentication: true,
-    serverAuthenticationKey: null,
-    seedUserItems: false,
+    requireAuthentication: process.env.NMCP_AUTH_REQUIRED !== "false",
+    b2cAuthenticationOptions: {
+        tenantName: process.env.NMCP_AUTHENTICATION_TENANT_NAME || "",
+        audience: process.env.NMCP_AUTHENTICATION_AUDIENCE || "",
+        clientId: process.env.NMCP_AUTHENTICATION_CLIENT_ID || "",
+        policyName: process.env.NMCP_AUTHENTICATION_POLICY_NAME || "B2C_1_susi"
+    },
+    serverAuthenticationKey: process.env.NMCP_AUTHENTICATION_KEY || null,
+    seedUserItems: process.env.NMCP_SEED_USER_ITEMS === "true",
     ccfv30OntologyPath: "ccfv30_raw.nrrd",
     tracingLoadMaxDelay: 10,
     tracingLoadLimit: 100,
@@ -30,23 +44,18 @@ const configuration: IServiceOptions = {
 function loadConfiguration() {
     const c = Object.assign({}, configuration);
 
-    c.port = parseInt(process.env.SAMPLE_API_PORT) || c.port;
-    c.graphQLEndpoint = process.env.SAMPLE_API_ENDPOINT || process.env.CORE_SERVICES_ENDPOINT || c.graphQLEndpoint;
+    c.port = parseInt(process.env.NMCP_API_PORT) || c.port;
+    c.graphQLEndpoint = process.env.NMCP_API_ENDPOINT || c.graphQLEndpoint;
 
     const prefix = (!process.env.NODE_ENV || process.env.NODE_ENV === "development") ? ".." : "";
-    c.fixturePath =  path.normalize(path.join(__dirname, prefix, "..", c.fixturePath));
+    c.fixturePath = path.normalize(path.join(__dirname, prefix, "..", c.fixturePath));
 
-    c.requireAuthentication = process.env.NMCP_AUTH_REQUIRED !== "false"
-    c.seedUserItems =  process.env.NMCP_SEED_USER_ITEMS === "true"
+    c.ccfv30OntologyPath = process.env.NMCP_CCF_30_ONTOLOGY_PATH || c.ccfv30OntologyPath;
 
-    c.ccfv30OntologyPath = process.env.CCF_30_ONTOLOGY_PATH || c.ccfv30OntologyPath;
-
-    c.tracingLoadMaxDelay = parseInt(process.env.NEURON_BROWSER_LOAD_MAX_DELAY) || c.tracingLoadMaxDelay;
-    c.tracingLoadLimit = parseInt(process.env.NEURON_BROWSER_LOAD_LIMIT) || c.tracingLoadLimit;
+    c.tracingLoadMaxDelay = parseInt(process.env.NMCP_LOAD_MAX_DELAY) || c.tracingLoadMaxDelay;
+    c.tracingLoadLimit = parseInt(process.env.NMCP_BROWSER_LOAD_LIMIT) || c.tracingLoadLimit;
 
     c.version = readSystemVersion();
-
-    c.serverAuthenticationKey = process.env.SERVER_AUTHENTICATION_KEY || null;
 
     return c;
 }
