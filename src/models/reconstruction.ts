@@ -18,6 +18,7 @@ import {Fluorophore} from "./fluorophore";
 import {InjectionVirus} from "./injectionVirus";
 import {Injection} from "./injection";
 import {MouseStrain} from "./mouseStrain";
+import {SearchContent} from "./searchContent";
 
 const debug = require("debug")("mnb:nmcp-api:reconstruction-model");
 
@@ -425,6 +426,67 @@ export class Reconstruction extends BaseModel {
         }
 
         return null;
+    }
+
+    public static async unpublish(id: string): Promise<boolean> {
+        const reconstruction = await Reconstruction.findByPk(id, {
+            include: [{
+                model: Tracing,
+                as: "Tracings",
+                include: [{
+                    model: TracingNode,
+                    as: "Nodes",
+                    include: [{
+                        model: StructureIdentifier,
+                        as: "StructureIdentifier"
+                    }, {
+                        model: BrainArea,
+                        as: "BrainArea"
+                    }]
+                }]
+            }]
+        });
+
+        if (!reconstruction) {
+            return false;
+        }
+
+        let nodes = [];
+
+        reconstruction.Tracings.forEach(n => {
+            nodes = nodes.concat(n.Nodes)
+        })
+
+        try {
+            await TracingNode.sequelize.transaction(async (transaction) => {
+                let promises = reconstruction.Tracings.map(async (t) => {
+                    await TracingNode.update({brainStructureId: null}, {where: {tracingId: t.id}, transaction});
+                });
+
+                await Promise.all(promises);
+
+                promises = reconstruction.Tracings.map(async (t) => {
+                    await t.update({nodeLookupAt: null, searchTransformAt: null}, {transaction});
+                })
+
+                await Promise.all(promises);
+
+                await reconstruction.update({status: ReconstructionStatus.Approved}, {transaction});
+
+                promises = reconstruction.Tracings.map(async (t) => {
+                    await SearchContent.destroy({where: {tracingId: t.id}, transaction});
+                });
+
+                await Promise.all(promises);
+            });
+
+            debug(`unpublished reconstruction ${id}`);
+        } catch (err) {
+            debug(err);
+            return false;
+        }
+
+        return true;
     }
 }
 

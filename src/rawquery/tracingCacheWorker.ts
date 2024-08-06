@@ -38,7 +38,9 @@ parentPort.on("message", async (param: ITracingCacheWorkerInput) => {
 
     debug(`compiling tracings ${param.offset} through ${param.offset + param.limit - 1}`);
 
-    const mapped = loaded.map((t) => mapTracingToCache(t));
+    const mapped = loaded.map((t) => {
+        return mapTracingToCache(t);
+    });
 
     parentPort.postMessage(mapped);
 })

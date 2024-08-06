@@ -72,7 +72,7 @@ export class TransformOperation {
 
         let failedLookup = 0;
 
-        nodes.map(async (swcNode, index) => {
+        const promises = nodes.map(async (swcNode, index) => {
             let brainAreaIdCcfv30: string = null;
 
             try {
@@ -98,6 +98,8 @@ export class TransformOperation {
             await swcNode.update({brainStructureId: brainAreaIdCcfv30});
         });
 
+        await Promise.all(promises);
+
         if (failedLookup > 0) {
             this.logMessage(`${failedLookup} node(s) failed the brain structure lookup`);
         }
@@ -112,6 +114,8 @@ export class TransformOperation {
             this.logMessage(`can not update tracing without context id`);
             return;
         }
+
+        this.logMessage("starting tracing dependent updates");
 
         await this.updateBrainCompartmentContent();
 

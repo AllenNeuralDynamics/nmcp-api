@@ -1,3 +1,5 @@
+import {addTracingToMiddlewareCacheById} from "../rawquery/tracingQueryMiddleware";
+
 const debugWorker = require("debug")("mnb:synchronization:synchronization-worker");
 
 import {fork} from "child_process";
@@ -39,7 +41,8 @@ export function synchronizationManagerStart(){
         }
     });
 
-    proc.on("message", (data: any)=> {
-        debugWorker(`${data.slice(0, -1)}`);
+    proc.on("message", async (data: any)=> {
+        // Must happen on the original process.
+        await addTracingToMiddlewareCacheById(data);
     });
 }

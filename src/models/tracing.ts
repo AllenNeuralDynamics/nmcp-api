@@ -338,8 +338,6 @@ export class Tracing extends BaseModel {
 
                     await performNodeMap(fullTracing);
 
-                    addTracingToMiddlewareCache(tracing);
-
                     resolve({tracing: fullTracing, error: null});
                 }, 0);
             });

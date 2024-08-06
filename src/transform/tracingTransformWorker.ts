@@ -59,7 +59,7 @@ export async function performNodeMap(swcTracing: Tracing, isFork: boolean = fals
         return operation.Tracing;
     } catch (err) {
         logError("transform exception");
-        logError(err.toString().slice(0, 250));
+        logError(err.toString());
     }
 
     return null;

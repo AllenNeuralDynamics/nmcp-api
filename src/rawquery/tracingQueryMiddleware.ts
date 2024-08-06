@@ -3,6 +3,9 @@ import * as path from "path";
 import {ServiceOptions} from "../options/serviceOptions";
 import {Tracing} from "../models/tracing";
 import {StaticPool} from "node-worker-threads-pool";
+import {ReconstructionStatus} from "../models/reconstructionStatus";
+import {TracingNode} from "../models/tracingNode";
+import {Reconstruction} from "../models/reconstruction";
 
 const debug = require("debug")("mnb:search-db-api:raw-query");
 
@@ -10,10 +13,40 @@ const compiledMap = new Map<string, any>();
 
 let timerStart;
 
+export async function addTracingToMiddlewareCacheById(id: string) {
+    if (!id) {
+        return;
+    }
+
+    const tracing = await Tracing.findByPk(id, {
+        include: [
+            {
+                model: TracingNode, as: "Nodes"
+            },
+            {
+                model: Reconstruction,
+                as: "Reconstruction",
+                attributes: ["id", "status"],
+                required: true
+            }
+        ]
+    });
+
+    addTracingToMiddlewareCache(tracing);
+}
+
 export function addTracingToMiddlewareCache(tracing: Tracing) {
+    if (!tracing) {
+        return;
+    }
+
+    debug(`requested to add ${tracing.id} to compiled map (existing size ${compiledMap.size})`);
     const mappedTracing = mapTracingToCache(tracing);
 
-    compiledMap.set(mappedTracing.id, mappedTracing)
+    if (mappedTracing) {
+        debug(`adding ${mappedTracing.id} to compiled map`);
+        compiledMap.set(mappedTracing.id, mappedTracing)
+    }
 }
 
 export function mapTracingToCache(t: Tracing): any {
@@ -33,6 +66,7 @@ export function mapTracingToCache(t: Tracing): any {
         }));
     } else {
         debug(`tracing ${t.id} does not have any nodes.`);
+        return null;
     }
 
     return obj;
@@ -53,7 +87,19 @@ export async function loadTracingCache(performDelay = true) {
 
     debug("loading cache");
 
-    const totalCount = await Tracing.count();
+    const totalCount = await Tracing.count({
+        where: {
+            "$Reconstruction.status$": ReconstructionStatus.Complete
+        },
+        include: [
+            {
+                model: Reconstruction,
+                as: "Reconstruction",
+                attributes: ["id", "status"],
+                required: true
+            }
+        ]
+    });
 
     const pool = new StaticPool({
         size: 3,
@@ -67,7 +113,10 @@ export async function loadTracingCache(performDelay = true) {
         await (async () => {
             const res: any[] = await pool.exec({offset: idx, limit: ServiceOptions.tracingLoadLimit}) as any[];
 
-            res.forEach(r => compiledMap.set(r.id, r));
+            res.forEach(r => {
+                debug(`adding ${r.id} to compiled map (existing size ${compiledMap.size})`);
+                compiledMap.set(r.id, r);
+            });
 
             if (compiledMap.size == totalCount) {
                 const hr_end = process.hrtime(timerStart);

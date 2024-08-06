@@ -81,7 +81,11 @@ async function republishUpdatedNeurons() {
             console.log(`\t${tracings.length} tracings for neuron ${n.id}`);
 
             const tracingPromises = tracings.map(async (t) => {
-                await Tracing.applyTransform(t.id);
+                const result = await Tracing.applyTransform(t.id);
+
+                if (result.tracing) {
+                    process.send(t.id);
+                }
             });
 
             return Promise.all(tracingPromises);
@@ -103,7 +107,11 @@ async function publishUntransformedTracings() {
 
     if (tracings.length > 0) {
         const updatePromises = tracings.map(async (t) => {
-            await Tracing.applyTransform(t.id);
+            const result = await Tracing.applyTransform(t.id);
+
+            if (result.tracing) {
+                process.send(t.id);
+            }
         })
 
         await Promise.all(updatePromises);

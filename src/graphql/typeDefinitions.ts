@@ -106,6 +106,8 @@ export const typeDefinitions = gql`
         declineReconstruction(id: String!): Error
         cancelReconstruction(id: String!): Error
         completeReconstruction(id: String!): Error
+
+        unpublish(id: String!): Boolean
     }
 
     schema {

@@ -79,6 +79,18 @@ export const internalResolvers = {
                     http: {status: 401},
                 },
             });
+        },
+        unpublish(_, args: IIdOnlyArguments, context: User): Promise<boolean> {
+            if (context.permissions == InternalPermission) {
+                return Reconstruction.unpublish(args.id);
+            }
+
+            throw new GraphQLError('User is not authenticated', {
+                extensions: {
+                    code: 'UNAUTHENTICATED',
+                    http: {status: 401},
+                },
+            });
         }
     }
 };
