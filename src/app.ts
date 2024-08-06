@@ -22,8 +22,6 @@ import {tracingQueryMiddleware} from "./rawquery/tracingQueryMiddleware";
 import {synchronizationManagerStart} from "./synchronization/synchonizationManager";
 import {User, UserPermissions} from "./models/user";
 
-const config = require('./authConfig.json');
-
 start().then().catch((err) => debug(err));
 
 async function start() {
@@ -89,14 +87,14 @@ async function start() {
 }
 
 const authOptions = {
-    identityMetadata: `https://${config.credentials.tenantName}.b2clogin.com/${config.credentials.tenantName}.onmicrosoft.com/${config.policies.policyName}/${config.metadata.version}/${config.metadata.discovery}`,
-    clientID: config.credentials.clientID,
-    audience: config.resource.audience,
-    policyName: config.policies.policyName,
-    isB2C: config.settings.isB2C,
-    validateIssuer: config.settings.validateIssuer,
-    loggingLevel: config.settings.loggingLevel,
-    passReqToCallback: config.settings.passReqToCallback
+    identityMetadata: `https://${ServiceOptions.b2cAuthenticationOptions.tenantName}.b2clogin.com/${ServiceOptions.b2cAuthenticationOptions.tenantName}.onmicrosoft.com/${ServiceOptions.b2cAuthenticationOptions.policyName}/v2.0/.well-known/openid-configuration`,
+    clientID: ServiceOptions.b2cAuthenticationOptions.clientId,
+    audience: ServiceOptions.b2cAuthenticationOptions.audience,
+    policyName: ServiceOptions.b2cAuthenticationOptions.policyName,
+    isB2C: true,
+    validateIssuer: true,
+    passReqToCallback: false,
+    loggingLevel: "info"
 }
 
 export type TokenOutput = [scopes: string[], user: User];

@@ -34,7 +34,6 @@ tasks:
       - cp package-lock.json dist/
       - cp LICENSE dist/
       - cp docker-entry.sh dist/
-      - cp src/authConfig.json dist/
       - cp .sequelizerc dist/
       - cp migrate.sh dist/
       - cp -r migrations dist/
