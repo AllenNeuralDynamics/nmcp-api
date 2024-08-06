@@ -19,17 +19,21 @@ export function addTracingToMiddlewareCache(tracing: Tracing) {
 export function mapTracingToCache(t: Tracing): any {
     const obj = Object.assign({}, {id: t.id, nodes: []});
 
-    obj.nodes = t.Nodes.map(n => Object.assign({}, {
-        id: n.id,
-        x: n.x,
-        y: n.y,
-        z: n.z,
-        radius: n.radius,
-        parentNumber: n.parentNumber,
-        sampleNumber: n.sampleNumber,
-        brainStructureId: n.brainStructureId,
-        structureIdentifierId: n.structureIdentifierId
-    }));
+    if (t.Nodes) {
+        obj.nodes = t.Nodes.map(n => Object.assign({}, {
+            id: n.id,
+            x: n.x,
+            y: n.y,
+            z: n.z,
+            radius: n.radius,
+            parentNumber: n.parentNumber,
+            sampleNumber: n.sampleNumber,
+            brainStructureId: n.brainStructureId,
+            structureIdentifierId: n.structureIdentifierId
+        }));
+    } else {
+        debug(`tracing ${t.id} does not have any nodes.`);
+    }
 
     return obj;
 }

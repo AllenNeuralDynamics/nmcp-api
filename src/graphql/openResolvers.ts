@@ -14,6 +14,8 @@ import {IQueryDataPage, Neuron} from "../models/neuron";
 import {ISearchContextInput, SearchContext} from "../models/searchContext";
 import {Collection} from "../models/collection";
 
+const debug = require("debug")("mnb:api:resolvers");
+
 export interface IIdOnlyArguments {
     id: string;
 }
@@ -64,9 +66,11 @@ export const openResolvers = {
         async tomographyMetadata(_, args: any, context: User): Promise<[]> {
             try {
                 const resp = await staticApiClient.querySampleTomography();
+                debug("tomography loaded")
                 return resp.data.tomographyMetadata;
             } catch (err) {
-                console.log(err);
+                debug("failed tomography query")
+                debug(err);
             }
 
             return [];

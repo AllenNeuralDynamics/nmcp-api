@@ -14,6 +14,10 @@ import {TracingNode} from "./tracingNode";
 import {StructureIdentifier} from "./structureIdentifier";
 import {BrainArea} from "./brainArea";
 import {Sample} from "./sample";
+import {Fluorophore} from "./fluorophore";
+import {InjectionVirus} from "./injectionVirus";
+import {Injection} from "./injection";
+import {MouseStrain} from "./mouseStrain";
 
 const debug = require("debug")("mnb:nmcp-api:reconstruction-model");
 
@@ -294,6 +298,20 @@ export class Reconstruction extends BaseModel {
                 include: [{
                     model: Sample,
                     as: "Sample",
+                    include: [{
+                        model: Injection,
+                        as: "Injections",
+                        include: [{
+                            model: InjectionVirus,
+                            as: "InjectionVirus"
+                        }, {
+                            model: Fluorophore,
+                            as: "Fluorophore"
+                        }]
+                    }, {
+                        model: MouseStrain,
+                        as: "MouseStrain"
+                    }]
                 }]
             }, {
                 model: Tracing,
@@ -315,15 +333,19 @@ export class Reconstruction extends BaseModel {
 
         if (reconstruction && reconstruction.Tracings.length == 2) {
             let axon = [];
+            let axonId = null;
 
             let dendrite = [];
+            let dendriteId = null;
 
             let nodes = mapNodes(reconstruction.Tracings[0].Nodes).sort((a, b) => a.sampleNumber - b.sampleNumber);
 
             if (reconstruction.Tracings[0].tracingStructureId == "68e76074-1777-42b6-bbf9-93a6a5f02fa4") {
                 axon = nodes;
+                axonId = reconstruction.Tracings[0].id;
             } else {
                 dendrite = nodes
+                dendriteId = reconstruction.Tracings[0].id;
             }
 
             const structures1 = reconstruction.Tracings[0].Nodes.filter(n => n.BrainArea).map(n => n.BrainArea);
@@ -332,8 +354,10 @@ export class Reconstruction extends BaseModel {
 
             if (reconstruction.Tracings[1].tracingStructureId == "68e76074-1777-42b6-bbf9-93a6a5f02fa4") {
                 axon = nodes;
+                axonId = reconstruction.Tracings[1].id;
             } else {
                 dendrite = nodes
+                dendriteId = reconstruction.Tracings[1].id;
             }
 
             const structures2 = reconstruction.Tracings[1].Nodes.filter(n => n.BrainArea).map(n => n.BrainArea);
@@ -354,15 +378,29 @@ export class Reconstruction extends BaseModel {
                 }
             })
 
+            const label = reconstruction.Neuron.Sample.Injections.map(i => {
+                return {
+                    virus: i.injectionVirus.name,
+                    fluorophore: i.fluorophore.name
+                }
+            })
+
+            const sample = {
+                date: reconstruction.Neuron.Sample.sampleDate,
+                subject: reconstruction.Neuron.Sample.animalId,
+                genotype: reconstruction.Neuron.Sample.mouseStrain?.name || null
+            };
+
             if (soma.length > 0) {
                 const obj = {
                     comment: "",
                     neurons: [
                         {
+                            id: reconstruction.Neuron.id,
                             idString: reconstruction.Neuron.idString,
                             DOI: reconstruction.Neuron.doi,
-                            sample: reconstruction.Neuron.Sample?.animalId,
-                            label: null,
+                            sample,
+                            label: label.length > 0 ? label : null,
                             annotationSpace: {
                                 version: 3,
                                 description: "Annotation Space: CCFv3.0 Axes> X: Anterior-Posterior; Y: Inferior-Superior; Z:Left-Right"
@@ -373,8 +411,10 @@ export class Reconstruction extends BaseModel {
                                 z: soma[0].z,
                                 allenId: soma[0].allenId
                             },
-                            axon: axon,
-                            dendrite: dendrite,
+                            axonId,
+                            axon,
+                            dendriteId,
+                            dendrite,
                             allenInformation: allenInfo
                         }
                     ]

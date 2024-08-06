@@ -53,6 +53,8 @@ export class Injection extends BaseModel {
     public getNeurons!: HasManyGetAssociationsMixin<Neuron>;
 
     public readonly sample?: Sample;
+    public readonly injectionVirus?: InjectionVirus;
+    public readonly fluorophore?: Fluorophore;
 
     public static async findId(id: string): Promise<string> {
         return Injection.findIdWithValidationInternal(Injection, id);
