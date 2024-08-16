@@ -4,12 +4,13 @@ import * as bodyParser from "body-parser";
 import * as cors from 'cors';
 import {ApolloServer} from '@apollo/server';
 import {expressMiddleware} from '@apollo/server/express4';
+
 const graphqlUploadExpress = require('graphql-upload/graphqlUploadExpress.js');
-import { merge } from 'lodash';
+import {merge} from 'lodash';
 import {jwtDecode} from "jwt-decode";
 import moment = require("moment");
 
-const debug = require("debug")("mnb:sample-api:server");
+const debug = require("debug")("mnb:nmcp-api:server");
 
 import {ServiceOptions} from "./options/serviceOptions";
 import {typeDefinitions} from "./graphql/typeDefinitions";
@@ -75,7 +76,7 @@ async function start() {
                     }
                 }
 
-                return user ||  {
+                return user || {
                     id: "00000000-0000-0000-0000-000000000000",
                     permissions: UserPermissions.None
                 };
@@ -84,17 +85,6 @@ async function start() {
     );
 
     app.listen(ServiceOptions.port, () => debug(`sample api server is now running on http://${os.hostname()}:${ServiceOptions.port}/graphql`));
-}
-
-const authOptions = {
-    identityMetadata: `https://${ServiceOptions.b2cAuthenticationOptions.tenantName}.b2clogin.com/${ServiceOptions.b2cAuthenticationOptions.tenantName}.onmicrosoft.com/${ServiceOptions.b2cAuthenticationOptions.policyName}/v2.0/.well-known/openid-configuration`,
-    clientID: ServiceOptions.b2cAuthenticationOptions.clientId,
-    audience: ServiceOptions.b2cAuthenticationOptions.audience,
-    policyName: ServiceOptions.b2cAuthenticationOptions.policyName,
-    isB2C: true,
-    validateIssuer: true,
-    passReqToCallback: false,
-    loggingLevel: "info"
 }
 
 export type TokenOutput = [scopes: string[], user: User];
@@ -112,19 +102,14 @@ async function validateToken(token: string): Promise<TokenOutput> {
         return [[], null];
     }
 
-    if (decoded.aud != authOptions.audience) {
+    debug(decoded);
+
+    //@ts-ignore
+    if (decoded.appid != ServiceOptions.b2cAuthenticationOptions.clientId) {
         return [[], null];
     }
 
-    //@ts-ignore
-    if (decoded.tfp != authOptions.policyName) {
-        return [[], null];
-    }
-
-    //@ts-ignore
-    if (decoded.azp != authOptions.clientID) {
-        return [[], null];
-    }
+    debug("ids");
 
     let now = moment.utc().valueOf()
 
@@ -133,8 +118,10 @@ async function validateToken(token: string): Promise<TokenOutput> {
         return [[], null];
     }
 
+    const upn = (decoded["upn"] && decoded.upn.length > 0) ? decoded.upn : "";
+
     //@ts-ignore
-    const user = await User.getUser(decoded.sub, decoded.given_name, decoded.family_name, decoded.emails.length > 0 ? decoded.emails[0] : "")
+    const user = await User.getUser(decoded.oid, decoded.given_name, decoded.family_name, upn);
 
     //@ts-ignore
     return [decoded.scp.split(" "), user];

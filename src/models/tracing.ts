@@ -15,7 +15,7 @@ import {Reconstruction} from "./reconstruction";
 import {jsonParse} from "../util/JsonParser";
 import {ReconstructionStatus} from "./reconstructionStatus";
 
-const debug = require("debug")("mnb:sample-api:tracing");
+const debug = require("debug")("mnb:nmcp-api:tracing");
 
 export interface ITracingInput {
     id?: string;

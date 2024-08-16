@@ -8,7 +8,7 @@ import {
     WithNeuronsQueryInput
 } from "./findOptions";
 
-const debug = require("debug")("mnb:sample-api:brain-structure");
+const debug = require("debug")("mnb:nmcp-api:brain-structure");
 
 // As defined by Allen Atlas
 const WHOLE_BRAIN_STRUCTURE_ID = 997;

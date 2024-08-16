@@ -2,7 +2,7 @@ import { ApolloClient, InMemoryCache } from '@apollo/client/core';
 
 const gql = require("graphql-tag");
 
-const debug = require("debug")("mnb:sample-api:swc-client");
+const debug = require("debug")("mnb:nmcp-api:swc-client");
 
 import {StaticServiceOptions} from "../options/coreServicesOptions";
 

@@ -2,7 +2,7 @@ import * as path from "path";
 import * as fs from "fs";
 import {Sequelize, QueryInterface, Options} from "sequelize";
 
-const debug = require("debug")("mnb:sample-api:database-connector");
+const debug = require("debug")("mnb:nmcp-api:database-connector");
 
 import {SequelizeOptions} from "../options/coreServicesOptions";
 import {ServiceOptions} from "../options/serviceOptions";

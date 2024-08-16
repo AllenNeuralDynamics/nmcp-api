@@ -2,7 +2,7 @@ import {BaseModel, EntityQueryOutput, SortAndLimit} from "./baseModel";
 import {DataTypes, HasManyGetAssociationsMixin, Sequelize} from "sequelize";
 import {Reconstruction} from "./reconstruction";
 
-const debug = require("debug")("mnb:sample-api:user");
+const debug = require("debug")("mnb:nmcp-api:user");
 
 export enum UserPermissions {
     None = 0x00,
@@ -55,6 +55,18 @@ export class User extends BaseModel {
                 crossAuthenticationId: null
             });
             debug(`user ${user.id} created`)
+        } else {
+            const updates = {}
+            if (firstName) {
+                updates["firstName"] = firstName;
+            }
+            if (lastName) {
+                updates["lastName"] = lastName;
+            }
+            if (email) {
+                updates["emailAddress"] = email;
+            }
+            await user.update(updates);
         }
 
         return user;

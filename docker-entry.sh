@@ -4,10 +4,10 @@ logName=$(date '+%Y-%m-%d_%H-%M-%S');
 
 mkdir -p /var/log/nmcp
 
-./migrate.sh &> /var/log/nmcp/sample-api-${logName}.log
+./migrate.sh &> /var/log/nmcp/nmcp-api-${logName}.log
 
 wait
 
 export DEBUG=mnb*
 
-node app.js >> /var/log/nmcp/sample-api-${logName}.log 2>&1
+node app.js >> /var/log/nmcp/nmcp-api-${logName}.log 2>&1
