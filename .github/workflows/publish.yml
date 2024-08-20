@@ -30,4 +30,5 @@ jobs:
       - name: Build and Push Docker Images
         run: |
           npm i --save-dev @types/node
+          chmod +x docker-entry.sh
           task release
