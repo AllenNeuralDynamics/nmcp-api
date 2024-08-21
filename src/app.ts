@@ -101,15 +101,11 @@ async function validateToken(token: string): Promise<TokenOutput> {
     } catch {
         return [[], null];
     }
-
-    debug(decoded);
-
+    
     //@ts-ignore
     if (decoded.appid != ServiceOptions.b2cAuthenticationOptions.clientId) {
         return [[], null];
     }
-
-    debug("ids");
 
     let now = moment.utc().valueOf()
 

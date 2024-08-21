@@ -1,6 +1,6 @@
 {
   "name": "nmcp-sample-api",
-  "version": "2.0.15",
+  "version": "2.0.16",
   "main": "dist/app.js",
   "repository": "https://github.com/AllenNeuralDynamics/nmcp-sample-api",
   "author": "Patrick Edson <pedson@leapscientific.com>",
