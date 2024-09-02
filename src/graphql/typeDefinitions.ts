@@ -62,6 +62,8 @@ export const typeDefinitions = gql`
         
         reconstructionData(id: String!): String
         neuronReconstructionData(id: String!): String
+        
+        openIssues: [Issue!]!
     }
 
     type Mutation {        
@@ -108,6 +110,8 @@ export const typeDefinitions = gql`
         completeReconstruction(id: String!): Error
 
         unpublish(id: String!): Boolean
+        
+        createIssue(description: String!, neuronId: String, reconstructionId: String): Issue
     }
 
     schema {

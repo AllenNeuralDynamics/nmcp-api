@@ -23,6 +23,7 @@ import {MouseStrain} from "./mouseStrain";
 import {Neuron} from "./neuron";
 import {Injection} from "./injection";
 import {Collection} from "./collection";
+import {SampleTableName} from "./TableNames";
 
 export type SampleQueryInput =
     EntityQueryInput
@@ -284,7 +285,7 @@ export const modelInit = (sequelize: Sequelize) => {
             defaultValue: ""
         }
     }, {
-        tableName: "Sample",
+        tableName: SampleTableName,
         timestamps: true,
         paranoid: true,
         sequelize

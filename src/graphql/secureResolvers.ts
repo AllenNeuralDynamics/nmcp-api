@@ -1,12 +1,9 @@
 import {IIdOnlyArguments} from "./openResolvers";
-
-const GraphQLUpload = require('graphql-upload/GraphQLUpload.js');
-
 import {Neuron, NeuronInput, NeuronQueryInput} from "../models/neuron";
 
 import {BrainArea} from "../models/brainArea";
 import {MouseStrain, MouseStrainInput, MouseStrainQueryInput} from "../models/mouseStrain";
-import {SampleInput, Sample, SampleQueryInput} from "../models/sample";
+import {Sample, SampleInput, SampleQueryInput} from "../models/sample";
 import {DeleteOutput, EntityMutateOutput, EntityQueryOutput, SortAndLimit} from "../models/baseModel";
 import {TracingStructure} from "../models/tracingStructure";
 import {Tracing} from "../models/tracing";
@@ -19,10 +16,13 @@ import {Reconstruction} from "../models/reconstruction";
 import {ReconstructionStatus} from "../models/reconstructionStatus";
 import {GraphQLError} from "graphql/error";
 import {Collection, CollectionInput} from "../models/collection";
+import {Issue, IssueKind} from "../models/issue";
+
+const GraphQLUpload = require('graphql-upload/GraphQLUpload.js');
 
 export class UnauthorizedError extends GraphQLError {
     public constructor() {
-        super('User is not authenticated', {
+        super("User is not authenticated", {
             extensions: {
                 code: 'FORBIDDEN',
                 http: {status: 401},
@@ -149,6 +149,12 @@ interface ICollectionMutateArguments {
     collection: CollectionInput
 }
 
+type CreateIssueArguments = {
+    description: string;
+    neuronId: string;
+    reconstructionId: string;
+}
+
 //
 // Output
 //
@@ -179,9 +185,9 @@ export const secureResolvers = {
                 return MouseStrain.getAll(args.input);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -191,9 +197,9 @@ export const secureResolvers = {
                 return MouseStrain.findByPk(args.id);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -204,9 +210,9 @@ export const secureResolvers = {
                 return InjectionVirus.getAll(args.input);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -216,9 +222,9 @@ export const secureResolvers = {
                 return InjectionVirus.findByPk(args.id);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -229,9 +235,9 @@ export const secureResolvers = {
                 return Fluorophore.getAll(args.input);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -241,9 +247,9 @@ export const secureResolvers = {
                 return Fluorophore.findByPk(args.id);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -254,9 +260,9 @@ export const secureResolvers = {
                 return Injection.getAll(args.input);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -266,9 +272,9 @@ export const secureResolvers = {
                 return Injection.findByPk(args.id);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -279,9 +285,9 @@ export const secureResolvers = {
                 return Sample.getAll(args.input);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -291,9 +297,9 @@ export const secureResolvers = {
                 return Sample.findByPk(args.id);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -304,9 +310,9 @@ export const secureResolvers = {
                 return Neuron.getAll(args.input);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -316,9 +322,9 @@ export const secureResolvers = {
                 return Neuron.findByPk(args.id);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -329,9 +335,9 @@ export const secureResolvers = {
                 return Neuron.getCandidateNeurons(args.input);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -346,9 +352,9 @@ export const secureResolvers = {
                 }
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -359,9 +365,9 @@ export const secureResolvers = {
                 return Reconstruction.getReviewableAnnotations();
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -372,9 +378,22 @@ export const secureResolvers = {
                 return Neuron.getCandidateNeuronsForReview();
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
+                    http: {status: 401},
+                },
+            });
+        },
+
+        async openIssues(_, __, context: User): Promise<Issue[]> {
+            if (context.permissions & UserPermissions.Admin) {
+                return Issue.getOpen();
+            }
+
+            throw new GraphQLError("User is not authenticated", {
+                extensions: {
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -386,9 +405,9 @@ export const secureResolvers = {
                 return User.updatePermissions(args.id, args.permissions);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -399,9 +418,9 @@ export const secureResolvers = {
                 return User.updateAnonymity(args.id, args.anonymousCandidate, args.anonymousCandidate);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -412,9 +431,9 @@ export const secureResolvers = {
                 return MouseStrain.createWith(args.mouseStrain);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -424,9 +443,9 @@ export const secureResolvers = {
                 return MouseStrain.updateWith(args.mouseStrain);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -437,9 +456,9 @@ export const secureResolvers = {
                 return InjectionVirus.createWith(args.injectionVirus);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -449,9 +468,9 @@ export const secureResolvers = {
                 return InjectionVirus.updateWith(args.injectionVirus);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -462,9 +481,9 @@ export const secureResolvers = {
                 return Fluorophore.createWith(args.fluorophore);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -474,9 +493,9 @@ export const secureResolvers = {
                 return Fluorophore.updateWith(args.fluorophore);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -487,9 +506,9 @@ export const secureResolvers = {
                 return Injection.createWith(args.injectionInput);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -499,9 +518,9 @@ export const secureResolvers = {
                 return Injection.updateWith(args.injectionInput);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -511,9 +530,9 @@ export const secureResolvers = {
                 return Injection.deleteFor(args.id);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -524,9 +543,9 @@ export const secureResolvers = {
                 return Sample.createWith(args.sample);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -536,9 +555,9 @@ export const secureResolvers = {
                 return Sample.updateWith(args.sample);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -548,9 +567,9 @@ export const secureResolvers = {
                 return Sample.deleteFor(args.id);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -561,9 +580,9 @@ export const secureResolvers = {
                 return Neuron.createWith(args.neuron);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -573,9 +592,9 @@ export const secureResolvers = {
                 return Neuron.updateWith(args.neuron);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -585,9 +604,9 @@ export const secureResolvers = {
                 return Neuron.deleteFor(args.id);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -598,9 +617,9 @@ export const secureResolvers = {
                 return Collection.createWith(args.collection);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -610,9 +629,9 @@ export const secureResolvers = {
                 return Collection.updateWith(args.collection);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -622,9 +641,9 @@ export const secureResolvers = {
                 return Collection.deleteFor(args.id);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -635,9 +654,9 @@ export const secureResolvers = {
                 return Tracing.createApprovedTracing(context.id, args.neuronId, args.structureId, args.file);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -648,9 +667,9 @@ export const secureResolvers = {
                 return Neuron.requestAnnotation(args.id, context);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -661,9 +680,9 @@ export const secureResolvers = {
                 return Reconstruction.markAnnotationOnHold(args.id);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -674,9 +693,9 @@ export const secureResolvers = {
                 return Reconstruction.cancelAnnotation(args.id);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -687,9 +706,9 @@ export const secureResolvers = {
                 return Reconstruction.updateReconstruction(args.id, args.duration, args.length, args.notes, args.checks);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -700,9 +719,9 @@ export const secureResolvers = {
                 return Reconstruction.updateReconstruction(args.id, args.duration, args.length, args.notes, args.checks, true);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -713,9 +732,9 @@ export const secureResolvers = {
                 return Reconstruction.approveAnnotation(args.id, context.id);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -726,9 +745,9 @@ export const secureResolvers = {
                 return Reconstruction.declineAnnotation(args.id, context.id);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -739,9 +758,22 @@ export const secureResolvers = {
                 return Reconstruction.completeAnnotation(args.id);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
+                    http: {status: 401},
+                },
+            });
+        },
+
+        async createIssue(_, args: CreateIssueArguments, context: User): Promise<Issue> {
+            if (context.permissions & UserPermissions.ViewReconstructions) {
+                return Issue.createWith(IssueKind.Uncategorized, args.description, args.neuronId);
+            }
+
+            throw new GraphQLError("User is not authenticated", {
+                extensions: {
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });

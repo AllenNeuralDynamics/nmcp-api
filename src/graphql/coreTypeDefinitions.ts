@@ -223,6 +223,16 @@ export const coreTypeDefinitions = gql`
         createdAt: Date
         updatedAt: Date
     }
+    
+    type Issue {
+        id: String!
+        kind: Int
+        status: Int
+        description: String
+        response: String
+        createdAt: Date
+        updatedAt: Date
+    }
 
     """
     The range of valid indices for requesting slices for each plane.  Not required if requesting by actual location.

@@ -14,6 +14,7 @@ import {StructureIdentifier} from "../models/structureIdentifier";
 import {TracingStructure} from "../models/tracingStructure";
 import {loadTracingCache} from "../rawquery/tracingQueryMiddleware";
 import {Reconstruction} from "../models/reconstruction";
+import {NeuronTableName, SampleTableName} from "../models/TableNames";
 
 export class RemoteDatabaseClient {
     public static async Start(prepareSearchContents = false, enableLog: boolean = false, options: Options = SequelizeOptions): Promise<RemoteDatabaseClient> {
@@ -35,7 +36,7 @@ export class RemoteDatabaseClient {
 
         this.createConnection(this._options);
 
-        await this.authenticate("sample");
+        await this.authenticate("nmcp");
 
         if (prepareSearchContents) {
             await this.seedIfRequired();
@@ -160,7 +161,7 @@ export class RemoteDatabaseClient {
 
                 if (count == 0) {
                     this.log("seeding samples");
-                    await queryInterface.bulkInsert("Sample", loadSamples(when), {});
+                    await queryInterface.bulkInsert(SampleTableName, loadSamples(when), {});
                 } else {
                     this.log("skipping sample seed");
                 }
@@ -169,7 +170,7 @@ export class RemoteDatabaseClient {
 
                 if (count == 0) {
                     this.log("seeding neurons");
-                    await queryInterface.bulkInsert("Neuron", loadNeurons(when), {});
+                    await queryInterface.bulkInsert(NeuronTableName, loadNeurons(when), {});
                 } else {
                     this.log("skipping neuron seed");
                 }

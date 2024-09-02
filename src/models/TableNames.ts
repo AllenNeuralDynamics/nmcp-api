@@ -19,3 +19,5 @@ export const SynchronizationMarkerTableName = "SynchronizationMarker";
 
 export const UserTableName = "User";
 
+export const IssueTableName = "Issue";
+
