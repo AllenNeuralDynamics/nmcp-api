@@ -6,7 +6,6 @@ export enum ReconstructionStatus {
     Returned = 4,
     Approved = 5,
     Rejected = 6,
-    Cancelled = 7,
     Complete = 8,
     Invalid = 9
 }

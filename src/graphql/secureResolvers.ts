@@ -74,6 +74,11 @@ interface INeuronQueryArguments {
     input: NeuronQueryInput;
 }
 
+interface ICandidateNeuronQueryArguments {
+    input: NeuronQueryInput;
+    includeInProgress: boolean;
+}
+
 interface ITracingUploadArguments {
     neuronId: string;
     structureId: string;
@@ -330,9 +335,9 @@ export const secureResolvers = {
             });
         },
 
-        candidateNeurons(_, args: INeuronQueryArguments, context: User): Promise<EntityQueryOutput<Neuron>> {
+        candidateNeurons(_, args: ICandidateNeuronQueryArguments, context: User): Promise<EntityQueryOutput<Neuron>> {
             if (context.permissions & UserPermissions.ViewReconstructions) {
-                return Neuron.getCandidateNeurons(args.input);
+                return Neuron.getCandidateNeurons(args.input, args.includeInProgress);
             }
 
             throw new GraphQLError("User is not authenticated", {

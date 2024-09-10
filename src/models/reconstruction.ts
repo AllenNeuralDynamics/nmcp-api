@@ -233,17 +233,17 @@ export class Reconstruction extends BaseModel {
     }
 
     public static async cancelAnnotation(id: string): Promise<IErrorOutput> {
-        const annotation = await Reconstruction.findByPk(id);
+        const reconstruction = await Reconstruction.findByPk(id);
 
-        if (!annotation) {
+        if (!reconstruction) {
             return {
                 message: "The reconstruction could not be found",
                 name: "NotFound"
             }
         }
 
-        await annotation.update({
-            status: ReconstructionStatus.Cancelled
+        await Reconstruction.destroy({
+            where: {id: id}
         });
 
         return null;

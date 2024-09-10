@@ -50,7 +50,7 @@ export const typeDefinitions = gql`
         """Provides all tomography metadata."""
         tomographyMetadata: [TomographyMetadata!]
         
-        candidateNeurons(input: NeuronQueryInput): QueryNeurons
+        candidateNeurons(input: NeuronQueryInput, includeInProgress: Boolean): QueryNeurons
 
         pendingPrecomputed: [Precomputed!]!
         
