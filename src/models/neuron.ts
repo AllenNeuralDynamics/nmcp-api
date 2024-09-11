@@ -232,7 +232,7 @@ export class Neuron extends BaseModel {
 
             const candidateNeurons = await Neuron.findAll(options)
 
-            return {totalCount: candidateNeuronIds.length, items: candidateNeurons};
+            return {totalCount: candidateNeurons.length, items: candidateNeurons};
         } catch (e) {
             return {totalCount: 0, items: []}
         }
