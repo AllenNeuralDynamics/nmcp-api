@@ -32,7 +32,6 @@ async function performSynchronization(repeat: boolean = true, intervalSeconds = 
     if (repeat) {
         setTimeout(async () => {
             await performSynchronization(repeat, intervalSeconds);
-
         }, intervalSeconds * 1000);
     }
 }
@@ -97,15 +96,19 @@ async function republishUpdatedNeurons() {
     await lastMarker.update({appliedAt: when});
 }
 
+// With default settings, this will give a heartbeat message that everything is published once per hour.
+const sanityCheckInterval = 60;
+let sanityCheckCount = 0;
+
 /**
  * Find recently uploaded tracings for published reconstructions that require node brain structure lookup and search content entries.
  */
 async function publishUntransformedTracings() {
     const tracings = await Tracing.getUntransformed(true);
 
-    console.log(`${tracings.length} published tracings have not been transformed`);
-
     if (tracings.length > 0) {
+        console.log(`${tracings.length} published tracings have not been transformed`);
+
         const updatePromises = tracings.map(async (t) => {
             const result = await Tracing.applyTransform(t.id);
 
@@ -115,6 +118,15 @@ async function publishUntransformedTracings() {
         })
 
         await Promise.all(updatePromises);
+
+        sanityCheckCount = 0;
+    } else {
+        sanityCheckCount++;
+
+        if (sanityCheckCount >= sanityCheckInterval) {
+            console.log(`All published tracings have been transformed`);
+            sanityCheckCount = 0;
+        }
     }
 }
 
