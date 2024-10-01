@@ -1,9 +1,10 @@
-import {addTracingToMiddlewareCacheById} from "../rawquery/tracingQueryMiddleware";
+import {fork} from "child_process";
+import * as path from "path";
 
 const debugWorker = require("debug")("mnb:synchronization:synchronization-worker");
 
-import {fork} from "child_process";
-import * as path from "path";
+import {addTracingToMiddlewareCacheById} from "../rawquery/tracingQueryMiddleware";
+import {Reconstruction} from "../models/reconstruction";
 
 /**
  * Start and manage a separate node process for synchronizing published reconstruction data.
@@ -44,5 +45,6 @@ export function synchronizationManagerStart(){
     proc.on("message", async (data: any)=> {
         // Must happen on the original process.
         await addTracingToMiddlewareCacheById(data);
+        await Reconstruction.loadReconstructionCache();
     });
 }
