@@ -1,13 +1,14 @@
 {
   "name": "nmcp-sample-api",
-  "version": "2.0.18",
+  "version": "2.0.19",
   "main": "dist/app.js",
   "repository": "https://github.com/AllenNeuralDynamics/nmcp-sample-api",
   "author": "Patrick Edson <pedson@leapscientific.com>",
   "license": "SEE LICENSE IN LICENSE",
   "scripts": {
     "debug": "tsc && node --trace-warnings --max-old-space-size=8192 --optimize-for-size src/app.js",
-    "express": "node dist/app.js"
+    "express": "node dist/app.js",
+    "smartsheet": "npx run-func src/data-access/smartSheetClient.js synchronize"
   },
   "jest": {
     "transform": {
@@ -44,6 +45,7 @@
     "node-worker-threads-pool": "^1.5.1",
     "pg": "^8.7.1",
     "sequelize": "^6.34.0",
+    "smartsheet": "^4.0.2",
     "uuid": "^3.3.3",
     "uuid-validate": "^0.0.3"
   },
@@ -57,7 +59,7 @@
     "@types/uuid": "^3.4.5",
     "@types/validator": "^10.11.3",
     "jest": "^24.9.0",
-    "sqlite3": "^4.1.0",
+    "sqlite3": "^5.1.7",
     "ts-jest": "^24.1.0",
     "typescript": "^5.3.3"
   }

@@ -17,6 +17,8 @@ export interface ITracingCacheWorkerInput {
 parentPort.on("message", async (param: ITracingCacheWorkerInput) => {
     await RemoteDatabaseClient.Start();
 
+    debug(`compiling tracings ${param.offset} through ${param.offset + param.limit - 1}`);
+
     const loaded = await Tracing.findAll({
         where: {
             "$Reconstruction.status$": ReconstructionStatus.Complete
@@ -35,8 +37,6 @@ parentPort.on("message", async (param: ITracingCacheWorkerInput) => {
         limit: param.limit,
         offset: param.offset
     });
-
-    debug(`compiling tracings ${param.offset} through ${param.offset + param.limit - 1}`);
 
     const mapped = loaded.map((t) => {
         return mapTracingToCache(t);

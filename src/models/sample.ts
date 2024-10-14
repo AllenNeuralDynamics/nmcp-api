@@ -31,7 +31,7 @@ export type SampleQueryInput =
     & WithInjectionsQueryInput;
 
 export interface SampleInput {
-    id: string,
+    id?: string,
     idNumber?: number;
     animalId?: string;
     tag?: string;
@@ -89,6 +89,12 @@ export class Sample extends BaseModel {
         const dupes = await Sample.findAll({where: {idNumber: sampleInput.idNumber}});
 
         return dupes.length > 0 && (!id || (id !== dupes[0].id));
+    }
+
+    public static async findOrCreateForSubject(subjectId: string): Promise<Sample> {
+        const [model] = await Sample.findOrCreate({where: {animalId: subjectId}});
+
+        return model;
     }
 
     public static async createWith(sampleInput: SampleInput): Promise<EntityMutateOutput<Sample>> {

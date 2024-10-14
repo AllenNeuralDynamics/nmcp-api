@@ -35,6 +35,12 @@ export async function addTracingToMiddlewareCacheById(id: string) {
     addTracingToMiddlewareCache(tracing);
 }
 
+export function removeTracingFromMiddlewareCache(id: string) {
+    if (compiledMap.has(id)) {
+        compiledMap.delete(id)
+    }
+}
+
 export function addTracingToMiddlewareCache(tracing: Tracing) {
     if (!tracing) {
         return;
@@ -85,7 +91,7 @@ export async function loadTracingCache(performDelay = true) {
         return;
     }
 
-    debug("loading cache");
+    compiledMap.clear()
 
     const totalCount = await Tracing.count({
         where: {
@@ -101,6 +107,8 @@ export async function loadTracingCache(performDelay = true) {
         ]
     });
 
+    debug(`caching ${totalCount} reconstructions`);
+
     const pool = new StaticPool({
         size: 3,
         shareEnv: true,
@@ -114,9 +122,10 @@ export async function loadTracingCache(performDelay = true) {
             const res: any[] = await pool.exec({offset: idx, limit: ServiceOptions.tracingLoadLimit}) as any[];
 
             res.forEach(r => {
-                debug(`adding ${r.id} to compiled map (existing size ${compiledMap.size})`);
                 compiledMap.set(r.id, r);
             });
+
+            debug(`added ${res.length} to compiled map (size ${compiledMap.size})`);
 
             if (compiledMap.size == totalCount) {
                 const hr_end = process.hrtime(timerStart);

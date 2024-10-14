@@ -6,6 +6,7 @@ export const inputTypeDefinitions = gql`
         sortOrder: String
         offset: Int
         limit: Int
+        includeImported: Boolean
     }
 
     input BrainAreaQueryInput {
@@ -158,8 +159,16 @@ export const inputTypeDefinitions = gql`
         offset: Int
         limit: Int
         userOnly: Boolean
+        sampleIds: [String!]
         filters: [Int!]
     }
+    
+    input ReviewPageInput {
+        offset: Int
+        limit: Int
+        sampleIds: [String!]
+        status: [Int!]
+    }    
 
     input InputPosition {
         x: Float

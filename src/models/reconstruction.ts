@@ -8,7 +8,7 @@ import {ReconstructionStatus} from "./reconstructionStatus";
 import {Tracing} from "./tracing";
 import {AxonStructureId, DendriteStructureId} from "./tracingStructure";
 import {User} from "./user";
-import {IErrorOutput, IReconstructionPage, IReconstructionPageInput} from "../graphql/secureResolvers";
+import {IErrorOutput, IReconstructionPage, IReconstructionPageInput, ReviewPageInput} from "../graphql/secureResolvers";
 import {Precomputed} from "./precomputed";
 import {TracingNode} from "./tracingNode";
 import {StructureIdentifier} from "./structureIdentifier";
@@ -19,6 +19,7 @@ import {InjectionVirus} from "./injectionVirus";
 import {Injection} from "./injection";
 import {MouseStrain} from "./mouseStrain";
 import {SearchContent} from "./searchContent";
+import {removeTracingFromMiddlewareCache} from "../rawquery/tracingQueryMiddleware";
 
 const debug = require("debug")("mnb:nmcp-api:reconstruction-model");
 
@@ -51,13 +52,17 @@ export class Reconstruction extends BaseModel {
             reconstructions: []
         };
 
-        let options = userId ? {where: {annotatorId: userId}} : {where: {}};
+        let options = userId ? {where: {annotatorId: userId}, include: []} : {where: {}, include: []};
 
         if (queryInput.filters && queryInput.filters.length > 0) {
-            const filters = queryInput.filters.map(f => {
+            options.where[Op.or] = queryInput.filters.map(f => {
                 return {status: f};
-            });
-            options.where[Op.or] = filters
+            })
+        }
+
+        if (queryInput.sampleIds && queryInput.sampleIds.length > 0) {
+            options.where["$Neuron.Sample.id$"] = {[Op.in]: queryInput.sampleIds}
+            options.include.push({model: Neuron, as: "Neuron", include: [{model: Sample, as: "Sample"}]});
         }
 
         out.totalCount = await Reconstruction.count(options);
@@ -126,15 +131,68 @@ export class Reconstruction extends BaseModel {
         });
     }
 
-    public static async getReviewableAnnotations(): Promise<Reconstruction[]> {
-        return Reconstruction.findAll({
-            where: {
-                [Op.or]: [
+    public static async getReviewableAnnotations(input: ReviewPageInput): Promise<IReconstructionPage> {
+        let out: IReconstructionPage = {
+            offset: 0,
+            limit: 0,
+            totalCount: 0,
+            reconstructions: []
+        };
+
+        try {
+            out.totalCount = await Reconstruction.count({
+                where: {
+                    [Op.or]: [
+                        {status: ReconstructionStatus.InReview},
+                        {status: ReconstructionStatus.Approved}
+                    ]
+                }
+            });
+
+            const options = {where: {}, include: []};
+
+            if (input.status && input.status.length > 0) {
+                options.where[Op.or] = input.status.map(f => {
+                    return {status: f};
+                })
+            } else {
+                options.where[Op.or] = [
                     {status: ReconstructionStatus.InReview},
                     {status: ReconstructionStatus.Approved}
                 ]
             }
-        });
+
+            if (input.sampleIds && input.sampleIds.length > 0) {
+                options.where["$Neuron.Sample.id$"] = {[Op.in]: input.sampleIds}
+                options.include.push({model: Neuron, as: "Neuron", include: [{model: Sample, as: "Sample"}]});
+            }
+
+            out.totalCount = await Reconstruction.count(options);
+
+            if (input) {
+                options["order"] = [["startedAt", "DESC"]];
+
+                if (input.offset) {
+                    options["offset"] = input.offset;
+                    out.offset = input.offset;
+                }
+
+                if (input.limit) {
+                    options["limit"] = input.limit;
+                    out.limit = input.limit;
+                }
+            }
+
+            if (out.limit === 1) {
+                out.reconstructions = [await Reconstruction.findOne(options)];
+            } else {
+                out.reconstructions = await Reconstruction.findAll(options);
+            }
+        } catch (err) {
+            debug(err);
+        }
+
+        return out;
     }
 
     public static async updateReconstruction(id: string, duration: number, length: number, notes: string, checks: string, markForReview: boolean = false): Promise<IErrorOutput> {
@@ -363,7 +421,7 @@ export class Reconstruction extends BaseModel {
 
             const structures2 = reconstruction.Tracings[1].Nodes.filter(n => n.BrainArea).map(n => n.BrainArea);
 
-            const structures = uniqBy(concat(structures1, structures2), "id")
+            const structures: BrainArea[] = uniqBy(concat(structures1, structures2), "id")
 
             const soma = nodes.filter(n => n.sampleNumber == 1);
 
@@ -429,6 +487,10 @@ export class Reconstruction extends BaseModel {
     }
 
     public static async unpublish(id: string): Promise<boolean> {
+        if (!id) {
+            return false;
+        }
+
         const reconstruction = await Reconstruction.findByPk(id, {
             include: [{
                 model: Tracing,
@@ -480,11 +542,15 @@ export class Reconstruction extends BaseModel {
                 await Promise.all(promises);
             });
 
+            removeTracingFromMiddlewareCache(id);
+
             debug(`unpublished reconstruction ${id}`);
         } catch (err) {
             debug(err);
             return false;
         }
+
+        await this.loadReconstructionCache()
 
         return true;
     }

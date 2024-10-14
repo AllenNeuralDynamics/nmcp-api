@@ -7,7 +7,7 @@ export interface ICompartmentStatistics {
     Branch: number;
     End: number;
 
-    addNode(structureIdentifier: StructureIdentifiers): void;
+    addNode(structureIdentifier: StructureIdentifiers, increaseNodeCount: boolean): void;
 }
 
 export class CompartmentStatistics implements ICompartmentStatistics {
@@ -17,8 +17,10 @@ export class CompartmentStatistics implements ICompartmentStatistics {
     public Branch: number = 0;
     public End: number = 0;
 
-    public addNode(structureIdentifier: StructureIdentifiers): void {
-        this.Node++;
+    public addNode(structureIdentifier: StructureIdentifiers, increaseNodeCount: boolean = true): void {
+        if (increaseNodeCount) {
+            this.Node++;
+        }
 
         switch (structureIdentifier) {
             case StructureIdentifiers.soma:

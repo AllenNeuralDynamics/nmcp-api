@@ -10,10 +10,11 @@ import * as fs from "fs";
 import {ServiceOptions} from "../options/serviceOptions";
 import {performNodeMap} from "../transform/tracingTransformWorker";
 import {SearchContent} from "./searchContent";
-import {addTracingToMiddlewareCache} from "../rawquery/tracingQueryMiddleware";
 import {Reconstruction} from "./reconstruction";
 import {jsonParse} from "../util/JsonParser";
 import {ReconstructionStatus} from "./reconstructionStatus";
+import * as path from "path";
+import {Neuron} from "./neuron";
 
 const debug = require("debug")("mnb:nmcp-api:tracing");
 
@@ -57,6 +58,7 @@ export class Tracing extends BaseModel {
     public getNodes!: HasManyGetAssociationsMixin<TracingNode>;
 
     public Nodes?: TracingNode[];
+    public Reconstruction: Reconstruction;
 
     public static async findOneForTransform(id: string): Promise<Tracing> {
         return Tracing.findByPk(id, {
@@ -67,6 +69,15 @@ export class Tracing extends BaseModel {
                     model: StructureIdentifier,
                     as: "StructureIdentifier",
                     attributes: ["id", "value"]
+                }]
+            }, {
+                model: Reconstruction,
+                as: "Reconstruction",
+                attributes: ["id", "neuronId"],
+                include: [{
+                    model: Neuron,
+                    as: "Neuron",
+                    attributes: ["id", "brainStructureId"]
                 }]
             }]
         });
@@ -170,16 +181,7 @@ export class Tracing extends BaseModel {
         return {id, error: null};
     }
 
-    /**
-     *
-     * @param userId
-     * @param neuronId
-     * @param tracingStructureId
-     * @param duration
-     * @param length
-     * @param uploadFile
-     */
-    public static async createApprovedTracing(userId: string, neuronId: string, tStructureId: string, uploadFile: Promise<any>): Promise<IUploadOutput> {
+    public static async createTracingFromUpload(reconstructionId: string, tStructureId: string, uploadFile: Promise<any>): Promise<IUploadOutput> {
         if (!uploadFile) {
             return {
                 tracings: null,
@@ -207,6 +209,34 @@ export class Tracing extends BaseModel {
                 tracingInputs.push({input: data, tracingStructureId: tStructureId});
             }
 
+            return Tracing.createTracingFromInput(reconstructionId, tracingInputs, file.filename);
+        } catch (err) {
+            return {tracings: null, error: err};
+        }
+    }
+
+    public static async createTracingFromJson(reconstructionId: string, source: string) {
+        let tracingInputs: ITracingDataInput[] = [];
+
+        const [axonData, dendriteData] = await jsonParse(fs.createReadStream(source));
+
+        if (axonData) {
+            tracingInputs.push({input: axonData, tracingStructureId: AxonStructureId});
+        }
+
+        if (dendriteData) {
+            tracingInputs.push({input: dendriteData, tracingStructureId: DendriteStructureId});
+        }
+
+        if (tracingInputs.length < 2) {
+            return {tracings: null, error: `${axonData ? "" : "Axon data is missing.  "}${dendriteData ? "" : "Dendrite data is missing."}`};
+        }
+
+        return Tracing.createTracingFromInput(reconstructionId, tracingInputs, path.basename(source), true);
+    }
+
+    public static async createTracingFromInput(reconstructionId: string, tracingInputs: ITracingDataInput[], source: string, insertOnly: boolean = false): Promise<IUploadOutput> {
+        try {
             const promises: Promise<IUploadIntermediate>[] = tracingInputs.map(async (input) => {
                 const swcData = input.input;
                 const tracingStructureId = input.tracingStructureId;
@@ -221,7 +251,10 @@ export class Tracing extends BaseModel {
                 if (swcData.somaCount === 0) {
                     return {
                         tracing: null,
-                        error: {name: "UploadSwcError", message: "There are no soma/root/un-parented nodes in the tracing"}
+                        error: {
+                            name: "UploadSwcError",
+                            message: "There are no soma/root/un-parented nodes in the tracing"
+                        }
                     };
                 }
 
@@ -237,10 +270,8 @@ export class Tracing extends BaseModel {
 
                 let tracing: Tracing = null;
 
-                // Reconstruction for this user and neuron
-                const reconstruction = await Reconstruction.findOne({
-                    where: {annotatorId: userId, neuronId: neuronId}
-                });
+                // Reconstruction
+                const reconstruction = await Reconstruction.findByPk(reconstructionId);
 
                 // Only allow one axon/dendrite per reconstruction.
                 const existing = await Tracing.findOne({
@@ -251,11 +282,15 @@ export class Tracing extends BaseModel {
                 });
 
                 if (existing) {
+                    if (insertOnly) {
+                        return {tracing: existing, error: null};
+                    }
+
                     await Tracing.deleteTracing(existing.id, false);
                 }
 
                 const tracingData = {
-                    filename: file.filename,
+                    filename: source,
                     fileComments: swcData.comments,
                     nodeCount: swcData.sampleCount,
                     pathCount: swcData.pathCount,
@@ -291,7 +326,7 @@ export class Tracing extends BaseModel {
                     tracing.Nodes = await TracingNode.bulkCreate(nodeData, {transaction: t});
                 });
 
-                debug(`inserted ${nodeData.length} nodes from ${file.filename}`);
+                debug(`inserted ${nodeData.length} nodes from ${source}`);
 
                 const somaStructureIdentifier = await StructureIdentifier.findOne({where: {value: StructureIdentifiers.soma}});
 
@@ -328,7 +363,10 @@ export class Tracing extends BaseModel {
 
             if (!fs.existsSync(ServiceOptions.ccfv30OntologyPath)) {
                 debug(`CCF v3.0 ontology file ${ServiceOptions.ccfv30OntologyPath} does not exist`);
-                return {tracing: null, error: `CCF v3.0 ontology file ${ServiceOptions.ccfv30OntologyPath} does not exist`};
+                return {
+                    tracing: null,
+                    error: `CCF v3.0 ontology file ${ServiceOptions.ccfv30OntologyPath} does not exist`
+                };
             }
 
             return new Promise((resolve, reject) => {

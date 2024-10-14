@@ -1,6 +1,6 @@
 import {Sequelize, DataTypes, HasManyGetAssociationsMixin, FindOptions, Op} from "sequelize";
 
-import {BaseModel, EntityMutateOutput, EntityQueryInput, EntityQueryOutput} from "./baseModel";
+import {BaseModel, EntityQueryInput, EntityQueryOutput} from "./baseModel";
 import {Neuron} from "./neuron";
 import {
     optionsIncludeNeuronIds,
@@ -57,14 +57,20 @@ export class BrainArea extends BaseModel {
     public getNeurons!: HasManyGetAssociationsMixin<Neuron>;
 
     // The area and all subareas, so that searching the parent is same as searching in all the children.
-    private static _comprehensiveBrainAreaLookup = new Map<string, string[]>();
+    private static _comprehensiveCompartmentLookup = new Map<string, string[]>();
 
-    private static _brainAreaCache = new Map<string, BrainArea>();
+    private static _compartmentCache = new Map<string, BrainArea>();
+
+    private static _compartmentAcronymCache = new Map<string, BrainArea>();
 
     private static _wholeBrainId: string;
 
     public static getOne(id: string) {
-        return this._brainAreaCache.get(id);
+        return this._compartmentCache.get(id);
+    }
+
+    public static getFromAcronym(acronym: string): BrainArea {
+        return this._compartmentAcronymCache.get(acronym);
     }
 
     public static wholeBrainId(): string {
@@ -72,10 +78,14 @@ export class BrainArea extends BaseModel {
     }
 
     public static getComprehensiveBrainArea(id: string): string[] {
-        return this._comprehensiveBrainAreaLookup.get(id);
+        return this._comprehensiveCompartmentLookup.get(id);
     }
 
     public static async loadCompartmentCache() {
+        if (this._comprehensiveCompartmentLookup.size > 0) {
+            return
+        }
+
         const brainAreas = await BrainArea.findAll({});
 
         debug(`caching ${brainAreas.length} brain areas`);
@@ -83,14 +93,16 @@ export class BrainArea extends BaseModel {
         for (let idx = 0; idx < brainAreas.length; idx++) {
             const b = brainAreas[idx];
 
-            this._brainAreaCache.set(b.id, b);
+            this._compartmentCache.set(b.id, b);
+
+            this._compartmentAcronymCache.set(b.acronym, b);
 
             const result = await BrainArea.findAll({
                 attributes: ["id", "structureIdPath"],
                 where: {structureIdPath: {[Op.like]: b.structureIdPath + "%"}}
             });
 
-            this._comprehensiveBrainAreaLookup.set(b.id, result.map(r => r.id));
+            this._comprehensiveCompartmentLookup.set(b.id, result.map(r => r.id));
         }
 
         const wholeBrain = await BrainArea.findOne({where: {structureId: WHOLE_BRAIN_STRUCTURE_ID}});

@@ -1,8 +1,13 @@
 import {BaseModel, EntityQueryOutput, SortAndLimit} from "./baseModel";
-import {DataTypes, HasManyGetAssociationsMixin, Sequelize} from "sequelize";
+import {DataTypes, HasManyGetAssociationsMixin, Sequelize, Op} from "sequelize";
 import {Reconstruction} from "./reconstruction";
+import uuid = require("uuid");
 
 const debug = require("debug")("mnb:nmcp-api:user");
+
+export type UserQueryInput = SortAndLimit & {
+    includeImported: boolean;
+};
 
 export enum UserPermissions {
     None = 0x00,
@@ -39,41 +44,65 @@ export class User extends BaseModel {
 
     public Reconstructions?: Reconstruction[];
 
-    public static async getUser(userId: string, firstName: string, lastName: string, email: string): Promise<User> {
-        let user = await User.findByPk(userId);
+    public static async findOrCreateUser(authId: string, firstName: string, lastName: string, email: string): Promise<User> {
+        try {
+            let user: User = null;
 
-        if (!user) {
-            debug(`user ${userId} not found`)
-            user = await User.create({
-                id: userId,
-                firstName: firstName,
-                lastName: lastName,
-                emailAddress: email,
-                permissions: UserPermissions.ViewReconstructions,
-                isAnonymousForComplete: false,
-                isAnonymousForCandidate: true,
-                crossAuthenticationId: null
-            });
-            debug(`user ${user.id} created`)
-        } else {
-            const updates = {}
-            if (firstName) {
-                updates["firstName"] = firstName;
+            if (authId) {
+                user = await User.findOne({where: {authDirectoryId: authId}});
             }
-            if (lastName) {
-                updates["lastName"] = lastName;
+
+            // Try to match email as a backup
+            if (!user && email) {
+                user = await User.findOne({where: {emailAddress: email}});
+
+                // It is possible to have created the user via email from a smarts sheet or other import, and now they are
+                // actually logging in for the first time w/authentication.
+                if (user && authId) {
+                    await user.update({authDirectoryId: authId});
+                }
             }
-            if (email) {
-                updates["emailAddress"] = email;
+
+            if (!user) {
+                user = await User.create({
+                    authDirectoryId: authId,
+                    firstName,
+                    lastName,
+                    emailAddress: email,
+                    permissions: UserPermissions.ViewReconstructions,
+                    isAnonymousForComplete: false,
+                    isAnonymousForCandidate: true,
+                    crossAuthenticationId: null
+                });
+                debug(`user ${user.id} for authId ${authId} and email ${email} created`)
+            } else {
+                const updates = {}
+                if (firstName) {
+                    updates["firstName"] = firstName;
+                }
+                if (lastName) {
+                    updates["lastName"] = lastName;
+                }
+                if (email) {
+                    updates["emailAddress"] = email;
+                }
+                await user.update(updates);
             }
-            await user.update(updates);
+
+            return user;
+        } catch (err) {
+            console.log(err);
         }
 
-        return user;
+        return null;
     }
 
-    public static async getAll(input: SortAndLimit): Promise<EntityQueryOutput<User>> {
-        const options = {}
+    public static async findUserByEmail(email: string): Promise<User> {
+        return await User.findOne({where: {emailAddress: email}});
+    }
+
+    public static async getAll(input: UserQueryInput): Promise<EntityQueryOutput<User>> {
+        const options = input.includeImported ? {} : {where: {authDirectoryId: {[Op.ne]: null}}};
 
         const count = await this.setSortAndLimiting(options, input);
 
@@ -115,6 +144,7 @@ export const modelInit = (sequelize: Sequelize) => {
             type: DataTypes.UUID,
             defaultValue: DataTypes.UUIDV4
         },
+        authDirectoryId: DataTypes.TEXT,
         firstName: DataTypes.TEXT,
         lastName: DataTypes.TEXT,
         emailAddress: DataTypes.TEXT,

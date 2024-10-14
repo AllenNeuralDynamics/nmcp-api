@@ -18,6 +18,10 @@ export class Collection extends BaseModel {
 
     public getSamples!: HasManyGetAssociationsMixin<Sample>;
 
+    public static async findByName(name: string): Promise<Collection> {
+        return Collection.findOne({where: {name}});
+    }
+
     public static async createWith(collectionInput: CollectionInput): Promise<EntityMutateOutput<Collection>> {
         try {
             if (!collectionInput) {

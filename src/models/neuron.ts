@@ -208,31 +208,35 @@ export class Neuron extends BaseModel {
 
         const candidateNeuronIds = _.difference(neuronIds, neuronsWithCompletedReconstruction);
 
-        const options = {}
-
-        await this.setSortAndLimiting(options, input);
-
-        const where = {id: {[Op.in]: candidateNeuronIds}};
-
-        const include = [];
+        const options = {where: {id: {[Op.in]: candidateNeuronIds}}, include: []};
 
         if (input.brainStructureIds && input.brainStructureIds.length > 0) {
-            where["brainStructureId"] = {[Op.in]: input.brainStructureIds}
+            options.where["brainStructureId"] = {[Op.in]: input.brainStructureIds}
         }
 
         if (input.sampleIds && input.sampleIds.length > 0) {
-            where["$Sample.id$"] = {[Op.in]: input.sampleIds}
-            where["$Sample.id$"] = {[Op.in]: input.sampleIds}
-            include.push({model: Sample, as: "Sample"})
+            options.where["$Sample.id$"] = {[Op.in]: input.sampleIds}
+            options.include.push({model: Sample, as: "Sample"})
+        }
+
+        const totalCount = await Neuron.count(options);
+
+        if (input) {
+            options["order"] = [["createdAt", "DESC"]];
+
+            if (input.offset) {
+                options["offset"] = input.offset;
+            }
+
+            if (input.limit) {
+                options["limit"] = input.limit;
+            }
         }
 
         try {
-            options["where"] = where
-            options["include"] = include
+            const candidateNeurons = await Neuron.findAll(options);
 
-            const candidateNeurons = await Neuron.findAll(options)
-
-            return {totalCount: candidateNeurons.length, items: candidateNeurons};
+            return {totalCount, items: candidateNeurons};
         } catch (e) {
             return {totalCount: 0, items: []}
         }
@@ -257,6 +261,12 @@ export class Neuron extends BaseModel {
 
     public static async isDuplicateNeuronObj(neuron: NeuronInput): Promise<boolean> {
         return Neuron.isDuplicate(neuron.idString, neuron.sampleId, neuron.id);
+    }
+
+    public static async findOrCreateWithIdString(idString: string, sampleId: string): Promise<Neuron> {
+        const [neuron] = await Neuron.findOrCreate({where: {idString, sampleId}});
+
+        return neuron;
     }
 
     public static async createWith(neuronInput: NeuronInput): Promise<EntityMutateOutput<Neuron>> {
@@ -591,7 +601,7 @@ export const modelInit = (sequelize: Sequelize) => {
 };
 
 export const modelAssociate = () => {
-    Neuron.belongsTo(Sample, {foreignKey: "sampleId"});
+    Neuron.belongsTo(Sample, {foreignKey: "sampleId", as: "Sample"});
     Neuron.belongsTo(BrainArea, {foreignKey: {name: "brainStructureId", allowNull: true}});
     Neuron.hasMany(Reconstruction, {foreignKey: "neuronId", as: "Reconstructions"});
 };

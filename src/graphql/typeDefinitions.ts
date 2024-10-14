@@ -58,7 +58,7 @@ export const typeDefinitions = gql`
 
         reconstructions(pageInput: ReconstructionPageInput): ReconstructionPage!
         candidatesForReview: [Neuron!]!
-        reviewableReconstructions: [Reconstruction!]!
+        reviewableReconstructions(input: ReviewPageInput): ReconstructionPage!
         
         reconstructionData(id: String!): String
         neuronReconstructionData(id: String!): String
@@ -98,7 +98,7 @@ export const typeDefinitions = gql`
         updatePrecomputed(id: String!, version: Int!, generatedAt: Date!): Precomputed
         invalidatePrecomputed(ids: [String!]!): [String!]!
 
-        uploadSwc(neuronId: String, structureId: String, file: Upload): TracingUploadOutput!
+        uploadSwc(reconstructionId: String, structureId: String, file: Upload): TracingUploadOutput!
 
         updateReconstruction(id: String!, duration: Float!, length: Float!, notes: String!, checks: String!): Error
         requestReconstruction(id: String!): Tracing
@@ -110,6 +110,10 @@ export const typeDefinitions = gql`
         completeReconstruction(id: String!): Error
 
         unpublish(id: String!): Boolean
+        
+        reload: Boolean
+        
+        importSmartSheet(id: String!): Boolean
         
         createIssue(description: String!, neuronId: String, reconstructionId: String): Issue
     }

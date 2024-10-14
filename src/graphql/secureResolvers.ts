@@ -11,14 +11,16 @@ import {TracingNode} from "../models/tracingNode";
 import {Injection, InjectionInput, InjectionQueryInput} from "../models/injection";
 import {Fluorophore, FluorophoreInput, FluorophoreQueryInput} from "../models/fluorophore";
 import {InjectionVirus, InjectionVirusInput, InjectionVirusQueryInput} from "../models/injectionVirus";
-import {User, UserPermissions} from "../models/user";
+import {User, UserPermissions, UserQueryInput} from "../models/user";
 import {Reconstruction} from "../models/reconstruction";
 import {ReconstructionStatus} from "../models/reconstructionStatus";
 import {GraphQLError} from "graphql/error";
 import {Collection, CollectionInput} from "../models/collection";
 import {Issue, IssueKind} from "../models/issue";
 
-const GraphQLUpload = require('graphql-upload/GraphQLUpload.js');
+import GraphQLUpload = require('graphql-upload/GraphQLUpload.js');
+import {loadTracingCache} from "../rawquery/tracingQueryMiddleware";
+import {synchronize} from "../data-access/smartSheetClient";
 
 export class UnauthorizedError extends GraphQLError {
     public constructor() {
@@ -47,7 +49,7 @@ export interface IUploadFile {
 //
 
 interface IUsersQueryArguments {
-    input: SortAndLimit;
+    input: UserQueryInput;
 }
 
 interface IMouseStrainQueryArguments {
@@ -80,7 +82,7 @@ interface ICandidateNeuronQueryArguments {
 }
 
 interface ITracingUploadArguments {
-    neuronId: string;
+    reconstructionId: string;
     structureId: string;
     file: Promise<IUploadFile>;
 }
@@ -98,6 +100,7 @@ export interface IReconstructionPageInput {
     limit: number;
     userOnly: boolean;
     filters: ReconstructionStatus[];
+    sampleIds?: string[];
 }
 
 interface IReconstructionArguments {
@@ -109,6 +112,17 @@ export interface IReconstructionPage {
     limit: number;
     totalCount: number;
     reconstructions: Reconstruction[];
+}
+
+export interface ReviewPageInput {
+    offset: number;
+    limit: number;
+    sampleIds: string[];
+    status: ReconstructionStatus[];
+}
+
+export interface ReviewPageArguments {
+    input: ReviewPageInput;
 }
 
 export interface IUploadOutput {
@@ -177,7 +191,7 @@ export const secureResolvers = {
     Upload: GraphQLUpload,
 
     Query: {
-        users(_, args: IUsersQueryArguments, context: User): Promise<EntityQueryOutput<User>> {
+        users(_: any, args: IUsersQueryArguments, context: User): Promise<EntityQueryOutput<User>> {
             if (context.permissions & UserPermissions.Admin) {
                 return User.getAll(args.input);
             }
@@ -185,7 +199,7 @@ export const secureResolvers = {
             throw new UnauthorizedError();
         },
 
-        mouseStrains(_, args: IMouseStrainQueryArguments, context: User): Promise<MouseStrain[]> {
+        mouseStrains(_: any, args: IMouseStrainQueryArguments, context: User): Promise<MouseStrain[]> {
             if (context.permissions & UserPermissions.Edit) {
                 return MouseStrain.getAll(args.input);
             }
@@ -197,7 +211,7 @@ export const secureResolvers = {
                 },
             });
         },
-        mouseStrain(_, args: IIdOnlyArguments, context: User): Promise<MouseStrain> {
+        mouseStrain(_: any, args: IIdOnlyArguments, context: User): Promise<MouseStrain> {
             if (context.permissions & UserPermissions.Edit) {
                 return MouseStrain.findByPk(args.id);
             }
@@ -210,7 +224,7 @@ export const secureResolvers = {
             });
         },
 
-        injectionViruses(_, args: IInjectionVirusQueryArguments, context: User): Promise<InjectionVirus[]> {
+        injectionViruses(_: any, args: IInjectionVirusQueryArguments, context: User): Promise<InjectionVirus[]> {
             if (context.permissions & UserPermissions.Edit) {
                 return InjectionVirus.getAll(args.input);
             }
@@ -222,7 +236,7 @@ export const secureResolvers = {
                 },
             });
         },
-        injectionVirus(_, args: IIdOnlyArguments, context: User): Promise<InjectionVirus> {
+        injectionVirus(_: any, args: IIdOnlyArguments, context: User): Promise<InjectionVirus> {
             if (context.permissions & UserPermissions.Edit) {
                 return InjectionVirus.findByPk(args.id);
             }
@@ -235,7 +249,7 @@ export const secureResolvers = {
             });
         },
 
-        fluorophores(_, args: IFluorophoreQueryArguments, context: User): Promise<Fluorophore[]> {
+        fluorophores(_: any, args: IFluorophoreQueryArguments, context: User): Promise<Fluorophore[]> {
             if (context.permissions & UserPermissions.Edit) {
                 return Fluorophore.getAll(args.input);
             }
@@ -247,7 +261,7 @@ export const secureResolvers = {
                 },
             });
         },
-        fluorophore(_, args: IIdOnlyArguments, context: User): Promise<Fluorophore> {
+        fluorophore(_: any, args: IIdOnlyArguments, context: User): Promise<Fluorophore> {
             if (context.permissions & UserPermissions.Edit) {
                 return Fluorophore.findByPk(args.id);
             }
@@ -260,7 +274,7 @@ export const secureResolvers = {
             });
         },
 
-        injections(_, args: IInjectionQueryArguments, context: User): Promise<Injection[]> {
+        injections(_: any, args: IInjectionQueryArguments, context: User): Promise<Injection[]> {
             if (context.permissions & UserPermissions.Edit) {
                 return Injection.getAll(args.input);
             }
@@ -272,7 +286,7 @@ export const secureResolvers = {
                 },
             });
         },
-        injection(_, args: IIdOnlyArguments, context: User): Promise<Injection> {
+        injection(_: any, args: IIdOnlyArguments, context: User): Promise<Injection> {
             if (context.permissions & UserPermissions.Edit) {
                 return Injection.findByPk(args.id);
             }
@@ -285,7 +299,7 @@ export const secureResolvers = {
             });
         },
 
-        samples(_, args: ISampleQueryArguments, context: User): Promise<EntityQueryOutput<Sample>> {
+        samples(_: any, args: ISampleQueryArguments, context: User): Promise<EntityQueryOutput<Sample>> {
             if (context.permissions & UserPermissions.Edit) {
                 return Sample.getAll(args.input);
             }
@@ -297,7 +311,7 @@ export const secureResolvers = {
                 },
             });
         },
-        sample(_, args: IIdOnlyArguments, context: User): Promise<Sample> {
+        sample(_: any, args: IIdOnlyArguments, context: User): Promise<Sample> {
             if (context.permissions & UserPermissions.Edit) {
                 return Sample.findByPk(args.id);
             }
@@ -310,7 +324,7 @@ export const secureResolvers = {
             });
         },
 
-        neurons(_, args: INeuronQueryArguments, context: User): Promise<EntityQueryOutput<Neuron>> {
+        neurons(_: any, args: INeuronQueryArguments, context: User): Promise<EntityQueryOutput<Neuron>> {
             if (context.permissions & UserPermissions.Edit) {
                 return Neuron.getAll(args.input);
             }
@@ -322,7 +336,7 @@ export const secureResolvers = {
                 },
             });
         },
-        neuron(_, args: IIdOnlyArguments, context: User): Promise<Neuron> {
+        neuron(_: any, args: IIdOnlyArguments, context: User): Promise<Neuron> {
             if (context.permissions & UserPermissions.Edit) {
                 return Neuron.findByPk(args.id);
             }
@@ -335,7 +349,7 @@ export const secureResolvers = {
             });
         },
 
-        candidateNeurons(_, args: ICandidateNeuronQueryArguments, context: User): Promise<EntityQueryOutput<Neuron>> {
+        candidateNeurons(_: any, args: ICandidateNeuronQueryArguments, context: User): Promise<EntityQueryOutput<Neuron>> {
             if (context.permissions & UserPermissions.ViewReconstructions) {
                 return Neuron.getCandidateNeurons(args.input, args.includeInProgress);
             }
@@ -348,7 +362,7 @@ export const secureResolvers = {
             });
         },
 
-        reconstructions(_, args: IReconstructionArguments, context: User): Promise<IReconstructionPage> {
+        reconstructions(_: any, args: IReconstructionArguments, context: User): Promise<IReconstructionPage> {
             if (context.permissions & UserPermissions.ViewReconstructions) {
                 if (args.pageInput.userOnly) {
                     return Reconstruction.getAll(args.pageInput, context.id);
@@ -365,9 +379,9 @@ export const secureResolvers = {
             });
         },
 
-        async reviewableReconstructions(_, __, context: User): Promise<Reconstruction[]> {
+        async reviewableReconstructions(_: any, args: ReviewPageArguments, context: User): Promise<IReconstructionPage> {
             if (context.permissions & UserPermissions.Review) {
-                return Reconstruction.getReviewableAnnotations();
+                return Reconstruction.getReviewableAnnotations(args.input);
             }
 
             throw new GraphQLError("User is not authenticated", {
@@ -378,7 +392,7 @@ export const secureResolvers = {
             });
         },
 
-        async candidatesForReview(_, __, context: User): Promise<Neuron[]> {
+        async candidatesForReview(_: any, __: any, context: User): Promise<Neuron[]> {
             if (context.permissions & UserPermissions.Review) {
                 return Neuron.getCandidateNeuronsForReview();
             }
@@ -391,7 +405,7 @@ export const secureResolvers = {
             });
         },
 
-        async openIssues(_, __, context: User): Promise<Issue[]> {
+        async openIssues(_: any, __: any, context: User): Promise<Issue[]> {
             if (context.permissions & UserPermissions.Admin) {
                 return Issue.getOpen();
             }
@@ -405,7 +419,7 @@ export const secureResolvers = {
         }
     },
     Mutation: {
-        async updateUserPermissions(_, args: IUserMutateArguments, context: User): Promise<User> {
+        async updateUserPermissions(_: any, args: IUserMutateArguments, context: User): Promise<User> {
             if (context.permissions & UserPermissions.Admin) {
                 return User.updatePermissions(args.id, args.permissions);
             }
@@ -418,7 +432,7 @@ export const secureResolvers = {
             });
         },
 
-        async updateUserAnonymity(_, args: IUserMutateArguments, context: User): Promise<User> {
+        async updateUserAnonymity(_: any, args: IUserMutateArguments, context: User): Promise<User> {
             if (context.permissions & UserPermissions.Admin) {
                 return User.updateAnonymity(args.id, args.anonymousCandidate, args.anonymousCandidate);
             }
@@ -431,7 +445,7 @@ export const secureResolvers = {
             });
         },
 
-        createMouseStrain(_, args: IMouseStrainMutateArguments, context: User): Promise<EntityMutateOutput<MouseStrain>> {
+        createMouseStrain(_: any, args: IMouseStrainMutateArguments, context: User): Promise<EntityMutateOutput<MouseStrain>> {
             if (context.permissions & UserPermissions.Edit) {
                 return MouseStrain.createWith(args.mouseStrain);
             }
@@ -443,7 +457,7 @@ export const secureResolvers = {
                 },
             });
         },
-        updateMouseStrain(_, args: IMouseStrainMutateArguments, context: User): Promise<EntityMutateOutput<MouseStrain>> {
+        updateMouseStrain(_: any, args: IMouseStrainMutateArguments, context: User): Promise<EntityMutateOutput<MouseStrain>> {
             if (context.permissions & UserPermissions.Edit) {
                 return MouseStrain.updateWith(args.mouseStrain);
             }
@@ -456,7 +470,7 @@ export const secureResolvers = {
             });
         },
 
-        createInjectionVirus(_, args: IInjectionVirusMutateArguments, context: User): Promise<EntityMutateOutput<InjectionVirus>> {
+        createInjectionVirus(_: any, args: IInjectionVirusMutateArguments, context: User): Promise<EntityMutateOutput<InjectionVirus>> {
             if (context.permissions & UserPermissions.Edit) {
                 return InjectionVirus.createWith(args.injectionVirus);
             }
@@ -468,7 +482,7 @@ export const secureResolvers = {
                 },
             });
         },
-        updateInjectionVirus(_, args: IInjectionVirusMutateArguments, context: User): Promise<EntityMutateOutput<InjectionVirus>> {
+        updateInjectionVirus(_: any, args: IInjectionVirusMutateArguments, context: User): Promise<EntityMutateOutput<InjectionVirus>> {
             if (context.permissions & UserPermissions.Edit) {
                 return InjectionVirus.updateWith(args.injectionVirus);
             }
@@ -481,7 +495,7 @@ export const secureResolvers = {
             });
         },
 
-        createFluorophore(_, args: IFluorophoreMutateArguments, context: User): Promise<EntityMutateOutput<Fluorophore>> {
+        createFluorophore(_: any, args: IFluorophoreMutateArguments, context: User): Promise<EntityMutateOutput<Fluorophore>> {
             if (context.permissions & UserPermissions.Edit) {
                 return Fluorophore.createWith(args.fluorophore);
             }
@@ -493,7 +507,7 @@ export const secureResolvers = {
                 },
             });
         },
-        updateFluorophore(_, args: IFluorophoreMutateArguments, context: User): Promise<EntityMutateOutput<Fluorophore>> {
+        updateFluorophore(_: any, args: IFluorophoreMutateArguments, context: User): Promise<EntityMutateOutput<Fluorophore>> {
             if (context.permissions & UserPermissions.Edit) {
                 return Fluorophore.updateWith(args.fluorophore);
             }
@@ -506,7 +520,7 @@ export const secureResolvers = {
             });
         },
 
-        createInjection(_, args: IInjectionMutateArguments, context: User): Promise<EntityMutateOutput<Injection>> {
+        createInjection(_: any, args: IInjectionMutateArguments, context: User): Promise<EntityMutateOutput<Injection>> {
             if (context.permissions & UserPermissions.Edit) {
                 return Injection.createWith(args.injectionInput);
             }
@@ -518,7 +532,7 @@ export const secureResolvers = {
                 },
             });
         },
-        updateInjection(_, args: IInjectionMutateArguments, context: User): Promise<EntityMutateOutput<Injection>> {
+        updateInjection(_: any, args: IInjectionMutateArguments, context: User): Promise<EntityMutateOutput<Injection>> {
             if (context.permissions & UserPermissions.Edit) {
                 return Injection.updateWith(args.injectionInput);
             }
@@ -530,7 +544,7 @@ export const secureResolvers = {
                 },
             });
         },
-        deleteInjection(_, args: IIdOnlyArguments, context: User): Promise<DeleteOutput> {
+        deleteInjection(_: any, args: IIdOnlyArguments, context: User): Promise<DeleteOutput> {
             if (context.permissions & UserPermissions.Edit) {
                 return Injection.deleteFor(args.id);
             }
@@ -543,7 +557,7 @@ export const secureResolvers = {
             });
         },
 
-        createSample(_, args: ISampleMutateArguments, context: User): Promise<EntityMutateOutput<Sample>> {
+        createSample(_: any, args: ISampleMutateArguments, context: User): Promise<EntityMutateOutput<Sample>> {
             if (context.permissions & UserPermissions.Edit) {
                 return Sample.createWith(args.sample);
             }
@@ -555,7 +569,7 @@ export const secureResolvers = {
                 },
             });
         },
-        updateSample(_, args: ISampleMutateArguments, context: User): Promise<EntityMutateOutput<Sample>> {
+        updateSample(_: any, args: ISampleMutateArguments, context: User): Promise<EntityMutateOutput<Sample>> {
             if (context.permissions & UserPermissions.Edit) {
                 return Sample.updateWith(args.sample);
             }
@@ -567,7 +581,7 @@ export const secureResolvers = {
                 },
             });
         },
-        deleteSample(_, args: IIdOnlyArguments, context: User): Promise<DeleteOutput> {
+        deleteSample(_: any, args: IIdOnlyArguments, context: User): Promise<DeleteOutput> {
             if (context.permissions & UserPermissions.Edit) {
                 return Sample.deleteFor(args.id);
             }
@@ -580,7 +594,7 @@ export const secureResolvers = {
             });
         },
 
-        createNeuron(_, args: INeuronMutateArguments, context: User): Promise<EntityMutateOutput<Neuron>> {
+        createNeuron(_: any, args: INeuronMutateArguments, context: User): Promise<EntityMutateOutput<Neuron>> {
             if (context.permissions & UserPermissions.Edit) {
                 return Neuron.createWith(args.neuron);
             }
@@ -592,7 +606,7 @@ export const secureResolvers = {
                 },
             });
         },
-        updateNeuron(_, args: INeuronMutateArguments, context: User): Promise<EntityMutateOutput<Neuron>> {
+        updateNeuron(_: any, args: INeuronMutateArguments, context: User): Promise<EntityMutateOutput<Neuron>> {
             if (context.permissions & UserPermissions.Edit) {
                 return Neuron.updateWith(args.neuron);
             }
@@ -604,7 +618,7 @@ export const secureResolvers = {
                 },
             });
         },
-        deleteNeuron(_, args: IIdOnlyArguments, context: User): Promise<DeleteOutput> {
+        deleteNeuron(_: any, args: IIdOnlyArguments, context: User): Promise<DeleteOutput> {
             if (context.permissions & UserPermissions.Edit) {
                 return Neuron.deleteFor(args.id);
             }
@@ -617,7 +631,7 @@ export const secureResolvers = {
             });
         },
 
-        createCollection(_, args: ICollectionMutateArguments, context: User): Promise<EntityMutateOutput<Collection>> {
+        createCollection(_: any, args: ICollectionMutateArguments, context: User): Promise<EntityMutateOutput<Collection>> {
             if (context.permissions & UserPermissions.Admin) {
                 return Collection.createWith(args.collection);
             }
@@ -629,7 +643,7 @@ export const secureResolvers = {
                 },
             });
         },
-        updateCollection(_, args: ICollectionMutateArguments, context: User): Promise<EntityMutateOutput<Collection>> {
+        updateCollection(_: any, args: ICollectionMutateArguments, context: User): Promise<EntityMutateOutput<Collection>> {
             if (context.permissions & UserPermissions.Admin) {
                 return Collection.updateWith(args.collection);
             }
@@ -641,7 +655,7 @@ export const secureResolvers = {
                 },
             });
         },
-        deleteCollection(_, args: IIdOnlyArguments, context: User): Promise<DeleteOutput> {
+        deleteCollection(_: any, args: IIdOnlyArguments, context: User): Promise<DeleteOutput> {
             if (context.permissions & UserPermissions.Admin) {
                 return Collection.deleteFor(args.id);
             }
@@ -654,9 +668,9 @@ export const secureResolvers = {
             });
         },
 
-        uploadSwc(_, args: ITracingUploadArguments, context: User): Promise<IUploadOutput> {
+        uploadSwc(_: any, args: ITracingUploadArguments, context: User): Promise<IUploadOutput> {
             if (context.permissions & UserPermissions.Review) {
-                return Tracing.createApprovedTracing(context.id, args.neuronId, args.structureId, args.file);
+                return Tracing.createTracingFromUpload(args.reconstructionId, args.structureId, args.file);
             }
 
             throw new GraphQLError("User is not authenticated", {
@@ -667,7 +681,7 @@ export const secureResolvers = {
             });
         },
 
-        requestReconstruction(_, args: IIdOnlyArguments, context: User): Promise<Neuron> {
+        requestReconstruction(_: any, args: IIdOnlyArguments, context: User): Promise<Neuron> {
             if (context.permissions & UserPermissions.ViewReconstructions) {
                 return Neuron.requestAnnotation(args.id, context);
             }
@@ -680,7 +694,7 @@ export const secureResolvers = {
             });
         },
 
-        async requestReconstructionHold(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
+        async requestReconstructionHold(_: any, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
             if (await Reconstruction.isUserAnnotator(args.id, context.id)) {
                 return Reconstruction.markAnnotationOnHold(args.id);
             }
@@ -693,7 +707,7 @@ export const secureResolvers = {
             });
         },
 
-        async cancelReconstruction(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
+        async cancelReconstruction(_: any, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
             if (await Reconstruction.isUserAnnotator(args.id, context.id)) {
                 return Reconstruction.cancelAnnotation(args.id);
             }
@@ -706,7 +720,7 @@ export const secureResolvers = {
             });
         },
 
-        async updateReconstruction(_, args: IMarkReconstructionCompleteArguments, context: User): Promise<IErrorOutput> {
+        async updateReconstruction(_: any, args: IMarkReconstructionCompleteArguments, context: User): Promise<IErrorOutput> {
             if (context.permissions & UserPermissions.Review || await Reconstruction.isUserAnnotator(args.id, context.id)) {
                 return Reconstruction.updateReconstruction(args.id, args.duration, args.length, args.notes, args.checks);
             }
@@ -719,7 +733,7 @@ export const secureResolvers = {
             });
         },
 
-        async requestReconstructionReview(_, args: IMarkReconstructionCompleteArguments, context: User): Promise<IErrorOutput> {
+        async requestReconstructionReview(_: any, args: IMarkReconstructionCompleteArguments, context: User): Promise<IErrorOutput> {
             if (await Reconstruction.isUserAnnotator(args.id, context.id)) {
                 return Reconstruction.updateReconstruction(args.id, args.duration, args.length, args.notes, args.checks, true);
             }
@@ -732,7 +746,7 @@ export const secureResolvers = {
             });
         },
 
-        approveReconstruction(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
+        approveReconstruction(_: any, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
             if (context.permissions & UserPermissions.Review) {
                 return Reconstruction.approveAnnotation(args.id, context.id);
             }
@@ -745,7 +759,7 @@ export const secureResolvers = {
             });
         },
 
-        declineReconstruction(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
+        declineReconstruction(_: any, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
             if (context.permissions & UserPermissions.Review) {
                 return Reconstruction.declineAnnotation(args.id, context.id);
             }
@@ -758,7 +772,7 @@ export const secureResolvers = {
             });
         },
 
-        completeReconstruction(_, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
+        completeReconstruction(_: any, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
             if (context.permissions & UserPermissions.Review) {
                 return Reconstruction.completeAnnotation(args.id);
             }
@@ -771,7 +785,49 @@ export const secureResolvers = {
             });
         },
 
-        async createIssue(_, args: CreateIssueArguments, context: User): Promise<Issue> {
+        unpublish(_: any, args: IIdOnlyArguments, context: User): Promise<boolean> {
+            if (context.permissions & UserPermissions.Admin) {
+                return Reconstruction.unpublish(args.id);
+            }
+
+            throw new GraphQLError('User is not authenticated', {
+                extensions: {
+                    code: 'UNAUTHENTICATED',
+                    http: {status: 401},
+                },
+            });
+        },
+
+        async importSmartSheet(_: any, args: IIdOnlyArguments, context: User): Promise<boolean>{
+            if (context.permissions & UserPermissions.Admin) {
+               await synchronize(3824679856852868, "", 0, args.id);
+               return true;
+            }
+
+            throw new GraphQLError('User is not authenticated', {
+                extensions: {
+                    code: 'UNAUTHENTICATED',
+                    http: {status: 401},
+                },
+            });
+        },
+
+        async reload(_: any, args: IIdOnlyArguments, context: User): Promise<boolean> {
+            if (context.permissions & UserPermissions.Admin) {
+                await loadTracingCache(false);
+                await Reconstruction.loadReconstructionCache();
+                return true;
+            }
+
+            throw new GraphQLError('User is not authenticated', {
+                extensions: {
+                    code: 'UNAUTHENTICATED',
+                    http: {status: 401},
+                },
+            });
+        },
+
+        async createIssue(_: any, args: CreateIssueArguments, context: User): Promise<Issue> {
             if (context.permissions & UserPermissions.ViewReconstructions) {
                 return Issue.createWith(IssueKind.Uncategorized, args.description, args.neuronId);
             }
@@ -819,7 +875,7 @@ export const secureResolvers = {
         },
     },
     Sample: {
-        mouseStrain(sample: Sample, _, __): Promise<MouseStrain> {
+        mouseStrain(sample: Sample, _: any, __: any): Promise<MouseStrain> {
             return sample.getMouseStrain();
         },
         injections(sample: Sample): Promise<Injection[]> {
@@ -860,19 +916,19 @@ export const secureResolvers = {
         }
     },
     Tracing: {
-        async tracingStructure(tracing, _, context: User): Promise<TracingStructure> {
+        async tracingStructure(tracing, _: any, context: User): Promise<TracingStructure> {
             const result: Tracing = await Tracing.findByPk(tracing.id);
             return result ? result.getTracingStructure() : null;
         },
-        reconstruction(tracing, _, context: User): Promise<Reconstruction> {
+        reconstruction(tracing, _: any, context: User): Promise<Reconstruction> {
             return Reconstruction.findByPk(tracing.reconstructionId);
         },
-        soma(tracing, _, context: User): Promise<TracingNode> {
+        soma(tracing, _: any, context: User): Promise<TracingNode> {
             return TracingNode.findByPk(tracing.somaNodeId);
         }
     },
     TracingNode: {
-        brainStructure(node, _, context: User): Promise<BrainArea> {
+        brainStructure(node, _: any, context: User): Promise<BrainArea> {
             return BrainArea.findByPk(node.brainStructureId);
         }
     },

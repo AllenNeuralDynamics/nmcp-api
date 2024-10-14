@@ -74,7 +74,9 @@ async function republishUpdatedNeurons() {
     if (neurons.length > 0) {
         console.log(`${neurons.length} neuron(s) with a published reconstruction updated since last synchronization`);
 
-        const updatePromises = neurons.map(async (n) => {
+        await neurons.reduce(async (p: Promise<void>, n) => {
+            await p;
+
             const tracings = await Tracing.getForNeuron(n.id);
 
             console.log(`\t${tracings.length} tracings for neuron ${n.id}`);
@@ -87,10 +89,8 @@ async function republishUpdatedNeurons() {
                 }
             });
 
-            return Promise.all(tracingPromises);
-        });
-
-        await Promise.all(updatePromises);
+            await Promise.all(tracingPromises);
+        }, Promise.resolve());
     }
 
     await lastMarker.update({appliedAt: when});
@@ -109,15 +109,17 @@ async function publishUntransformedTracings() {
     if (tracings.length > 0) {
         console.log(`${tracings.length} published tracings have not been transformed`);
 
-        const updatePromises = tracings.map(async (t) => {
+        await tracings.reduce(async (p: Promise<void>, t) => {
+            await p;
+
+            console.log(`\t applying transform to ${t.id}`);
+
             const result = await Tracing.applyTransform(t.id);
 
             if (result.tracing) {
                 process.send(t.id);
             }
-        })
-
-        await Promise.all(updatePromises);
+        }, Promise.resolve());
 
         sanityCheckCount = 0;
     } else {

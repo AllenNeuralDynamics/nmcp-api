@@ -117,7 +117,7 @@ async function validateToken(token: string): Promise<TokenOutput> {
     const upn = (decoded["upn"] && decoded.upn.length > 0) ? decoded.upn : "";
 
     //@ts-ignore
-    const user = await User.getUser(decoded.oid, decoded.given_name, decoded.family_name, upn);
+    const user = await User.findOrCreateUser(decoded.oid, decoded.given_name, decoded.family_name, upn);
 
     //@ts-ignore
     return [decoded.scp.split(" "), user];

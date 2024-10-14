@@ -301,6 +301,7 @@ export = {
                     type: Sequelize.UUID,
                     defaultValue: Sequelize.UUIDV4
                 },
+                authDirectoryId: Sequelize.TEXT,
                 firstName: Sequelize.TEXT,
                 lastName: Sequelize.TEXT,
                 emailAddress: Sequelize.TEXT,

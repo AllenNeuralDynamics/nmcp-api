@@ -6,7 +6,7 @@ import {ServiceOptions} from "../options/serviceOptions";
 import {NrrdFile} from "../io/nrrd";
 import {CompartmentStatistics, ICompartmentStatistics} from "./compartmentStatistics";
 import {TracingNode} from "../models/tracingNode";
-import {StructureIdentifier} from "../models/structureIdentifier";
+import {StructureIdentifier, StructureIdentifiers} from "../models/structureIdentifier";
 import {SearchContent} from "../models/searchContent";
 
 export interface ITransformOperationProgressStatus {
@@ -29,7 +29,7 @@ export interface ITransformOperationProgressDelegate {
 
 export interface ITransformOperationContext {
     compartmentMap: Map<number, BrainArea>;
-    swcTracing: Tracing;
+    tracing: Tracing;
     logger?: ITransformOperationLogger;
     progressDelegate?: ITransformOperationProgressDelegate;
 }
@@ -42,7 +42,7 @@ export class TransformOperation {
     private _ccfv30CompartmentMap: CompartmentStatisticsMap;
 
     public get Tracing(): Tracing {
-        return this._context.swcTracing;
+        return this._context.tracing;
     }
 
     public constructor(context: ITransformOperationContext) {
@@ -56,7 +56,7 @@ export class TransformOperation {
     }
 
     public async assignNodeCompartments(): Promise<void> {
-        const nodes = await this._context.swcTracing.getNodes();
+        const nodes = this._context.tracing.Nodes;
 
         if (!nodes) {
             return;
@@ -72,12 +72,14 @@ export class TransformOperation {
 
         let failedLookup = 0;
 
-        const promises = nodes.map(async (swcNode, index) => {
+        const somaStructureId = StructureIdentifier.idForValue(StructureIdentifiers.soma);
+
+        const promises = nodes.map(async (node, index) => {
             let brainAreaIdCcfv30: string = null;
 
             try {
                 // In NRRD z, y, x order after reverse
-                const transformedLocation = [Math.ceil(swcNode.x / 10), Math.ceil(swcNode.y / 10), Math.ceil(swcNode.z / 10)].reverse();
+                const transformedLocation = [Math.ceil(node.x / 10), Math.ceil(node.y / 10), Math.ceil(node.z / 10)].reverse();
 
                 // const brainAreaInput = [0, 0, 0];
                 const ccfv30StructureId: number = nrrdContent.findStructureId(transformedLocation[0], transformedLocation[1], transformedLocation[2]);
@@ -93,15 +95,24 @@ export class TransformOperation {
                 // this.logMessage(`failed brain structure lookup for ${swcNode.sampleNumber}`);
                 brainAreaIdCcfv30 = this._context.compartmentMap.get(997).id;
             }
-            this.populateCompartmentMap(brainAreaIdCcfv30, swcNode);
 
-            await swcNode.update({brainStructureId: brainAreaIdCcfv30});
+            this.populateCompartmentMap(brainAreaIdCcfv30, node);
+
+            await node.update({brainStructureId: brainAreaIdCcfv30});
+
+            if (node.structureIdentifierId == somaStructureId && this._context.tracing?.Reconstruction?.Neuron?.brainStructureId) {
+                const somaBrainStructureId = this._context.tracing?.Reconstruction.Neuron.brainStructureId;
+
+                if (somaBrainStructureId != brainAreaIdCcfv30) {
+                    this.populateCompartmentMap(somaBrainStructureId, node, true);
+                }
+            }
         });
 
         await Promise.all(promises);
 
         if (failedLookup > 0) {
-            this.logMessage(`${failedLookup} node(s) failed the brain structure lookup`);
+            this.logMessage(`${failedLookup} of ${nodes.length} nodes failed the brain structure lookup`);
         }
 
         this.logMessage("assignment complete");
@@ -132,7 +143,7 @@ export class TransformOperation {
         return null;
     }
 
-    private populateCompartmentMap(brainAreaId: string, node: TracingNode) {
+    private populateCompartmentMap(brainAreaId: string, node: TracingNode, increaseTotalNodeCount: boolean = true) {
         if (brainAreaId) {
             if (!this._ccfv30CompartmentMap.has(brainAreaId)) {
                 this._ccfv30CompartmentMap.set(brainAreaId, new CompartmentStatistics())
@@ -140,7 +151,7 @@ export class TransformOperation {
 
             let counts = this._ccfv30CompartmentMap.get(brainAreaId);
 
-            counts.addNode(StructureIdentifier.valueForId(node.structureIdentifierId));
+            counts.addNode(StructureIdentifier.valueForId(node.structureIdentifierId), increaseTotalNodeCount);
         }
     }
 
@@ -151,14 +162,12 @@ export class TransformOperation {
 
         const neuron = await reconstruction.getNeuron();
 
-        const sample = await neuron.getSample();
-
         await SearchContent.destroy({where: {tracingId: tracing.id}, force: true});
 
-        let compartments = [];
+        let searchContentByBrainStructure = [];
 
         for (const entry of this._ccfv30CompartmentMap.entries()) {
-            compartments.push({
+            searchContentByBrainStructure.push({
                 id: uuid.v4(),
                 tracingId: tracing.id,
                 tracingStructureId: tracing.tracingStructureId,
@@ -178,20 +187,9 @@ export class TransformOperation {
             });
         }
 
-        await SearchContent.bulkCreate(compartments)
+        await SearchContent.bulkCreate(searchContentByBrainStructure)
 
-        this.logMessage(`inserted ${compartments.length} brain compartment stats`);
-
-        if (compartments.length < 5) {
-            compartments.map(c => {
-                this.logMessage(`${c.brainAreaId}`);
-                this.logMessage(`\t${c.nodeCount}`);
-                this.logMessage(`\t${c.somaCount}`)
-                this.logMessage(`\t${c.pathCount}`);
-                this.logMessage(`\t${c.branchCount}`);
-                this.logMessage(`\t${c.endCount}`);
-            });
-        }
+        this.logMessage(`inserted ${searchContentByBrainStructure.length} brain compartment stats`);
     }
 
     private logMessage(message: any): void {

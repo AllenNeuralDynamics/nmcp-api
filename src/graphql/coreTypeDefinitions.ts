@@ -16,6 +16,7 @@ export const coreTypeDefinitions = gql`
 
     type User {
         id: String!
+        authDirectoryId: String
         firstName: String
         lastName: String
         emailAddress:String

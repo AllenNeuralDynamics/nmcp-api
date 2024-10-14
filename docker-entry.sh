@@ -10,4 +10,4 @@ wait
 
 export DEBUG=mnb*
 
-node app.js >> /var/log/nmcp/nmcp-api-${logName}.log 2>&1
+node --max-old-space-size=8192 --optimize-for-size app.js >> /var/log/nmcp/nmcp-api-${logName}.log 2>&1

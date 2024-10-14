@@ -18,7 +18,7 @@ interface IPrecomputedUpdateArguments {
  */
 export const internalResolvers = {
     Query: {
-        reconstructionData(_, args: IIdOnlyArguments, context: User): Promise<string> {
+        reconstructionData(_: any, args: IIdOnlyArguments, context: User): Promise<string> {
             if (context.permissions == InternalPermission) {
                 return Reconstruction.getAsData(args.id);
             }
@@ -30,7 +30,7 @@ export const internalResolvers = {
                 },
             });
         },
-        neuronReconstructionData(_, args: IIdOnlyArguments, context: User): Promise<string> {
+        neuronReconstructionData(_: any, args: IIdOnlyArguments, context: User): Promise<string> {
             if (context.permissions == InternalPermission) {
                 return Neuron.getReconstructionsAsData(args.id);
             }
@@ -42,7 +42,7 @@ export const internalResolvers = {
                 },
             });
         },
-        pendingPrecomputed(_, __, context: User): Promise<Precomputed[]> {
+        pendingPrecomputed(_: any, __: any, context: User): Promise<Precomputed[]> {
             if (context.permissions == InternalPermission) {
                 return Precomputed.getPending();
             }
@@ -56,7 +56,7 @@ export const internalResolvers = {
         }
     },
     Mutation: {
-        updatePrecomputed(_, args: IPrecomputedUpdateArguments, context: User): Promise<Precomputed> {
+        updatePrecomputed(_: any, args: IPrecomputedUpdateArguments, context: User): Promise<Precomputed> {
             if (context.permissions == InternalPermission) {
                 return Precomputed.markAsGenerated(args.id, args.version, args.generatedAt);
             }
@@ -68,21 +68,9 @@ export const internalResolvers = {
                 },
             });
         },
-        invalidatePrecomputed(_, args: any, context: User): Promise<string[]> {
+        invalidatePrecomputed(_: any, args: any, context: User): Promise<string[]> {
             if (context.permissions == InternalPermission) {
                 return Precomputed.invalidate(args.ids);
-            }
-
-            throw new GraphQLError('User is not authenticated', {
-                extensions: {
-                    code: 'UNAUTHENTICATED',
-                    http: {status: 401},
-                },
-            });
-        },
-        unpublish(_, args: IIdOnlyArguments, context: User): Promise<boolean> {
-            if (context.permissions == InternalPermission) {
-                return Reconstruction.unpublish(args.id);
             }
 
             throw new GraphQLError('User is not authenticated', {

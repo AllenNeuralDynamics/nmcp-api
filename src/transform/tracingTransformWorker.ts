@@ -1,37 +1,13 @@
 const debug = require("debug")("mnb:transform:node-worker");
 
 import {BrainArea} from "../models/brainArea";
-import {RemoteDatabaseClient} from "../data-access/remoteDatabaseClient";
 import {ITransformOperationProgress, TransformOperation} from "./tracingTransformOperation";
 import {Tracing} from "../models/tracing";
 
-let swcTracingId = process.argv.length > 2 ? process.argv[2] : null;
-
-if (swcTracingId) {
-    setTimeout(async () => {
-        try {
-            await RemoteDatabaseClient.Start();
-
-            const swcTracing = await Tracing.findOneForTransform(swcTracingId);
-
-            const result = await performNodeMap(swcTracing, true);
-
-            if (result) {
-                process.exit(0);
-            } else {
-                process.exit(1);
-            }
-        } catch (err) {
-            console.error(err);
-            process.exit(2);
-        }
-    }, 0)
-}
-
-export async function performNodeMap(swcTracing: Tracing, isFork: boolean = false): Promise<Tracing> {
+export async function performNodeMap(tracing: Tracing, isFork: boolean = false): Promise<Tracing> {
     const brainIdLookup = new Map<number, BrainArea>();
 
-    if (!swcTracing) {
+    if (!tracing) {
         logError("SWC input tracing is null");
         return null;
     }
@@ -49,7 +25,7 @@ export async function performNodeMap(swcTracing: Tracing, isFork: boolean = fals
     try {
         const operation = new TransformOperation({
             compartmentMap: brainIdLookup,
-            swcTracing,
+            tracing: tracing,
             logger: logMessage,
             progressDelegate: onProgressMessage
         });
