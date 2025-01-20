@@ -30,7 +30,8 @@ enum ColumnName {
     NeuronLength = "Neuron Length (mm)",
     Duration = "Time to Trace (hrs)",
     Checks = "Checks",
-    Proofreader = "Proofreader"
+    Proofreader = "Proofreader",
+    Assigned = "Assigned"
 }
 
 enum Status {
@@ -72,6 +73,7 @@ type NeuronRowContents = {
     checks: string;
     proofreader: string;
     proofreaderEmail: string;
+    assigned: string;
 }
 
 type ParsedNeuronIdWithSample = [string, SampleRowContents];
@@ -166,7 +168,8 @@ async function sampleFromRowContents(s: SampleRowContents, reconstructionLocatio
             x: n.x,
             y: n.y,
             z: n.z,
-            brainStructureId: somaBrainStructure
+            brainStructureId: somaBrainStructure,
+            tag: n.assigned?.trim() ?? ""
         };
 
         await Neuron.updateWith(input);
@@ -432,7 +435,8 @@ export class SmartSheetClient {
             notes: this.getStringValue(row, ColumnName.Notes),
             checks: this.getStringValue(row, ColumnName.Checks),
             proofreader: this.getDisplayValue(row, ColumnName.Proofreader),
-            proofreaderEmail: this.getStringValue(row, ColumnName.Proofreader)
+            proofreaderEmail: this.getStringValue(row, ColumnName.Proofreader),
+            assigned: this.getStringValue(row, ColumnName.Assigned)
         };
 
         sample.neurons.push(neuron);

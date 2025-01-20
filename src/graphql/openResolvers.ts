@@ -28,12 +28,13 @@ type SearchNeuronsArguments = {
     context: ISearchContextInput;
 }
 
+// noinspection JSUnusedGlobalSymbols
 /**
  * Resolvers that do not require any type of user authentication.  These are essentially just what is needed to use the viewer without signing in.
  */
 export const openResolvers = {
     Query: {
-        user(_, args: any, context: User): User {
+        user(_: any, __: any, context: User): User {
             return context;
         },
 
@@ -45,25 +46,25 @@ export const openResolvers = {
             return operators;
         },
 
-        structureIdentifiers(_, __, context: User): Promise<StructureIdentifier[]> {
+        structureIdentifiers(_: any, __: any, ___: User): Promise<StructureIdentifier[]> {
             return StructureIdentifier.findAll({});
         },
 
-        tracingStructures(_, __, context: User): Promise<TracingStructure[]> {
+        tracingStructures(_: any, __: any, ___: User): Promise<TracingStructure[]> {
             return TracingStructure.findAll({});
         },
 
-        async brainAreas(_, args: IBrainAreaQueryArguments): Promise<BrainArea[]> {
+        async brainAreas(_: any, args: IBrainAreaQueryArguments): Promise<BrainArea[]> {
             const output = await BrainArea.getAll(args.input);
 
             return output.items;
         },
 
-        brainArea(_, args: IIdOnlyArguments): Promise<BrainArea> {
+        brainArea(_: any, args: IIdOnlyArguments): Promise<BrainArea> {
             return BrainArea.findByPk(args.id);
         },
 
-        async tomographyMetadata(_, args: any, context: User): Promise<[]> {
+        async tomographyMetadata(_: any, __: any, ___: User): Promise<[]> {
             try {
                 const resp = await staticApiClient.querySampleTomography();
                 debug("tomography loaded")
@@ -80,7 +81,7 @@ export const openResolvers = {
             return Collection.findAll();
         },
 
-        async searchNeurons(_, args: SearchNeuronsArguments, context: User): Promise<IQueryDataPage> {
+        async searchNeurons(_: any, args: SearchNeuronsArguments, __: User): Promise<IQueryDataPage> {
             try {
                 return Neuron.getNeuronsWithPredicates(new SearchContext(args.context));
             } catch (err) {

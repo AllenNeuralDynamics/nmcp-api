@@ -40,30 +40,24 @@ export interface IPredicateAttributes {
     composition: number;
 }
 
-export interface IFilterInput extends IPredicateAttributes{
-    nonce: string;
-}
-
 export interface IQueryPredicate extends IPredicateAttributes {
     createFindOptions() : FindOptions;
 }
 
-export function predicateTypeForFilter(filter: IFilterInput): PredicateType {
-    if (filter.tracingIdsOrDOIs.length > 0) {
-        return PredicateType.IdOrDoi;
-    }
-
-    if (filter.arbCenter && filter.arbSize) {
-        return PredicateType.CustomRegion;
-    }
-
-    return PredicateType.AnatomicalRegion;
-}
-
 export class QueryPredicate implements IQueryPredicate {
-    public static predicatesFromFilters(filters: IFilterInput[]): IQueryPredicate[] {
-        return filters.map(f => new QueryPredicate(Object.assign({}, f, {predicateType: predicateTypeForFilter(f)})));
-    }
+    predicateType: PredicateType;
+    tracingIdsOrDOIs: string[];
+    tracingIdsOrDOIsExactMatch: boolean;
+    tracingStructureIds: string[];
+    nodeStructureIds: string[];
+    somaOrigin: SomaOriginType;
+    operatorId: string;
+    amount: number;
+    brainAreaIds: string[];
+    arbCenter: ICenterPoint;
+    arbSize: number;
+    invert: boolean;
+    composition: number;
 
     public static createDefault() : QueryPredicate {
         return new QueryPredicate({
@@ -108,8 +102,6 @@ export class QueryPredicate implements IQueryPredicate {
     }
 
     public createFindOptions() : FindOptions {
-        // TODO ignoring now
-        const scope = 0;
         const findOptions: FindOptions = {};
 
         switch (this.predicateType) {
@@ -123,7 +115,7 @@ export class QueryPredicate implements IQueryPredicate {
 
                 const wholeBrainId = BrainArea.wholeBrainId();
 
-                // Asking for "Whole Brain" should not eliminate nodes (particularly soma) that are outside of the ontology
+                // Asking for "Whole Brain" should not eliminate nodes (particularly soma) that are outside the ontology
                 // atlas.  It should be interpreted as an "all" request.  This also helps performance in that there isn't
                 // a where statement with every structure id.
                 const applicableCompartments = this.brainAreaIds?.filter(id => id != wholeBrainId);
@@ -232,7 +224,7 @@ export class QueryPredicate implements IQueryPredicate {
                             return obj;
                         }
 
-                        debug(`Failed to identify column name for count of structure id ${s}`);
+                        debug(`failed to identify column name for count of structure id ${s}`);
 
                         return null;
                     }).filter(q => q !== null);
@@ -246,7 +238,7 @@ export class QueryPredicate implements IQueryPredicate {
                     if (columnName) {
                         findOptions.where[columnName] = createOperator(opCode, amount);
                     } else {
-                        debug(`Failed to identify column name for count of structure id ${this.nodeStructureIds[0]}`);
+                        debug(`failed to identify column name for count of structure id ${this.nodeStructureIds[0]}`);
                     }
                 } else {
                     findOptions.where["nodeCount"] = createOperator(opCode, amount);
@@ -259,20 +251,6 @@ export class QueryPredicate implements IQueryPredicate {
 
         return findOptions;
     }
-
-    predicateType: PredicateType;
-    tracingIdsOrDOIs: string[];
-    tracingIdsOrDOIsExactMatch: boolean;
-    tracingStructureIds: string[];
-    nodeStructureIds: string[];
-    somaOrigin: SomaOriginType;
-    operatorId: string;
-    amount: number;
-    brainAreaIds: string[];
-    arbCenter: ICenterPoint;
-    arbSize: number;
-    invert: boolean;
-    composition: number;
 }
 
 function createOperator(operator: symbol, amount: number) {
