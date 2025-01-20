@@ -147,16 +147,23 @@ export class Neuron extends BaseModel {
     }
 
     public static async getAll(input: NeuronQueryInput): Promise<EntityQueryOutput<Neuron>> {
-        let options: FindOptions = optionsWhereIds(input, {where: null, include: []});
+        let options: FindOptions = optionsWhereIds(input, {where: null, include: [{model: Sample, as: "Sample"}]});
 
         options = optionsWhereSampleIds(input, options);
         options = optionsWhereCompartmentIds(input, options);
 
         const count = await this.setSortAndLimiting(options, input);
 
-        const neurons = await Neuron.findAll(options);
+        options.order = [[{model: Sample, as: "Sample"}, 'animalId', "ASC"], ["idString", "ASC"]];
+        try {
+            const neurons = await Neuron.findAll(options);
 
-        return {totalCount: count, items: neurons};
+            return {totalCount: count, items: neurons};
+        } catch (err) {
+            debug(err);
+        }
+
+        return {totalCount: 0, items: []};
     }
 
     public static async getNeurons(sampleId: string): Promise<Neuron[]> {
