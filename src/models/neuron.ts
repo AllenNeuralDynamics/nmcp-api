@@ -36,7 +36,10 @@ type NeuronCache = Map<string, Neuron>;
 export type NeuronQueryInput =
     EntityQueryInput
     & WithSamplesQueryInput
-    & WithCompartmentQueryInput;
+    & WithCompartmentQueryInput
+    & {
+    tag?: string
+};
 
 export interface NeuronInput {
     id?: string;
@@ -216,6 +219,10 @@ export class Neuron extends BaseModel {
         const candidateNeuronIds = _.difference(neuronIds, neuronsWithCompletedReconstruction);
 
         const options = {where: {id: {[Op.in]: candidateNeuronIds}}, include: []};
+
+        if (input.tag) {
+            options.where["tag"] = {[Op.iLike]: `%${input.tag}%`};
+        }
 
         if (input.brainStructureIds && input.brainStructureIds.length > 0) {
             options.where["brainStructureId"] = {[Op.in]: input.brainStructureIds}

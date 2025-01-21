@@ -74,6 +74,7 @@ export const inputTypeDefinitions = gql`
         injectionIds: [String!]
         sampleIds: [String!]
         brainStructureIds: [String!]
+        tag: String
         sortField: String
         sortOrder: String
         offset: Int
