@@ -28,6 +28,7 @@ import {TracingStructure} from "./tracingStructure";
 import {Reconstruction} from "./reconstruction";
 import {ReconstructionStatus} from "./reconstructionStatus";
 import {User} from "./user";
+import {Precomputed} from "./precomputed";
 
 const debug = require("debug")("mnb:nmcp-api:neuron-model");
 

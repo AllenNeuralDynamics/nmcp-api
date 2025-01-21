@@ -38,9 +38,11 @@ export class Reconstruction extends BaseModel {
     public getAnnotator!: BelongsToGetAssociationMixin<User>;
     public getProofreader!: BelongsToGetAssociationMixin<User>;
     public getNeuron!: BelongsToGetAssociationMixin<Neuron>;
+    public getPrecomputed!: BelongsToGetAssociationMixin<Precomputed>;
 
     public readonly Neuron: Neuron;
     public readonly Tracings: Tracing[];
+    public readonly Precomputed: Precomputed;
 
     private static _reconstructionCount: number = 0;
 

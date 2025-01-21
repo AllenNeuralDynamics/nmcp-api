@@ -138,7 +138,13 @@ async function publishUntransformedTracings() {
 async function notifyPrecomputed() {
     const options = {
         where: {
-            "status": ReconstructionStatus.Complete,
+            "status": {
+                [Op.or]: [
+                    {[Op.eq]: ReconstructionStatus.InReview},
+                    {[Op.eq]: ReconstructionStatus.Approved},
+                    {[Op.eq]: ReconstructionStatus.Complete}
+                ]
+            },
             "$Precomputed$": null
         },
         include: [
@@ -149,9 +155,16 @@ async function notifyPrecomputed() {
         ]
     };
 
-    const ready = await Reconstruction.findAll(options);
+    const all = await Reconstruction.findAll(options);
+
+    const hasTracings = async(r: Reconstruction) =>  (await r.getAxon()) && (await r.getDendrite())
+
+    const flags = await Promise.all(all.map(hasTracings))
+
+    const ready = all.filter((value, index) => flags[index]);
 
     if (ready.length > 0) {
+        console.log(`${ready.length} precomputed entries to be queued`);
         const precomputed = ready.map(r => {
             return {
                 "reconstructionId": r.id
@@ -159,5 +172,10 @@ async function notifyPrecomputed() {
         });
 
         await Precomputed.bulkCreate(precomputed);
+    } else {
+        if (sanityCheckCount >= sanityCheckInterval) {
+            console.log(`All precomputed entries have been queued`);
+            sanityCheckCount = 0;
+        }
     }
 }

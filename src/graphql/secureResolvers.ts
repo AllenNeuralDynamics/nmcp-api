@@ -21,6 +21,7 @@ import {Issue, IssueKind} from "../models/issue";
 import GraphQLUpload = require('graphql-upload/GraphQLUpload.js');
 import {loadTracingCache} from "../rawquery/tracingQueryMiddleware";
 import {synchronize} from "../data-access/smartSheetClient";
+import {Precomputed} from "../models/precomputed";
 
 export class UnauthorizedError extends GraphQLError {
     public constructor() {
@@ -362,6 +363,18 @@ export const secureResolvers = {
             });
         },
 
+        reconstruction(_: any, args: IIdOnlyArguments, context: User): Promise<Reconstruction> {
+            if (context.permissions & UserPermissions.Edit) {
+                return Reconstruction.findByPk(args.id);
+            }
+
+            throw new GraphQLError("User is not authenticated", {
+                extensions: {
+                    code: "UNAUTHENTICATED",
+                    http: {status: 401},
+                },
+            });
+        },
         reconstructions(_: any, args: IReconstructionArguments, context: User): Promise<IReconstructionPage> {
             if (context.permissions & UserPermissions.ViewReconstructions) {
                 if (args.pageInput.userOnly) {
@@ -952,6 +965,9 @@ export const secureResolvers = {
         },
         dendrite(reconstruction: Reconstruction): Promise<Tracing> {
             return reconstruction.getDendrite();
+        },
+        precomputed(reconstruction: Reconstruction): Promise<Precomputed> {
+            return reconstruction.getPrecomputed();
         }
     }
 };

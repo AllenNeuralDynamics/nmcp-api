@@ -202,6 +202,7 @@ export const coreTypeDefinitions = gql`
         tracings: [Tracing!]
         axon: Tracing
         dendrite: Tracing
+        precomputed: Precomputed
         startedAt: Date
         completedAt: Date
     }

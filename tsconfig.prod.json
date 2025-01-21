@@ -8,8 +8,7 @@
   },
   "exclude": [
     "__tests__",
-    "tools",
-    "migrations",
-    "gulpfile.ts"
+    "dist",
+    "node_modules"
   ]
 }

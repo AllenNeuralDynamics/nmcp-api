@@ -56,6 +56,7 @@ export const typeDefinitions = gql`
         
         searchNeurons(context: SearchContext): SearchOutput
 
+        reconstruction(id: String): Reconstruction
         reconstructions(pageInput: ReconstructionPageInput): ReconstructionPage!
         candidatesForReview: [Neuron!]!
         reviewableReconstructions(input: ReviewPageInput): ReconstructionPage!

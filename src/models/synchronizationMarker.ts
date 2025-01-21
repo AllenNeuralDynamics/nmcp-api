@@ -4,7 +4,8 @@ import {BaseModel} from "./baseModel";
 
 export enum SynchronizationMarkerKind {
     Unknown,
-    Neuron
+    Neuron = 1,
+    Precomputed = 2
 }
 
 export class SynchronizationMarker extends BaseModel {
