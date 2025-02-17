@@ -122,6 +122,9 @@ export const coreTypeDefinitions = gql`
         x: Float
         y: Float
         z: Float
+        sampleX: Float
+        sampleY: Float
+        sampleZ: Float
         doi: String
         consensus: Int
         metadata: String

@@ -63,6 +63,8 @@ export class BrainArea extends BaseModel {
 
     private static _compartmentAcronymCache = new Map<string, BrainArea>();
 
+    private static _compartmentNameCache = new Map<string, BrainArea>();
+
     private static _wholeBrainId: string;
 
     public static getOne(id: string) {
@@ -71,6 +73,10 @@ export class BrainArea extends BaseModel {
 
     public static getFromAcronym(acronym: string): BrainArea {
         return this._compartmentAcronymCache.get(acronym);
+    }
+
+    public static getFromName(name: string): BrainArea {
+        return this._compartmentNameCache.get(name.toLowerCase());
     }
 
     public static wholeBrainId(): string {
@@ -96,6 +102,8 @@ export class BrainArea extends BaseModel {
             this._compartmentCache.set(b.id, b);
 
             this._compartmentAcronymCache.set(b.acronym, b);
+
+            this._compartmentNameCache.set(b.name.toLowerCase(), b);
 
             const result = await BrainArea.findAll({
                 attributes: ["id", "structureIdPath"],

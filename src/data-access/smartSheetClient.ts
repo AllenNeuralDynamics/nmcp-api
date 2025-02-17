@@ -16,6 +16,7 @@ const debug = require("debug")("nmcp:api:smartsheet");
 
 enum ColumnName {
     CCFCoordinates = "CCF Coordinates",
+    HortaCoordinates = "Horta Coordinates",
     EstimatedSomaCompartment = "Manual Estimated Soma Compartment",
     Collection = "Collection",
     Level = "Level",
@@ -60,6 +61,9 @@ type NeuronRowContents = {
     x: number;
     y: number;
     z: number;
+    sampleX: number;
+    sampleY: number
+    sampleZ: number;
     brainStructureAcronym: string;
     annotator: string;
     annotatorEmail: string;
@@ -152,7 +156,11 @@ async function sampleFromRowContents(s: SampleRowContents, reconstructionLocatio
     await Sample.updateWith(input);
 
     await Promise.all(s.neurons.map(async (n) => {
-        const somaBrainStructure = BrainArea.getFromAcronym(n.brainStructureAcronym)?.id
+        let somaBrainStructure = BrainArea.getFromAcronym(n.brainStructureAcronym)?.id
+
+        if (!somaBrainStructure) {
+            somaBrainStructure = BrainArea.getFromName(n.brainStructureAcronym)?.id
+        }
 
         if (!somaBrainStructure) {
             debug(`failed to look up soma brain structure for ${s.subjectId}-${n.idString}: ${n.brainStructureAcronym}`)
@@ -168,6 +176,9 @@ async function sampleFromRowContents(s: SampleRowContents, reconstructionLocatio
             x: n.x,
             y: n.y,
             z: n.z,
+            sampleX: n.sampleX,
+            sampleY: n.sampleY,
+            sampleZ: n.sampleZ,
             brainStructureId: somaBrainStructure,
             tag: n.assigned?.trim() ?? ""
         };
@@ -393,7 +404,7 @@ export class SmartSheetClient {
         });
     }
 
-    private parseNeuron(row: Row) {
+    private parseNeuron(row: any) {
         const ccf = this.getCell(row, ColumnName.CCFCoordinates).value as string;
 
         // Only processing rows that have a registered soma location.
@@ -410,8 +421,22 @@ export class SmartSheetClient {
         }
 
         if (!sample) {
-            debug(`failed to find sample for ${this.getStringValue(row, ColumnName.Id)}`);
+            debug(`failed to find sample for ${this.getStringValue(row, ColumnName.Id)} (row ${row.rowNumber})`);
             return;
+        }
+
+        const horta = this.getCell(row, ColumnName.HortaCoordinates).value as string;
+
+        let hortaParts = [0, 0, 0];
+
+        if (horta) {
+            try {
+                const parts = horta.replace("[", "").replace("]", "").split(",").map((c: string) => parseFloat(c.replace(",", "")));
+                if (parts.every(p => !isNaN(p))) {
+                    hortaParts = parts
+                }
+            } catch {
+            }
         }
 
         const ccfParts = ccf.replace("(", "").replace(")", "").split(" ").map((c: string) => parseFloat(c.replace(",", "")));
@@ -423,6 +448,9 @@ export class SmartSheetClient {
             x: ccfParts[0],
             y: ccfParts[1],
             z: ccfParts[2],
+            sampleX: hortaParts[0],
+            sampleY: hortaParts[1],
+            sampleZ: hortaParts[2],
             brainStructureAcronym,
             annotator: this.getDisplayValue(row, ColumnName.Annotator1),
             annotatorEmail: this.getStringValue(row, ColumnName.Annotator1),
@@ -442,11 +470,11 @@ export class SmartSheetClient {
         sample.neurons.push(neuron);
     }
 
-    private getSampleFromId(row: Row): ParsedNeuronIdWithSample {
+    private getSampleFromId(row: any): ParsedNeuronIdWithSample {
         const id = this.getCell(row, ColumnName.Id).value as string;
 
         if (!id) {
-            console.log(`failed to get id for row ${row}`);
+            console.log(`failed to get id for row ${row.rowNumber}`);
             return [null, null];
         }
         const parts = id.split("-");

@@ -51,6 +51,9 @@ export interface NeuronInput {
     x?: number;
     y?: number;
     z?: number;
+    sampleX?: number;
+    sampleY?: number;
+    sampleZ?: number;
     doi?: string;
     metadata?: string;
     consensus?: ConsensusStatus;
@@ -398,6 +401,18 @@ export class Neuron extends BaseModel {
                 neuronInput.z = 0;
             }
 
+            if (neuronInput.sampleX === null) {
+                neuronInput.sampleX = 0;
+            }
+
+            if (neuronInput.sampleY === null) {
+                neuronInput.sampleY = 0;
+            }
+
+            if (neuronInput.sampleZ === null) {
+                neuronInput.sampleZ = 0;
+            }
+
             if (neuronInput.consensus === null) {
                 neuronInput.consensus = ConsensusStatus.None;
             }
@@ -586,6 +601,18 @@ export const modelInit = (sequelize: Sequelize) => {
             defaultValue: 0
         },
         z: {
+            type: DataTypes.DOUBLE,
+            defaultValue: 0
+        },
+        sampleX: {
+            type: DataTypes.DOUBLE,
+            defaultValue: 0
+        },
+        sampleY: {
+            type: DataTypes.DOUBLE,
+            defaultValue: 0
+        },
+        sampleZ: {
             type: DataTypes.DOUBLE,
             defaultValue: 0
         },
