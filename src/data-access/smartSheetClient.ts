@@ -439,7 +439,15 @@ export class SmartSheetClient {
             }
         }
 
-        const ccfParts = ccf.replace("(", "").replace(")", "").split(" ").map((c: string) => parseFloat(c.replace(",", "")));
+        let ccfParts = ccf.replace("(", "").replace(")", "").split(" ").map((c: string) => parseFloat(c.replace(",", "")));
+
+        if (ccfParts.some(p => isNaN(p))) {
+            ccfParts = ccf.replace("[", "").replace("]", "").split(" ").map((c: string) => parseFloat(c.replace(",", "")));
+        }
+
+        if (ccfParts.some(p => isNaN(p))) {
+            debug(`could not parse CCF coordinates ${this.getStringValue(row, ColumnName.Id)} (row ${row.rowNumber})`);
+        }
 
         const brainStructureAcronym = this.getStringValue(row, ColumnName.EstimatedSomaCompartment);
 
