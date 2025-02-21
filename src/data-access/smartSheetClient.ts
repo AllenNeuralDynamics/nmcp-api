@@ -32,7 +32,8 @@ enum ColumnName {
     Duration = "Time to Trace (hrs)",
     Checks = "Checks",
     Proofreader = "Proofreader",
-    Assigned = "Assigned"
+    Assigned = "Assigned",
+    Production = "Production"
 }
 
 enum Status {
@@ -82,7 +83,7 @@ type NeuronRowContents = {
 
 type ParsedNeuronIdWithSample = [string, SampleRowContents];
 
-export const synchronize = async (sheetId: number = 0, pathToReconstructions: string = "", parseFiles: number = 1, accessToken: string = "") => {
+export const synchronize = async (sheetId: number = 0, pathToReconstructions: string = "", parseFiles: number = 1, onlyProduction: number = 1, accessToken: string = "") => {
     const token = accessToken || process.env.SS_API_TOKEN;
 
     if (!token) {
@@ -96,7 +97,7 @@ export const synchronize = async (sheetId: number = 0, pathToReconstructions: st
 
     const s = new SmartSheetClient(token);
 
-    await s.parseSheet(sheetId);
+    await s.parseSheet(sheetId, onlyProduction != 0);
 
     // s.print();
 
@@ -159,11 +160,11 @@ async function sampleFromRowContents(s: SampleRowContents, reconstructionLocatio
         let somaBrainStructure = BrainArea.getFromAcronym(n.brainStructureAcronym)?.id
 
         if (!somaBrainStructure) {
-            somaBrainStructure = BrainArea.getFromName(n.brainStructureAcronym)?.id
+            somaBrainStructure = BrainArea.getFromName(n.brainStructureAcronym.replace(new RegExp(",", 'g'), ""))?.id
         }
 
         if (!somaBrainStructure) {
-            debug(`failed to look up soma brain structure for ${s.subjectId}-${n.idString}: ${n.brainStructureAcronym}`)
+            debug(`failed to look up soma brain structure for ${s.subjectId}-${n.idString}: ${n.brainStructureAcronym.replace(new RegExp(",", 'g'), "")}`)
             return;
         }
 
@@ -339,7 +340,7 @@ export class SmartSheetClient {
         this._client = createClient({logLevel: "warn", accessToken: token});
     }
 
-    public async parseSheet(sheetId: number) {
+    public async parseSheet(sheetId: number, onlyProduction: boolean = true) {
         try {
             const sheet: Sheet = await this._client.sheets.getSheet({id: sheetId});
 
@@ -353,9 +354,9 @@ export class SmartSheetClient {
                 let cell = this.getCell(row, ColumnName.Level);
 
                 if (cell.value == 1) {
-                    this.parseSample(row);
+                    this.parseSample(row, onlyProduction);
                 } else {
-                    this.parseNeuron(row);
+                    this.parseNeuron(row, onlyProduction);
                 }
             });
         } catch (error) {
@@ -377,13 +378,22 @@ export class SmartSheetClient {
         })
     }
 
-    private parseSample(row: Row) {
+    private parseSample(row: Row, onlyProduction: boolean) {
+
         const subjectId = this.getDisplayValue(row, ColumnName.Id);
         const genotype = this.getStringValue(row, ColumnName.Genotype);
         const notes = this.getStringValue(row, ColumnName.Notes);
         const collectionName = this.getDisplayValue(row, ColumnName.Collection)
 
         const filename = this.getStringValue(row, ColumnName.DateStarted);
+
+        const cell = this.getCell(row, ColumnName.Production);
+
+        if (onlyProduction && cell?.value != true) {
+            console.log(`${subjectId} is not marked for production and being skipped`);
+            return
+        }
+
 
         let sampleDate: Date = null;
 
@@ -404,7 +414,7 @@ export class SmartSheetClient {
         });
     }
 
-    private parseNeuron(row: any) {
+    private parseNeuron(row: any, onlyProduction: boolean) {
         const ccf = this.getCell(row, ColumnName.CCFCoordinates).value as string;
 
         // Only processing rows that have a registered soma location.
@@ -421,9 +431,19 @@ export class SmartSheetClient {
         }
 
         if (!sample) {
-            debug(`failed to find sample for ${this.getStringValue(row, ColumnName.Id)} (row ${row.rowNumber})`);
+            // debug(`failed to find sample for ${this.getStringValue(row, ColumnName.Id)} (row ${row.rowNumber})`);
             return;
         }
+
+        if (onlyProduction) {
+            const production = this.getCell(row, ColumnName.Production);
+
+            if (production?.value != true) {
+                console.log(`neuron ${id} is not marked for production and being skipped`);
+                return;
+            }
+        }
+
 
         const horta = this.getCell(row, ColumnName.HortaCoordinates).value as string;
 

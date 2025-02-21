@@ -811,10 +811,10 @@ export const secureResolvers = {
             });
         },
 
-        async importSmartSheet(_: any, args: IIdOnlyArguments, context: User): Promise<boolean>{
+        async importSmartSheet(_: any, args: IIdOnlyArguments, context: User): Promise<boolean> {
             if (context.permissions & UserPermissions.Admin) {
-               await synchronize(3824679856852868, "", 0, args.id);
-               return true;
+                await synchronize(3824679856852868, "", 0, 1, args.id);
+                return true;
             }
 
             throw new GraphQLError('User is not authenticated', {
