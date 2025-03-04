@@ -99,7 +99,7 @@ export const synchronize = async (sheetId: number = 0, pathToReconstructions: st
 
     await s.parseSheet(sheetId, onlyProduction != 0);
 
-    // s.print();
+    debug(`SmartSheet import from ${sheetId}. Production only: ${onlyProduction != 0}, Parse files: ${ parseFiles != 0}`)
 
     await s.updateDatabase(pathToReconstructions, parseFiles != 0 && pathToReconstructions.length > 0);
 };
@@ -168,7 +168,14 @@ async function sampleFromRowContents(s: SampleRowContents, reconstructionLocatio
             return;
         }
 
-        const neuron = await Neuron.findOrCreateWithIdString(n.idString, sample.id);
+        let neuron = null;
+
+        try {
+            neuron = await Neuron.findOrCreateWithIdString(n.idString, sample.id);
+        } catch (e) {
+            debug(`error with findOrCreateWithIdString for neuron ${n.idString} (sample ${s.subjectId})`)
+            return
+        }
 
         n.id = neuron.id;
 
@@ -183,6 +190,8 @@ async function sampleFromRowContents(s: SampleRowContents, reconstructionLocatio
             brainStructureId: somaBrainStructure,
             tag: n.assigned?.trim() ?? ""
         };
+
+        // debug(`updating neuron ${n.idString} (sample ${sample.animalId})`)
 
         await Neuron.updateWith(input);
     }));
@@ -256,6 +265,8 @@ async function sampleFromRowContents(s: SampleRowContents, reconstructionLocatio
                     updates["status"] = updateStatus;
                 }
 
+                debug(`updating reconstruction ${reconstruction.id} (${n.idString}-${s.subjectId})`)
+
                 await reconstruction.update(updates);
             } else {
                 reconstruction = await Reconstruction.create({
@@ -268,6 +279,8 @@ async function sampleFromRowContents(s: SampleRowContents, reconstructionLocatio
                     lengthMillimeters: isNaN(n.length) ? 0 : n.length,
                     startedAt: null
                 });
+
+                debug(`created reconstruction ${reconstruction.id} (${n.idString}-${s.subjectId})`)
             }
 
             if (!parseFiles) {
@@ -311,17 +324,18 @@ async function sampleFromRowContents(s: SampleRowContents, reconstructionLocatio
                 }
 
                 if (fs.existsSync(jsonPath)) {
+                    debug(`\tupdating or adding reconstruction data for ${n.idString}-${s.subjectId}`)
                     const result = await Tracing.createTracingFromJson(reconstruction.id, jsonPath);
 
                     if (result.error) {
-                        debug(`parsing error for ${jsonFile}`);
+                        debug(`\tparsing error for ${jsonFile}`);
                         debug(`\t${result.error}`);
                     }
                 } else if (reconstruction.status == ReconstructionStatus.Approved) {
-                    debug(`expected reconstruction data not found for ${n.idString}-${s.subjectId}`);
+                    debug(`\texpected reconstruction data not found for ${n.idString}-${s.subjectId}`);
                 }
             } catch (err) {
-                debug(`Issue detecting file for ${n.idString}-${s.subjectId}`);
+                debug(`issue detecting file for ${n.idString}-${s.subjectId}`);
             }
         } catch (error) {
             debug(error);
