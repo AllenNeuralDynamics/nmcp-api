@@ -201,7 +201,7 @@ export const secureResolvers = {
         },
 
         mouseStrains(_: any, args: IMouseStrainQueryArguments, context: User): Promise<MouseStrain[]> {
-            if (context.permissions & UserPermissions.Edit) {
+            if (context.permissions & UserPermissions.ViewAll) {
                 return MouseStrain.getAll(args.input);
             }
 
@@ -301,7 +301,7 @@ export const secureResolvers = {
         },
 
         samples(_: any, args: ISampleQueryArguments, context: User): Promise<EntityQueryOutput<Sample>> {
-            if (context.permissions & UserPermissions.Edit) {
+            if (context.permissions & UserPermissions.ViewAll) {
                 return Sample.getAll(args.input);
             }
 
