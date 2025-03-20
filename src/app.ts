@@ -114,7 +114,12 @@ async function validateToken(token: string): Promise<TokenOutput> {
         return [[], null];
     }
 
-    const upn = (decoded["upn"] && decoded.upn.length > 0) ? decoded.upn : "";
+    let upn = (decoded["upn"] && decoded.upn.length > 0) ? decoded.upn : "";
+
+    if (!upn && decoded.email) {
+        // Guest accounts in the directory will generally have email populated rather than upn for email address.
+        upn = decoded.email;
+    }
 
     //@ts-ignore
     const user = await User.findOrCreateUser(decoded.oid, decoded.given_name, decoded.family_name, upn);

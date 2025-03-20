@@ -1,7 +1,8 @@
 import {BaseModel, EntityQueryOutput, SortAndLimit} from "./baseModel";
 import {DataTypes, HasManyGetAssociationsMixin, Sequelize, Op} from "sequelize";
 import {Reconstruction} from "./reconstruction";
-import uuid = require("uuid");
+import {Semaphore} from "../util/semaphore";
+import {FiniteMap} from "../util/finiteMap";
 
 const debug = require("debug")("mnb:nmcp-api:user");
 
@@ -44,50 +45,81 @@ export class User extends BaseModel {
 
     public Reconstructions?: Reconstruction[];
 
+    private static userCache: FiniteMap<string, User> = new FiniteMap();
+
+    private static userSemaphores: FiniteMap<string, Semaphore> = new FiniteMap();
+
     public static async findOrCreateUser(authId: string, firstName: string, lastName: string, email: string): Promise<User> {
         try {
+            if (this.userCache.has(authId)) {
+                return this.userCache.get(authId);
+            }
+
             let user: User = null;
 
             if (authId) {
                 user = await User.findOne({where: {authDirectoryId: authId}});
             }
 
-            // Try to match email as a backup
-            if (!user && email) {
-                user = await User.findOne({where: {emailAddress: email}});
+            // There will be a database action.  Don't allow multiple queries to create race conditions and multiple entries.
 
-                // It is possible to have created the user via email from a smarts sheet or other import, and now they are
-                // actually logging in for the first time w/authentication.
-                if (user && authId) {
-                    await user.update({authDirectoryId: authId});
-                }
+            if (!this.userSemaphores.has(authId)) {
+                this.userSemaphores.set(authId, new Semaphore());
             }
 
-            if (!user) {
-                user = await User.create({
-                    authDirectoryId: authId,
-                    firstName,
-                    lastName,
-                    emailAddress: email,
-                    permissions: UserPermissions.ViewReconstructions,
-                    isAnonymousForComplete: false,
-                    isAnonymousForCandidate: true,
-                    crossAuthenticationId: null
-                });
-                debug(`user ${user.id} for authId ${authId} and email ${email} created`)
-            } else {
-                const updates = {}
-                if (firstName) {
-                    updates["firstName"] = firstName;
-                }
-                if (lastName) {
-                    updates["lastName"] = lastName;
-                }
-                if (email) {
-                    updates["emailAddress"] = email;
-                }
-                await user.update(updates);
+            const lock = this.userSemaphores.get(authId);
+
+            await lock.acquire();
+
+            // An earlier request may have since created.
+            if (this.userCache.has(authId)) {
+                return this.userCache.get(authId);
             }
+
+            try {
+                // Try to match email as a backup
+                if (!user && email) {
+                    user = await User.findOne({where: {emailAddress: email}});
+
+                    // It is possible to have created the user via email from a smarts sheet or other import, and now they are
+                    // actually logging in for the first time w/authentication.
+                    if (user && authId) {
+                        await user.update({authDirectoryId: authId});
+                    }
+                }
+
+                if (!user) {
+                    user = await User.create({
+                        authDirectoryId: authId,
+                        firstName,
+                        lastName,
+                        emailAddress: email,
+                        permissions: UserPermissions.ViewReconstructions,
+                        isAnonymousForComplete: false,
+                        isAnonymousForCandidate: true,
+                        crossAuthenticationId: null
+                    });
+                    debug(`user ${user.id} for authId ${authId} and email ${email} created`)
+                } else {
+                    const updates = {}
+                    if (firstName) {
+                        updates["firstName"] = firstName;
+                    }
+                    if (lastName) {
+                        updates["lastName"] = lastName;
+                    }
+                    if (email) {
+                        updates["emailAddress"] = email;
+                    }
+                    await user.update(updates);
+                }
+
+                this.userCache.set(authId, user);
+            } catch (error) {
+                debug(error);
+            }
+
+            lock.release();
 
             return user;
         } catch (err) {
