@@ -63,6 +63,7 @@ export const inputTypeDefinitions = gql`
         ids: [String!]
         mouseStrainIds: [String!]
         injectionIds: [String!]
+        reconstructionStatus: Int
         sortField: String
         sortOrder: String
         offset: Int
@@ -75,6 +76,7 @@ export const inputTypeDefinitions = gql`
         sampleIds: [String!]
         brainStructureIds: [String!]
         tag: String
+        reconstructionStatus: Int
         sortField: String
         sortOrder: String
         offset: Int

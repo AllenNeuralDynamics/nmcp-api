@@ -1,10 +1,4 @@
-import {
-    Sequelize,
-    DataTypes,
-    Op,
-    BelongsToGetAssociationMixin,
-    FindOptions, HasManyGetAssociationsMixin
-} from "sequelize";
+import {BelongsToGetAssociationMixin, DataTypes, FindOptions, HasManyGetAssociationsMixin, Op, Sequelize} from "sequelize";
 
 import "fs";
 import * as _ from "lodash";
@@ -13,7 +7,10 @@ import {BaseModel, DeleteOutput, EntityMutateOutput, EntityQueryInput, EntityQue
 import {
     optionsWhereCompartmentIds,
     optionsWhereIds,
-    optionsWhereSampleIds, WithCompartmentQueryInput, WithSamplesQueryInput
+    optionsWhereSampleIds,
+    WithCompartmentQueryInput,
+    WithReconstructionStatusQueryInput,
+    WithSamplesQueryInput
 } from "./findOptions";
 import {BrainArea} from "./brainArea";
 import {Sample} from "./sample";
@@ -28,7 +25,6 @@ import {TracingStructure} from "./tracingStructure";
 import {Reconstruction} from "./reconstruction";
 import {ReconstructionStatus} from "./reconstructionStatus";
 import {User} from "./user";
-import {Precomputed} from "./precomputed";
 
 const debug = require("debug")("mnb:nmcp-api:neuron-model");
 
@@ -38,6 +34,7 @@ export type NeuronQueryInput =
     EntityQueryInput
     & WithSamplesQueryInput
     & WithCompartmentQueryInput
+    & WithReconstructionStatusQueryInput
     & {
     tag?: string
 };
@@ -158,6 +155,28 @@ export class Neuron extends BaseModel {
 
         options = optionsWhereSampleIds(input, options);
         options = optionsWhereCompartmentIds(input, options);
+
+        if (input && input.reconstructionStatus) {
+            options.where = Object.assign(options.where || {}, {"$Reconstructions.status$": ReconstructionStatus.Complete});
+
+            const include = {
+                model: Reconstruction,
+                as: "Reconstructions",
+                attributes: ["id", "status"],
+                required: true
+            };
+
+            if (options.include) {
+                // @ts-ignore
+                options.include.push(include)
+            } else {
+                options.include = [include];
+            }
+
+            const neurons = await Neuron.findAll(options);
+
+            return {totalCount: neurons.length, items: neurons};
+        }
 
         const count = await this.setSortAndLimiting(options, input);
 
@@ -442,6 +461,37 @@ export class Neuron extends BaseModel {
         } catch (error) {
             return {id, error: error.message};
         }
+    }
+
+    public static async unpublish(id: string): Promise<boolean> {
+        if (!id) {
+            return false;
+        }
+
+        const neuron = await Neuron.findByPk(id, {
+            include: [
+                {
+                    model: Reconstruction,
+                    as: "Reconstructions",
+                    attributes: ["id", "status"],
+                    required: true
+                }
+            ]
+        });
+
+        if (!neuron) {
+            return false;
+        }
+
+        const published = neuron.Reconstructions.filter(r => r.status == ReconstructionStatus.Complete);
+
+        if (published.length == 0) {
+            return false;
+        }
+
+        await Promise.all(published.map(async (p) => await Reconstruction.unpublish(p.id)));
+
+        return true;
     }
 
     public static async getNeuronsWithPredicates(context: SearchContext): Promise<IQueryDataPage> {

@@ -191,6 +191,9 @@ export class QueryPredicate implements IQueryPredicate {
                         }
                     }
                 }
+
+                findOptions.where = where;
+
                 break;
         }
 

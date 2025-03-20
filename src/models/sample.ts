@@ -1,9 +1,10 @@
 import {
     BelongsToGetAssociationMixin,
     DataTypes, FindOptions,
-    HasManyGetAssociationsMixin,
+    HasManyGetAssociationsMixin, Op,
     Sequelize
 } from "sequelize";
+import * as _ from "lodash";
 
 import {
     BaseModel, DeleteOutput,
@@ -17,18 +18,21 @@ import {
     optionsWhereIds,
     optionsWhereMouseStrainIds,
     optionsWhereSampleIds, WithInjectionsQueryInput,
-    WithMouseStrainQueryInput
+    WithMouseStrainQueryInput, WithReconstructionStatusQueryInput
 } from "./findOptions";
 import {MouseStrain} from "./mouseStrain";
 import {Neuron} from "./neuron";
 import {Injection} from "./injection";
 import {Collection} from "./collection";
 import {SampleTableName} from "./TableNames";
+import {ReconstructionStatus} from "./reconstructionStatus";
+import {Reconstruction} from "./reconstruction";
 
 export type SampleQueryInput =
     EntityQueryInput
     & WithMouseStrainQueryInput
-    & WithInjectionsQueryInput;
+    & WithInjectionsQueryInput
+    & WithReconstructionStatusQueryInput;
 
 export interface SampleInput {
     id?: string,
@@ -77,6 +81,31 @@ export class Sample extends BaseModel {
         let options: FindOptions = optionsWhereIds(input, {where: null, include: []});
 
         options = optionsWhereMouseStrainIds(input, options);
+
+        if (input && input.reconstructionStatus) {
+            const neurons = await Neuron.findAll({
+                    where: {
+                        "$Reconstructions.status$": ReconstructionStatus.Complete
+                    },
+                    include: [
+                        {
+                            model: Reconstruction,
+                            as: "Reconstructions",
+                            attributes: ["id", "status"],
+                            required: true
+                        },
+                        {
+                            model: Sample,
+                            as: "Sample",
+                            required: true
+                        }
+                    ]
+                });
+
+            const samples = _.uniqBy(neurons.map(n => n.Sample), "id");
+
+            return {totalCount: samples.length, items: samples};
+        }
 
         const count = await this.setSortAndLimiting(options, input);
 

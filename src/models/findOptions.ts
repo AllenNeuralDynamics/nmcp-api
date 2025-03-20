@@ -4,6 +4,7 @@ import {Neuron} from "./neuron";
 import {Sample} from "./sample";
 import {Injection} from "./injection";
 import {EntityQueryInput} from "./baseModel";
+import {ReconstructionStatus} from "./reconstructionStatus";
 
 export type WithCompartmentQueryInput = {
     brainStructureIds?: string[];
@@ -31,6 +32,10 @@ export type WithInjectionsQueryInput = {
 
 export type WithNeuronsQueryInput = {
     neuronIds?: string[];
+}
+
+export type WithReconstructionStatusQueryInput = {
+    reconstructionStatus?: ReconstructionStatus;
 }
 
 export function optionsIncludeInjectionIds(input: WithInjectionsQueryInput, options: FindOptions): FindOptions {

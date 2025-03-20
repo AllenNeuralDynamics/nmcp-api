@@ -213,7 +213,7 @@ export const secureResolvers = {
             });
         },
         mouseStrain(_: any, args: IIdOnlyArguments, context: User): Promise<MouseStrain> {
-            if (context.permissions & UserPermissions.Edit) {
+            if (context.permissions & UserPermissions.ViewAll) {
                 return MouseStrain.findByPk(args.id);
             }
 
@@ -226,7 +226,7 @@ export const secureResolvers = {
         },
 
         injectionViruses(_: any, args: IInjectionVirusQueryArguments, context: User): Promise<InjectionVirus[]> {
-            if (context.permissions & UserPermissions.Edit) {
+            if (context.permissions & UserPermissions.ViewAll) {
                 return InjectionVirus.getAll(args.input);
             }
 
@@ -238,7 +238,7 @@ export const secureResolvers = {
             });
         },
         injectionVirus(_: any, args: IIdOnlyArguments, context: User): Promise<InjectionVirus> {
-            if (context.permissions & UserPermissions.Edit) {
+            if (context.permissions & UserPermissions.ViewAll) {
                 return InjectionVirus.findByPk(args.id);
             }
 
@@ -251,7 +251,7 @@ export const secureResolvers = {
         },
 
         fluorophores(_: any, args: IFluorophoreQueryArguments, context: User): Promise<Fluorophore[]> {
-            if (context.permissions & UserPermissions.Edit) {
+            if (context.permissions & UserPermissions.ViewAll) {
                 return Fluorophore.getAll(args.input);
             }
 
@@ -263,7 +263,7 @@ export const secureResolvers = {
             });
         },
         fluorophore(_: any, args: IIdOnlyArguments, context: User): Promise<Fluorophore> {
-            if (context.permissions & UserPermissions.Edit) {
+            if (context.permissions & UserPermissions.ViewAll) {
                 return Fluorophore.findByPk(args.id);
             }
 
@@ -276,7 +276,7 @@ export const secureResolvers = {
         },
 
         injections(_: any, args: IInjectionQueryArguments, context: User): Promise<Injection[]> {
-            if (context.permissions & UserPermissions.Edit) {
+            if (context.permissions & UserPermissions.ViewAll) {
                 return Injection.getAll(args.input);
             }
 
@@ -288,7 +288,7 @@ export const secureResolvers = {
             });
         },
         injection(_: any, args: IIdOnlyArguments, context: User): Promise<Injection> {
-            if (context.permissions & UserPermissions.Edit) {
+            if (context.permissions & UserPermissions.ViewAll) {
                 return Injection.findByPk(args.id);
             }
 
@@ -313,7 +313,7 @@ export const secureResolvers = {
             });
         },
         sample(_: any, args: IIdOnlyArguments, context: User): Promise<Sample> {
-            if (context.permissions & UserPermissions.Edit) {
+            if (context.permissions & UserPermissions.ViewAll) {
                 return Sample.findByPk(args.id);
             }
 
@@ -326,7 +326,7 @@ export const secureResolvers = {
         },
 
         neurons(_: any, args: INeuronQueryArguments, context: User): Promise<EntityQueryOutput<Neuron>> {
-            if (context.permissions & UserPermissions.Edit) {
+            if (context.permissions & UserPermissions.ViewAll) {
                 return Neuron.getAll(args.input);
             }
 
@@ -338,7 +338,7 @@ export const secureResolvers = {
             });
         },
         neuron(_: any, args: IIdOnlyArguments, context: User): Promise<Neuron> {
-            if (context.permissions & UserPermissions.Edit) {
+            if (context.permissions & UserPermissions.ViewAll) {
                 return Neuron.findByPk(args.id);
             }
 
@@ -798,9 +798,13 @@ export const secureResolvers = {
             });
         },
 
-        unpublish(_: any, args: IIdOnlyArguments, context: User): Promise<boolean> {
+        async unpublish(_: any, args: IIdOnlyArguments, context: User): Promise<boolean> {
             if (context.permissions & UserPermissions.Admin) {
-                return Reconstruction.unpublish(args.id);
+                const wasValidReconstruction = await Reconstruction.unpublish(args.id);
+
+                if (!wasValidReconstruction) {
+                    return await Neuron.unpublish(args.id);
+                }
             }
 
             throw new GraphQLError('User is not authenticated', {
