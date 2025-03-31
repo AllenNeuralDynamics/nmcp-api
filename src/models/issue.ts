@@ -23,6 +23,7 @@ export class Issue extends BaseModel {
     status: IssueStatus;
     description: string;
     response: string;
+    responderId: string;
 
     public getCreator!: BelongsToGetAssociationMixin<User>;
     public getNeuron!: BelongsToGetAssociationMixin<Neuron>;
@@ -60,6 +61,26 @@ export class Issue extends BaseModel {
         }
     }
 
+    public static async close(responderId: string, id: string, reason: string): Promise<boolean> {
+        try {
+            const issue = await Issue.findByPk(id);
+
+            if (issue) {
+                await issue.update({
+                    status: IssueStatus.Closed,
+                    response: reason,
+                    responderId: responderId,
+                });
+
+                return true;
+            }
+        } catch (error) {
+            debug(error);
+        }
+
+        return false;
+    }
+
     public static async updateWith(id: string, status: IssueStatus, description: string): Promise<Issue> {return null}
 }
 
@@ -73,7 +94,8 @@ export const modelInit = (sequelize: Sequelize) => {
         kind: DataTypes.INTEGER,
         description: DataTypes.TEXT,
         status: DataTypes.INTEGER,
-        response: DataTypes.TEXT
+        response: DataTypes.TEXT,
+        responderId: DataTypes.UUID,
     }, {
         tableName: IssueTableName,
         timestamps: true,

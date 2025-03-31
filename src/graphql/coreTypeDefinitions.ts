@@ -235,6 +235,9 @@ export const coreTypeDefinitions = gql`
         status: Int
         description: String
         response: String
+        creator: User
+        neuron: Neuron
+        responder: User
         createdAt: Date
         updatedAt: Date
     }

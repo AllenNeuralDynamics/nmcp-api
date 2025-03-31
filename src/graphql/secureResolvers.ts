@@ -176,6 +176,11 @@ type CreateIssueArguments = {
     description: string;
 }
 
+type CloseIssueArguments = {
+    id: string;
+    reason: string;
+}
+
 //
 // Output
 //
@@ -847,7 +852,20 @@ export const secureResolvers = {
 
         async createIssue(_: any, args: CreateIssueArguments, context: User): Promise<Issue> {
             if (context.permissions & UserPermissions.ViewReconstructions) {
-                return Issue.createWith(context.id, args.kind, args.description,args.neuronId);
+                return Issue.createWith(context.id, args.kind, args.description, args.neuronId);
+            }
+
+            throw new GraphQLError("User is not authenticated", {
+                extensions: {
+                    code: "UNAUTHENTICATED",
+                    http: {status: 401},
+                },
+            });
+        },
+
+        async closeIssue(_: any, args: CloseIssueArguments, context: User): Promise<boolean> {
+            if (context.permissions & UserPermissions.Admin) {
+                return Issue.close(context.id, args.id, args.reason);
             }
 
             throw new GraphQLError("User is not authenticated", {
@@ -973,6 +991,21 @@ export const secureResolvers = {
         },
         precomputed(reconstruction: Reconstruction): Promise<Precomputed> {
             return reconstruction.getPrecomputed();
+        }
+    },
+    Issue: {
+        creator(issue: Issue): Promise<User> {
+            return issue.getCreator();
+        },
+        neuron(issue: Issue): Promise<Neuron> {
+            return issue.getNeuron();
+        },
+        responder(issue: Issue): Promise<User> {
+            try {
+                return User.findByPk(issue.responderId);
+            }
+            catch (error) {}
+            return null;
         }
     }
 };
