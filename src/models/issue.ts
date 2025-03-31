@@ -9,7 +9,8 @@ import {User} from "./user";
 const debug = require("debug")("mnb:nmcp-api:issue-model");
 
 export enum IssueKind {
-    Uncategorized = 0
+    Uncategorized = 0,
+    Candidate = 10
 }
 
 export enum IssueStatus {
@@ -41,7 +42,7 @@ export class Issue extends BaseModel {
         })
     }
 
-    public static async createWith(kind: IssueKind, description: string, neuronId: string = null, reconstructionId: string = null): Promise<Issue> {
+    public static async createWith(creatorId: string, kind: IssueKind,  description: string, neuronId: string = null, reconstructionId: string = null): Promise<Issue> {
         try {
             return await Issue.create({
                 kind: kind,
@@ -49,7 +50,8 @@ export class Issue extends BaseModel {
                 description: description,
                 response: "",
                 neuronId: neuronId,
-                reconstructionId: reconstructionId
+                reconstructionId: reconstructionId,
+                creatorId: creatorId
             });
 
         } catch (error) {
@@ -68,6 +70,7 @@ export const modelInit = (sequelize: Sequelize) => {
             type: DataTypes.UUID,
             defaultValue: DataTypes.UUIDV4
         },
+        kind: DataTypes.INTEGER,
         description: DataTypes.TEXT,
         status: DataTypes.INTEGER,
         response: DataTypes.TEXT

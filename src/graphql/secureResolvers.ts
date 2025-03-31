@@ -170,9 +170,10 @@ interface ICollectionMutateArguments {
 }
 
 type CreateIssueArguments = {
-    description: string;
     neuronId: string;
-    reconstructionId: string;
+    reconstructionId?: string;
+    kind: IssueKind;
+    description: string;
 }
 
 //
@@ -846,7 +847,7 @@ export const secureResolvers = {
 
         async createIssue(_: any, args: CreateIssueArguments, context: User): Promise<Issue> {
             if (context.permissions & UserPermissions.ViewReconstructions) {
-                return Issue.createWith(IssueKind.Uncategorized, args.description, args.neuronId);
+                return Issue.createWith(context.id, args.kind, args.description,args.neuronId);
             }
 
             throw new GraphQLError("User is not authenticated", {

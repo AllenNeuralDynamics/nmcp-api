@@ -116,7 +116,7 @@ export const typeDefinitions = gql`
         
         importSmartSheet(id: String!): Boolean
         
-        createIssue(description: String!, neuronId: String, reconstructionId: String): Issue
+        createIssue(neuronId: String, reconstructionId: String, kind: Int!, description: String!): Issue
     }
 
     schema {
