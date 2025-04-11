@@ -1,4 +1,4 @@
-import {BelongsToGetAssociationMixin, DataTypes, Op, Sequelize} from "sequelize";
+import {BelongsToGetAssociationMixin, DataTypes, HasManyGetAssociationsMixin, Op, Sequelize} from "sequelize";
 import {concat, uniqBy} from "lodash"
 
 import {ReconstructionTableName} from "./TableNames";
@@ -23,6 +23,13 @@ import {removeTracingFromMiddlewareCache} from "../rawquery/tracingQueryMiddlewa
 
 const debug = require("debug")("mnb:nmcp-api:reconstruction-model");
 
+export type NearestNodeOutput = {
+    reconstructionId: string;
+    location: number[];
+    node: TracingNode;
+    error: String;
+}
+
 export class Reconstruction extends BaseModel {
     status: ReconstructionStatus;
     notes: string;
@@ -39,6 +46,7 @@ export class Reconstruction extends BaseModel {
     public getProofreader!: BelongsToGetAssociationMixin<User>;
     public getNeuron!: BelongsToGetAssociationMixin<Neuron>;
     public getPrecomputed!: BelongsToGetAssociationMixin<Precomputed>;
+    public getTracings!: HasManyGetAssociationsMixin<Tracing>;
 
     public readonly Neuron: Neuron;
     public readonly Tracings: Tracing[];
@@ -555,6 +563,63 @@ export class Reconstruction extends BaseModel {
         await this.loadReconstructionCache()
 
         return true;
+    }
+
+    public static async nearestNode(id: string, location: number[]): Promise<NearestNodeOutput> {
+        const output = {
+            reconstructionId: id,
+            location: location,
+            node: null,
+            error: null
+        };
+
+        if (!location || location.length < 3) {
+            output.error = "invalid location argument";
+            return output;
+        }
+
+        let reconstruction: Reconstruction = null;
+
+        try {
+            reconstruction = await Reconstruction.findByPk(id);
+        } catch (err) {
+            output.error = err.message;
+            return output;
+        }
+
+        if (!reconstruction) {
+            output.error = "reconstruction id not found";
+            return output;
+        }
+
+        const tracings = await reconstruction.getTracings();
+
+        if (!tracings) {
+            output.error = "reconstruction does not contain any tracings";
+            return output;
+        }
+
+        const values = await Promise.all(tracings.map(async (tracing) => {
+            return tracing.nearestNode(location);
+        }));
+
+        let distance = Infinity;
+        let nodeId = null;
+
+        values.forEach((value) => {
+            if (value.distance < distance) {
+                nodeId = value.id;
+            }
+        });
+
+        if (nodeId == null) {
+            output.error = "could not identify nearest node";
+            return output;
+        }
+
+        output.node = await TracingNode.findByPk(nodeId);
+
+        return output;
     }
 }
 

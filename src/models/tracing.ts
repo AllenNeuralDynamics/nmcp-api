@@ -15,6 +15,8 @@ import {jsonParse} from "../util/JsonParser";
 import {ReconstructionStatus} from "./reconstructionStatus";
 import * as path from "path";
 import {Neuron} from "./neuron";
+import {FiniteMap} from "../util/finiteMap";
+import {KDTree} from "../util/kdtree";
 
 const debug = require("debug")("mnb:nmcp-api:tracing");
 
@@ -59,6 +61,8 @@ export class Tracing extends BaseModel {
 
     public Nodes?: TracingNode[];
     public Reconstruction: Reconstruction;
+
+    private static _nearestNodeCache: FiniteMap<string, KDTree> = new FiniteMap<string, KDTree>(10);
 
     public static async findOneForTransform(id: string): Promise<Tracing> {
         return Tracing.findByPk(id, {
@@ -383,6 +387,30 @@ export class Tracing extends BaseModel {
             debug(err)
             return {tracing: null, error: err};
         }
+    }
+
+    public async nearestNode(location: number[]): Promise<any> {
+        let tree: KDTree = null;
+
+        if (Tracing._nearestNodeCache.has(this.id)) {
+            tree = Tracing._nearestNodeCache.get(this.id);
+        } else {
+            const nodes = await this.getNodes();
+            if (!Tracing._nearestNodeCache.has(this.id)) {
+                tree = new KDTree(nodes.map(n => n.toJSON()));
+                Tracing._nearestNodeCache.set(this.id, tree);
+            } else {
+                tree = Tracing._nearestNodeCache.get(this.id);
+            }
+        }
+
+        const result = tree.nearest({x: location[2], y: location[1], z: location[0]})
+
+        if (result.length > 0) {
+            return {id: result[0].point.id, distance: result[0].tree_distance};
+        }
+
+        return null;
     }
 }
 

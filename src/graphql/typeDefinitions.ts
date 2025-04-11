@@ -64,6 +64,8 @@ export const typeDefinitions = gql`
         reconstructionData(id: String!): String
         neuronReconstructionData(id: String!): String
         
+        nearestNode(id: String!, location: [Float!]!): NearestNodeOutput
+        
         openIssues: [Issue!]!
     }
 

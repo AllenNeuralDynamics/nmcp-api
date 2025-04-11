@@ -51,4 +51,11 @@ export const queryTypeDefinitions = gql`
         code: String
         name: String
     }
+
+    type NearestNodeOutput {
+        reconstructionId: String!
+        location: [Float!]!
+        node: TracingNode
+        error: String
+    }
 `;

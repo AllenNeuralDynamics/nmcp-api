@@ -2,7 +2,7 @@ import {Kind} from "graphql/language";
 
 import {GraphQLScalarType} from "graphql/type";
 import {IQueryOperator, operators} from "../models/queryOperator";
-import {Reconstruction} from "../models/reconstruction";
+import {NearestNodeOutput, Reconstruction} from "../models/reconstruction";
 import {ServiceOptions} from "../options/serviceOptions";
 import {PredicateType} from "../models/queryPredicate";
 import {BrainArea, CompartmentQueryInput} from "../models/brainArea";
@@ -13,6 +13,7 @@ import {staticApiClient} from "../data-access/staticApiService";
 import {IQueryDataPage, Neuron} from "../models/neuron";
 import {ISearchContextInput, SearchContext} from "../models/searchContext";
 import {Collection} from "../models/collection";
+import {TracingNode} from "../models/tracingNode";
 
 const debug = require("debug")("mnb:api:resolvers");
 
@@ -22,6 +23,11 @@ export interface IIdOnlyArguments {
 
 interface IBrainAreaQueryArguments {
     input: CompartmentQueryInput;
+}
+
+type NearestNodeArguments = {
+    id: string; // reconstruction id
+    location: number[]; // expected length 3 (x, y, z)
 }
 
 type SearchNeuronsArguments = {
@@ -79,6 +85,10 @@ export const openResolvers = {
 
         collections(): Promise<Collection[]> {
             return Collection.findAll();
+        },
+
+        async nearestNode(_: any, args: NearestNodeArguments, __: User): Promise<NearestNodeOutput> {
+            return Reconstruction.nearestNode(args.id, args.location);
         },
 
         async searchNeurons(_: any, args: SearchNeuronsArguments, __: User): Promise<IQueryDataPage> {
