@@ -32,7 +32,11 @@ export async function addTracingToMiddlewareCacheById(id: string) {
         ]
     });
 
-    addTracingToMiddlewareCache(tracing);
+    if (tracing) {
+        addTracingToMiddlewareCache(tracing);
+    } else {
+        debug(`failed to load expected tracing ${id} to compiled map`);
+    }
 }
 
 export function removeTracingFromMiddlewareCache(id: string) {
@@ -138,7 +142,7 @@ export async function loadTracingCache(performDelay = true) {
 }
 
 export async function tracingQueryMiddleware(req, res) {
-    const ids = req.body.ids;
+    const ids: string[] = req.body.ids;
 
     if (!ids || ids.length === 0) {
         res.json({
@@ -153,6 +157,14 @@ export async function tracingQueryMiddleware(req, res) {
 
         return;
     }
+
+    await ids.reduce(async (promise: Promise<void>, id: string) => {
+        await promise;
+
+        if (!compiledMap.has(id)) {
+            await addTracingToMiddlewareCacheById(id);
+        }
+    }, Promise.resolve());
 
     try {
         res.json({
