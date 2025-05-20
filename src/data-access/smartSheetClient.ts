@@ -2,7 +2,7 @@ import moment = require("moment");
 import {BrainArea} from "../models/brainArea";
 import {RemoteDatabaseClient} from "./remoteDatabaseClient";
 import {Neuron, NeuronInput} from "../models/neuron";
-import {Client, Sheet, Row, Cell, createClient} from "smartsheet";
+import {Cell, Client, createClient, Row, Sheet} from "smartsheet";
 import {Sample, SampleInput} from "../models/sample";
 import {Collection} from "../models/collection";
 import {User} from "../models/user";
@@ -18,6 +18,7 @@ enum ColumnName {
     CCFCoordinates = "CCF Coordinates",
     HortaCoordinates = "Horta Coordinates",
     EstimatedSomaCompartment = "Manual Estimated Soma Compartment",
+    CcfSomaCompartment = "CCF Soma Compartment",
     Collection = "Collection",
     Level = "Level",
     Id = "ID",
@@ -65,7 +66,8 @@ type NeuronRowContents = {
     sampleX: number;
     sampleY: number
     sampleZ: number;
-    brainStructureAcronym: string;
+    manualBrainStructureAcronym: string;
+    ccfBrainStructureAcronym: string;
     annotator: string;
     annotatorEmail: string;
     status: Status;
@@ -99,7 +101,7 @@ export const synchronize = async (sheetId: number = 0, pathToReconstructions: st
 
     await s.parseSheet(sheetId, onlyProduction != 0);
 
-    debug(`SmartSheet import from ${sheetId}. Production only: ${onlyProduction != 0}, Parse files: ${ parseFiles != 0}`)
+    debug(`SmartSheet import from ${sheetId}. Production only: ${onlyProduction != 0}, Parse files: ${parseFiles != 0}`)
 
     await s.updateDatabase(pathToReconstructions, parseFiles != 0 && pathToReconstructions.length > 0);
 };
@@ -135,6 +137,26 @@ async function ensureUser(name: string, email: string) {
     return null;
 }
 
+function findBrainCompartmentSimple(label: string): BrainArea {
+    let somaBrainStructure = BrainArea.getFromAcronym(label);
+
+    const simplifiedName = label.replace(new RegExp(",", 'g'), "");
+
+    if (!somaBrainStructure) {
+        somaBrainStructure = BrainArea.getFromName(simplifiedName)
+    }
+
+    if (!somaBrainStructure) {
+        somaBrainStructure = BrainArea.getFromSafeName(simplifiedName)
+    }
+
+    return somaBrainStructure;
+}
+
+function findBrainCompartment(primaryLabel: string, secondaryLabel: string): BrainArea {
+    return findBrainCompartmentSimple(primaryLabel) ?? findBrainCompartmentSimple(secondaryLabel);
+}
+
 async function sampleFromRowContents(s: SampleRowContents, reconstructionLocation: string, parseFiles: boolean) {
     const sample = await Sample.findOrCreateForSubject(s.subjectId);
 
@@ -157,15 +179,13 @@ async function sampleFromRowContents(s: SampleRowContents, reconstructionLocatio
     await Sample.updateWith(input);
 
     await Promise.all(s.neurons.map(async (n) => {
-        let somaBrainStructure = BrainArea.getFromAcronym(n.brainStructureAcronym)?.id
+        let somaBrainStructure = findBrainCompartment(n.manualBrainStructureAcronym, n.ccfBrainStructureAcronym)?.id
 
         if (!somaBrainStructure) {
-            somaBrainStructure = BrainArea.getFromName(n.brainStructureAcronym.replace(new RegExp(",", 'g'), ""))?.id
-        }
-
-        if (!somaBrainStructure) {
-            debug(`failed to look up soma brain structure for ${s.subjectId}-${n.idString}: ${n.brainStructureAcronym.replace(new RegExp(",", 'g'), "")}`)
-            return;
+            debug(`failed to look up soma brain structure for ${s.subjectId}-${n.idString}:`);
+            debug(`\tmanual estimated: ${n.manualBrainStructureAcronym.replace(new RegExp(",", 'g'), "")}`);
+            debug(`\tccf: ${n.ccfBrainStructureAcronym.replace(new RegExp(",", 'g'), "")}`);
+            // return;
         }
 
         let neuron = null;
@@ -223,7 +243,14 @@ async function sampleFromRowContents(s: SampleRowContents, reconstructionLocatio
         }
     }, Promise.resolve());
 
-    await Promise.all(neuronsForReconstructions.map(async (n) => {
+    await neuronsForReconstructions.reduce(async (promise: Promise<void>, n) => {
+        await promise;
+
+        if (!n.id) {
+            // Earlier issue w/parsing - neuron not created.
+            return;
+        }
+
         const annotator1 = users.get(n.annotatorEmail);
 
         const annotator2 = users.get(n.annotator2Email);
@@ -231,15 +258,11 @@ async function sampleFromRowContents(s: SampleRowContents, reconstructionLocatio
         const annotator = annotator1 || annotator2;
 
         if (!annotator) {
+            debug(`neuron ${n.idString}-${s.subjectId} is missing annotator - skipped`)
             return;
         }
 
         const proofreader = n.proofreaderEmail ? users.get(n.proofreaderEmail) : null;
-
-        if (!n.id) {
-            // Earlier issue w/parsing - neuron not created.
-            return;
-        }
 
         try {
             let reconstruction = await Reconstruction.findOne({
@@ -287,6 +310,11 @@ async function sampleFromRowContents(s: SampleRowContents, reconstructionLocatio
                 return;
             }
 
+            // Do not replace tracing if already published.
+            if (reconstruction.status == ReconstructionStatus.Complete) {
+                return;
+            }
+
             const file_prefix = `${n.idString}-${s.subjectId}`;
 
             const annotatorInitials = (u: User): string => {
@@ -328,19 +356,19 @@ async function sampleFromRowContents(s: SampleRowContents, reconstructionLocatio
                     const result = await Tracing.createTracingFromJson(reconstruction.id, jsonPath);
 
                     if (result.error) {
-                        debug(`\tparsing error for ${jsonFile}`);
-                        debug(`\t${result.error}`);
+                        debug(`\t---> parsing error for ${jsonFile}`);
+                        debug(`\t---> ${result.error}`);
                     }
                 } else if (reconstruction.status == ReconstructionStatus.Approved) {
-                    debug(`\texpected reconstruction data not found for ${n.idString}-${s.subjectId}`);
+                    debug(`\t---> expected reconstruction data not found for ${n.idString}-${s.subjectId}`);
                 }
             } catch (err) {
-                debug(`issue detecting file for ${n.idString}-${s.subjectId}`);
+                debug(`---> issue detecting file for ${n.idString}-${s.subjectId}`);
             }
         } catch (error) {
             debug(error);
         }
-    }));
+    }, Promise.resolve());
 }
 
 export class SmartSheetClient {
@@ -348,7 +376,13 @@ export class SmartSheetClient {
 
     private _client: Client;
 
+    // Samples that will be used.
     private samples: Map<string, SampleRowContents>;
+
+    // Samples that may be used if a neuron meets the requirements.  Primarily this is used for the production instance where a subset of neurons may be
+    // marked for production and the parent sample is not.  Those samples linger here until or unless an associated neuron is marked to use.
+    private pendingSamples: Map<string, SampleRowContents>;
+
 
     public constructor(token: string) {
         this._client = createClient({logLevel: "warn", accessToken: token});
@@ -363,6 +397,7 @@ export class SmartSheetClient {
             this.findColumnIds(sheet);
 
             this.samples = new Map();
+            this.pendingSamples = new Map();
 
             sheet.rows.forEach((row: any) => {
                 let cell = this.getCell(row, ColumnName.Level);
@@ -403,12 +438,6 @@ export class SmartSheetClient {
 
         const cell = this.getCell(row, ColumnName.Production);
 
-        if (onlyProduction && cell?.value != true) {
-            console.log(`${subjectId} is not marked for production and being skipped`);
-            return
-        }
-
-
         let sampleDate: Date = null;
 
         if (filename) {
@@ -418,14 +447,20 @@ export class SmartSheetClient {
             }
         }
 
-        this.samples.set(subjectId, {
+        const sampleRow = {
             subjectId,
             sampleDate,
             genotype,
             notes,
             collectionName,
             neurons: []
-        });
+        };
+
+        if (onlyProduction && cell?.value != true) {
+            this.pendingSamples.set(subjectId, sampleRow);
+        } else {
+            this.samples.set(subjectId, sampleRow);
+        }
     }
 
     private parseNeuron(row: any, onlyProduction: boolean) {
@@ -434,6 +469,17 @@ export class SmartSheetClient {
         // Only processing rows that have a registered soma location.
         if (!ccf) {
             return;
+        }
+
+        // When flagged for production, verify column.
+        if (onlyProduction) {
+            const production = this.getCell(row, ColumnName.Production);
+
+            if (production?.value != true) {
+                // const id = this.getCell(row, ColumnName.Id).value as string;
+                // console.log(`neuron ${id} is not marked for production and being skipped`);
+                return;
+            }
         }
 
         // Ensure we can identify the sample.  This should just be the parent row, but this is a bit of a sanity
@@ -448,16 +494,6 @@ export class SmartSheetClient {
             // debug(`failed to find sample for ${this.getStringValue(row, ColumnName.Id)} (row ${row.rowNumber})`);
             return;
         }
-
-        if (onlyProduction) {
-            const production = this.getCell(row, ColumnName.Production);
-
-            if (production?.value != true) {
-                console.log(`neuron ${id} is not marked for production and being skipped`);
-                return;
-            }
-        }
-
 
         const horta = this.getCell(row, ColumnName.HortaCoordinates).value as string;
 
@@ -483,7 +519,8 @@ export class SmartSheetClient {
             debug(`could not parse CCF coordinates ${this.getStringValue(row, ColumnName.Id)} (row ${row.rowNumber})`);
         }
 
-        const brainStructureAcronym = this.getStringValue(row, ColumnName.EstimatedSomaCompartment);
+        const manualBrainStructureAcronym = this.getStringValue(row, ColumnName.EstimatedSomaCompartment);
+        const ccfBrainStructureAcronym = this.getStringValue(row, ColumnName.CcfSomaCompartment);
 
         const neuron: NeuronRowContents = {
             idString: id,
@@ -493,7 +530,8 @@ export class SmartSheetClient {
             sampleX: hortaParts[0],
             sampleY: hortaParts[1],
             sampleZ: hortaParts[2],
-            brainStructureAcronym,
+            manualBrainStructureAcronym,
+            ccfBrainStructureAcronym,
             annotator: this.getDisplayValue(row, ColumnName.Annotator1),
             annotatorEmail: this.getStringValue(row, ColumnName.Annotator1),
             status: this.getReconstructionStatus(row),
@@ -519,13 +557,24 @@ export class SmartSheetClient {
             console.log(`failed to get id for row ${row.rowNumber}`);
             return [null, null];
         }
+
         const parts = id.split("-");
 
         if (parts.length > 1) {
             const subjectId = parts[1].replace("*", "");
 
             if (subjectId) {
-                return [parts[0], this.samples.get(subjectId)];
+                if (this.samples.has(subjectId)) {
+                    return [parts[0], this.samples.get(subjectId)];
+                }
+                if (this.pendingSamples.has(subjectId)) {
+                    const sample = this.pendingSamples.get(subjectId);
+                    if (sample) {
+                        // Ensure it is generated.
+                        this.samples.set(subjectId, sample);
+                        return [parts[0], sample];
+                    }
+                }
             }
         }
 

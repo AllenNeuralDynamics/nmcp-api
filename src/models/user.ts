@@ -51,7 +51,7 @@ export class User extends BaseModel {
 
     public static async findOrCreateUser(authId: string, firstName: string, lastName: string, email: string): Promise<User> {
         try {
-            if (this.userCache.has(authId)) {
+            if (authId && this.userCache.has(authId)) {
                 return this.userCache.get(authId);
             }
 
@@ -114,7 +114,9 @@ export class User extends BaseModel {
                     await user.update(updates);
                 }
 
-                this.userCache.set(authId, user);
+                if (authId) {
+                    this.userCache.set(authId, user);
+                }
             } catch (error) {
                 debug(error);
             }

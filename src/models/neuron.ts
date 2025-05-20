@@ -104,27 +104,43 @@ export class Neuron extends BaseModel {
     }
 
     public static async updateCache(id: string) {
-        const neuron = await Neuron.findByPk(id, {
-            include: [
-                {
-                    model: BrainArea,
-                    as: "BrainArea"
-                },
-                {
-                    model: Tracing,
-                    as: "tracings",
-                    include: [{
-                        model: TracingStructure,
-                        as: "TracingStructure"
-                    }, {
-                        model: TracingNode,
-                        as: "Soma"
-                    }]
-                }
-            ]
-        });
+        if (id) {
+            const neuron = await Neuron.findByPk(id, {
+                include: [
+                    {
+                        model: BrainArea,
+                        as: "BrainArea"
+                    },
+                    {
+                        model: Tracing,
+                        as: "tracings",
+                        include: [{
+                            model: TracingStructure,
+                            as: "TracingStructure"
+                        }, {
+                            model: TracingNode,
+                            as: "Soma"
+                        }]
+                    }
+                ]
+            });
 
-        this._neuronCache.set(neuron.id, neuron);
+            if (neuron) {
+                this._neuronCache.set(neuron.id, neuron);
+            }
+        }
+    }
+
+    public static async ensureForTracingInCache(tracingId: string) {
+        const tracing = await Tracing.findByPk(tracingId);
+        if (tracing) {
+            const reconstruction = await Reconstruction.findByPk(tracing.reconstructionId);
+            if (reconstruction) {
+                if (!this._neuronCache.has(reconstruction.neuronId)) {
+                    await this.updateCache(reconstruction.neuronId);
+                }
+            }
+        }
     }
 
     public static async loadNeuronCache() {

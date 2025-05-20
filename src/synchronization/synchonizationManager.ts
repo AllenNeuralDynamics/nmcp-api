@@ -5,6 +5,7 @@ const debugWorker = require("debug")("mnb:synchronization:synchronization-worker
 
 import {addTracingToMiddlewareCacheById} from "../rawquery/tracingQueryMiddleware";
 import {Reconstruction} from "../models/reconstruction";
+import {Neuron} from "../models/neuron";
 
 /**
  * Start and manage a separate node process for synchronizing published reconstruction data.
@@ -43,8 +44,9 @@ export function synchronizationManagerStart(){
     });
 
     proc.on("message", async (data: any)=> {
-        // Must happen on the original process.
+        // Must happen on the original process.  data should be the id of a tracing.
         await addTracingToMiddlewareCacheById(data);
+        await Neuron.ensureForTracingInCache(data);
         await Reconstruction.loadReconstructionCache();
     });
 }
