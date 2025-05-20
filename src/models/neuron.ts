@@ -135,11 +135,7 @@ export class Neuron extends BaseModel {
         const tracing = await Tracing.findByPk(tracingId);
         if (tracing) {
             const reconstruction = await Reconstruction.findByPk(tracing.reconstructionId);
-            if (reconstruction) {
-                if (!this._neuronCache.has(reconstruction.neuronId)) {
-                    await this.updateCache(reconstruction.neuronId);
-                }
-            }
+            await reconstruction.reload();
         }
     }
 
