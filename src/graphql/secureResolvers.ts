@@ -4,7 +4,7 @@ import {Neuron, NeuronInput, NeuronQueryInput} from "../models/neuron";
 import {BrainArea} from "../models/brainArea";
 import {MouseStrain, MouseStrainInput, MouseStrainQueryInput} from "../models/mouseStrain";
 import {Sample, SampleInput, SampleQueryInput} from "../models/sample";
-import {DeleteOutput, EntityMutateOutput, EntityQueryOutput, SortAndLimit} from "../models/baseModel";
+import {DeleteOutput, EntityMutateOutput, EntityQueryOutput} from "../models/baseModel";
 import {TracingStructure} from "../models/tracingStructure";
 import {Tracing} from "../models/tracing";
 import {TracingNode} from "../models/tracingNode";
@@ -17,11 +17,10 @@ import {ReconstructionStatus} from "../models/reconstructionStatus";
 import {GraphQLError} from "graphql/error";
 import {Collection, CollectionInput} from "../models/collection";
 import {Issue, IssueKind} from "../models/issue";
-
-import GraphQLUpload = require('graphql-upload/GraphQLUpload.js');
 import {loadTracingCache} from "../rawquery/tracingQueryMiddleware";
 import {synchronize} from "../data-access/smartSheetClient";
 import {Precomputed} from "../models/precomputed";
+import GraphQLUpload = require('graphql-upload/GraphQLUpload.js');
 
 export class UnauthorizedError extends GraphQLError {
     public constructor() {
@@ -941,13 +940,14 @@ export const secureResolvers = {
             return neuron.getReconstructions();
         },
         async tracings(neuron: Neuron): Promise<Tracing[]> {
-            const reconstructions = await neuron.getReconstructions();
+            let reconstructions = await neuron.getReconstructions();
+
+            reconstructions = reconstructions.filter(r => r.status == ReconstructionStatus.Complete);
 
             if (reconstructions.length == 0) {
                 return [];
             }
 
-            // TODO first complete reconstruction not simply the first one.
             return [await reconstructions[0].getAxon(), await reconstructions[0].getDendrite()];
         }
     },
@@ -1003,8 +1003,8 @@ export const secureResolvers = {
         responder(issue: Issue): Promise<User> {
             try {
                 return User.findByPk(issue.responderId);
+            } catch (error) {
             }
-            catch (error) {}
             return null;
         }
     }
