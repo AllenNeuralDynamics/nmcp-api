@@ -20,6 +20,7 @@ import {Injection} from "./injection";
 import {MouseStrain} from "./mouseStrain";
 import {SearchContent} from "./searchContent";
 import {removeTracingFromMiddlewareCache} from "../rawquery/tracingQueryMiddleware";
+import _ = require("lodash");
 
 const debug = require("debug")("mnb:nmcp-api:reconstruction-model");
 
@@ -351,9 +352,24 @@ export class Reconstruction extends BaseModel {
                 }
             });
 
-            this._reconstructionCount = reconstructions.length;
+            debug(`${reconstructions.length} reconstructions marked complete`);
 
-            debug(`${this._reconstructionCount} completed reconstructions`);
+            // const r = reconstructions.filter(r => r.getAxon() != null && r.getDendrite() != null);
+
+            // debug(`${r.length} completed reconstructions have required tracings`);
+
+            const n = _.uniq(reconstructions.map(r => r.neuronId));
+
+            debug(`${reconstructions.length} completed reconstructions represent ${n.length} unique neurons`);
+
+            this._reconstructionCount = n.length;
+
+            // const searchContent: SearchContent[] = await SearchContent.findAll({
+            //     attributes: ["neuronId"]
+            // });
+
+            // debug(`${searchContent.length} searchContent represent ${_.uniq(searchContent.map(r => r.neuronId)).length} unique neurons`);
+
         } catch (err) {
             debug(err)
         }
