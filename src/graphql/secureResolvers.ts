@@ -399,7 +399,7 @@ export const secureResolvers = {
 
         async reviewableReconstructions(_: any, args: ReviewPageArguments, context: User): Promise<IReconstructionPage> {
             if (context.permissions & UserPermissions.Review) {
-                return Reconstruction.getReviewableAnnotations(args.input);
+                return Reconstruction.getReviewableReconstructions(args.input);
             }
 
             throw new GraphQLError("User is not authenticated", {

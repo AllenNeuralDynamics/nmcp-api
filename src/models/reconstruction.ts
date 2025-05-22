@@ -71,15 +71,17 @@ export class Reconstruction extends BaseModel {
             })
         }
 
+        options.include.push({model: Neuron, as: "Neuron", include: [{model: Sample, as: "Sample"}]});
+
         if (queryInput.sampleIds && queryInput.sampleIds.length > 0) {
             options.where["$Neuron.Sample.id$"] = {[Op.in]: queryInput.sampleIds}
-            options.include.push({model: Neuron, as: "Neuron", include: [{model: Sample, as: "Sample"}]});
         }
 
         out.totalCount = await Reconstruction.count(options);
 
+        options["order"] = [["Neuron", "Sample", "animalId", "ASC"], ["Neuron", "idString", "ASC"]];
+
         if (queryInput) {
-            options["order"] = [["startedAt", "DESC"]];
 
             if (queryInput.offset) {
                 options["offset"] = queryInput.offset;
@@ -136,13 +138,13 @@ export class Reconstruction extends BaseModel {
         return await Reconstruction.findAll({where: {neuronId: neuronId}})
     }
 
-    public static async getAnnotationsForUser(userId: string): Promise<Reconstruction[]> {
+    public static async getReconstructionsForUser(userId: string): Promise<Reconstruction[]> {
         return Reconstruction.findAll({
             where: {annotatorId: userId}
         });
     }
 
-    public static async getReviewableAnnotations(input: ReviewPageInput): Promise<IReconstructionPage> {
+    public static async getReviewableReconstructions(input: ReviewPageInput): Promise<IReconstructionPage> {
         let out: IReconstructionPage = {
             offset: 0,
             limit: 0,
@@ -173,16 +175,17 @@ export class Reconstruction extends BaseModel {
                 ]
             }
 
+            options.include.push({model: Neuron, as: "Neuron", include: [{model: Sample, as: "Sample"}]});
+
             if (input.sampleIds && input.sampleIds.length > 0) {
                 options.where["$Neuron.Sample.id$"] = {[Op.in]: input.sampleIds}
-                options.include.push({model: Neuron, as: "Neuron", include: [{model: Sample, as: "Sample"}]});
             }
 
             out.totalCount = await Reconstruction.count(options);
 
-            if (input) {
-                options["order"] = [["startedAt", "DESC"]];
+            options["order"] = [["Neuron", "Sample", "animalId", "ASC"], ["Neuron", "idString", "ASC"]];
 
+            if (input) {
                 if (input.offset) {
                     options["offset"] = input.offset;
                     out.offset = input.offset;

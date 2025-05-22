@@ -266,15 +266,17 @@ export class Neuron extends BaseModel {
             options.where["brainStructureId"] = {[Op.in]: input.brainStructureIds}
         }
 
+        options.include.push({model: Sample, as: "Sample", attributes: ["id", "animalId"]});
+
         if (input.sampleIds && input.sampleIds.length > 0) {
             options.where["$Sample.id$"] = {[Op.in]: input.sampleIds}
-            options.include.push({model: Sample, as: "Sample"})
         }
 
         const totalCount = await Neuron.count(options);
 
+        options["order"] = [["Sample", "animalId", "ASC"], ["idString", "ASC"]];
+
         if (input) {
-            options["order"] = [["createdAt", "DESC"]];
 
             if (input.offset) {
                 options["offset"] = input.offset;
