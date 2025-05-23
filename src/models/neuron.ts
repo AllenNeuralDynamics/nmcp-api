@@ -634,6 +634,29 @@ export class Neuron extends BaseModel {
 
         return null;
     }
+
+    public static async findWithMultipleReconstructions(minCount: number = 2): Promise<Neuron[]> {
+        const potential = await Neuron.findAll({
+            attributes: [[Sequelize.fn("COUNT", Sequelize.col("Reconstructions.id")), "ReconstructionCount"], "id", "idString"],
+            include: [
+                {model: Reconstruction, as: "Reconstructions", attributes: [], required: true, duplicating: false, where: {id: {[Op.not]: null}}}
+            ],
+            group: ["Neuron.id"]
+        });
+
+        const results = potential.filter(p => p.getDataValue("ReconstructionCount") >= minCount);
+
+        return Neuron.findAll({
+            where: {
+                id: {[Op.in]: results.map(n => n.id)}
+            },
+            include: [
+                {model: Reconstruction, as: "Reconstructions"},
+                {model: Sample, as: "Sample"}
+            ],
+            order: [[{model: Sample, as: "Sample"}, 'animalId', "ASC"], ["idString", "ASC"]]
+        });
+    }
 }
 
 export const modelInit = (sequelize: Sequelize) => {

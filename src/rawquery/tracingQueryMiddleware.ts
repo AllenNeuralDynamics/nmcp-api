@@ -39,9 +39,13 @@ export async function addTracingToMiddlewareCacheById(id: string) {
     }
 }
 
-export function removeTracingFromMiddlewareCache(id: string) {
-    if (compiledMap.has(id)) {
-        compiledMap.delete(id)
+export function removeTracingFromMiddlewareCache(ids: string[]) {
+    if (ids) {
+        ids.forEach((id) => {
+            if (compiledMap.has(id)) {
+                compiledMap.delete(id)
+            }
+        });
     }
 }
 

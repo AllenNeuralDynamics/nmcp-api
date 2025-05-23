@@ -803,8 +803,22 @@ export const secureResolvers = {
             });
         },
 
+        async deleteReconstruction(_: any, args: IIdOnlyArguments, context: User): Promise<boolean> {
+            if (context.permissions & UserPermissions.Admin) {
+                return await Reconstruction.deleteEntry(args.id);
+            }
+
+            throw new GraphQLError('User is not authenticated', {
+                extensions: {
+                    code: 'UNAUTHENTICATED',
+                    http: {status: 401},
+                },
+            });
+        },
+
         async unpublish(_: any, args: IIdOnlyArguments, context: User): Promise<boolean> {
             if (context.permissions & UserPermissions.Admin) {
+                // id can be a reconstruction id or a neuron id.
                 const wasValidReconstruction = await Reconstruction.unpublish(args.id);
 
                 if (!wasValidReconstruction) {

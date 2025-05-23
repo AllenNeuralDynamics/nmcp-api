@@ -321,14 +321,6 @@ export class Reconstruction extends BaseModel {
         return null;
     }
 
-    public static async remove(id: string): Promise<boolean> {
-        await Reconstruction.destroy({
-            where: {id: id}
-        });
-
-        return true;
-    }
-
     public async getAxon(): Promise<Tracing> {
         return await Tracing.findOne({
             where: {reconstructionId: this.id, tracingStructureId: AxonStructureId}
@@ -542,11 +534,13 @@ export class Reconstruction extends BaseModel {
             return false;
         }
 
+        const tracingIds = [];
         let nodes = [];
 
-        reconstruction.Tracings.forEach(n => {
-            nodes = nodes.concat(n.Nodes)
-        })
+        reconstruction.Tracings.forEach(t => {
+            nodes = nodes.concat(t.Nodes)
+            tracingIds.push(t.id);
+        });
 
         try {
             await TracingNode.sequelize.transaction(async (transaction) => {
@@ -558,11 +552,13 @@ export class Reconstruction extends BaseModel {
 
                 promises = reconstruction.Tracings.map(async (t) => {
                     await t.update({nodeLookupAt: null, searchTransformAt: null}, {transaction});
-                })
+                });
 
                 await Promise.all(promises);
 
-                await reconstruction.update({status: ReconstructionStatus.Approved}, {transaction});
+                if (reconstruction.status == ReconstructionStatus.Complete) {
+                    await reconstruction.update({status: ReconstructionStatus.Approved}, {transaction});
+                }
 
                 promises = reconstruction.Tracings.map(async (t) => {
                     await SearchContent.destroy({where: {tracingId: t.id}, transaction});
@@ -571,9 +567,60 @@ export class Reconstruction extends BaseModel {
                 await Promise.all(promises);
             });
 
-            removeTracingFromMiddlewareCache(id);
+            removeTracingFromMiddlewareCache(tracingIds);
 
             debug(`unpublished reconstruction ${id}`);
+        } catch (err) {
+            debug(err);
+            return false;
+        }
+
+        await this.loadReconstructionCache()
+
+        return true;
+    }
+
+    public static async deleteEntry(id: string): Promise<boolean> {
+        const reconstruction = await Reconstruction.findByPk(id, {
+            include: [{model: Tracing, as: "Tracings", attributes: ["id"]}]
+        });
+
+        if (!reconstruction) {
+            return false;
+        }
+
+        const tracingIds = reconstruction.Tracings.map(t => t.id);
+
+        try {
+            await TracingNode.sequelize.transaction(async (transaction) => {
+                const options = {
+                    where: {tracingId: {[Op.in]: tracingIds}},
+                    force: true,
+                    transaction
+                };
+
+                await SearchContent.destroy(options);
+
+                await TracingNode.destroy(options);
+
+                await Tracing.destroy({
+                    where: {id: {[Op.in]: tracingIds}},
+                    force: true,
+                    transaction
+                });
+
+                await Precomputed.destroy({
+                    where: {reconstructionId: reconstruction.id},
+                    force: true,
+                    transaction
+                });
+
+                await reconstruction.destroy({force: true, transaction});
+            });
+
+            removeTracingFromMiddlewareCache(tracingIds);
+
+            debug(`delete reconstruction ${id}`);
         } catch (err) {
             debug(err);
             return false;

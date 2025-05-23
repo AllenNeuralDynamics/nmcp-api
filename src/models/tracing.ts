@@ -145,7 +145,7 @@ export class Tracing extends BaseModel {
         return Tracing.findAll(options);
     }
 
-    public static async deleteTracing(id: string, removeAnnotations: boolean = true): Promise<DeleteOutput> {
+    public static async deleteTracing(id: string, removeReconstruction: boolean = true): Promise<DeleteOutput> {
         let tracing = await Tracing.findByPk(id);
 
         if (!tracing) {
@@ -170,9 +170,11 @@ export class Tracing extends BaseModel {
 
         const count = await Tracing.getCountForReconstruction(tracing.reconstructionId);
 
-        if (removeAnnotations && count == 0) {
+        if (removeReconstruction && count == 0) {
             // If this is the last tracing associated with a reconstruction, remove to reset the status.
-            await Reconstruction.remove(tracing.reconstructionId);
+            await Reconstruction.destroy({
+                where: {id: tracing.reconstructionId}
+            });
         }
 
         if (count == 1) {

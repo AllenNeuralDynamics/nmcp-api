@@ -13,7 +13,7 @@ export const typeDefinitions = gql`
 
     type Query {
         systemSettings: SystemSettings
-        
+
         user: User
         users(input: UserQueryInput): QueryUsers
 
@@ -42,34 +42,34 @@ export const typeDefinitions = gql`
 
         neurons(input: NeuronQueryInput): QueryNeurons
         neuron(id: String!): Neuron
-        
+
         collections: [Collection!]!
 
         queryOperators: [QueryOperator!]!
 
         """Provides all tomography metadata."""
         tomographyMetadata: [TomographyMetadata!]
-        
+
         candidateNeurons(input: NeuronQueryInput, includeInProgress: Boolean): QueryNeurons
 
         pendingPrecomputed: [Precomputed!]!
-        
+
         searchNeurons(context: SearchContext): SearchOutput
 
         reconstruction(id: String): Reconstruction
         reconstructions(pageInput: ReconstructionPageInput): ReconstructionPage!
         candidatesForReview: [Neuron!]!
         reviewableReconstructions(input: ReviewPageInput): ReconstructionPage!
-        
+
         reconstructionData(id: String!): String
         neuronReconstructionData(id: String!): String
-        
+
         nearestNode(id: String!, location: [Float!]!): NearestNodeOutput
-        
+
         openIssues: [Issue!]!
     }
 
-    type Mutation {        
+    type Mutation {
         updateUserPermissions(id: String!, permissions: Int!): User
         updateUserAnonymity(id: String!, anonymousCandidate: Boolean!, anonymousComplete: Boolean!): User
 
@@ -93,7 +93,7 @@ export const typeDefinitions = gql`
         createNeuron(neuron: NeuronInput): MutatedNeuron!
         updateNeuron(neuron: NeuronInput): MutatedNeuron!
         deleteNeuron(id: String!): DeleteOutput!
-        
+
         createCollection(collection: CollectionInput!): MutatedCollection!
         updateCollection(collection: CollectionInput!): MutatedCollection!
         deleteCollection(id: String!): DeleteOutput!
@@ -111,13 +111,14 @@ export const typeDefinitions = gql`
         declineReconstruction(id: String!): Error
         cancelReconstruction(id: String!): Error
         completeReconstruction(id: String!): Error
+        deleteReconstruction(id: String!): Boolean
 
         unpublish(id: String!): Boolean
-        
+
         reload: Boolean
-        
+
         importSmartSheet(id: String!): Boolean
-        
+
         createIssue(neuronId: String, reconstructionId: String, kind: Int!, description: String!): Issue
         closeIssue(id: String!, reason: String!): Boolean
     }
