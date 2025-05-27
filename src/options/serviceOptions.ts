@@ -19,6 +19,7 @@ type IServiceOptions = {
     ccfv30OntologyPath: string;
     tracingLoadMaxDelay: number;
     tracingLoadLimit: number;
+    allowExperimentalFeatures: boolean;
     version: string;
 }
 
@@ -38,6 +39,7 @@ const configuration: IServiceOptions = {
     ccfv30OntologyPath: "ccfv30_raw.nrrd",
     tracingLoadMaxDelay: 10,
     tracingLoadLimit: 100,
+    allowExperimentalFeatures:  process.env.NMCP_EXPERIMENTAL_ENV === "true",
     version: ""
 };
 

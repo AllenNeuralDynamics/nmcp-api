@@ -674,6 +674,7 @@ export class Reconstruction extends BaseModel {
 
         values.forEach((value) => {
             if (value.distance < distance) {
+                distance = value.distance;
                 nodeId = value.id;
             }
         });

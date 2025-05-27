@@ -137,7 +137,7 @@ async function getSystemSettings(): Promise<ISystemSettings> {
         apiVersion: ServiceOptions.version,
         neuronCount: reconstructionCount,
         features: {
-            enableUpdatedViewer: process.env.NODE_ENV != "production"
+            enableUpdatedViewer: ServiceOptions.allowExperimentalFeatures
         }
     }
 }
