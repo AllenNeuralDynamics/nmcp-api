@@ -30,18 +30,6 @@ export const internalResolvers = {
                 },
             });
         },
-        neuronReconstructionData(_: any, args: IIdOnlyArguments, context: User): Promise<string> {
-            if (context.permissions == InternalPermission) {
-                return Neuron.getReconstructionsAsData(args.id);
-            }
-
-            throw new GraphQLError('User is not authenticated', {
-                extensions: {
-                    code: 'UNAUTHENTICATED',
-                    http: {status: 401},
-                },
-            });
-        },
         pendingPrecomputed(_: any, __: any, context: User): Promise<Precomputed[]> {
             if (context.permissions == InternalPermission) {
                 return Precomputed.getPending();

@@ -620,21 +620,6 @@ export class Neuron extends BaseModel {
         return neuron;
     }
 
-    public static async getReconstructionsAsData(id: string): Promise<string> {
-        const reconstruction = await Reconstruction.findOne({
-            where: {
-                neuronId: id
-            },
-            attributes: ["id"]
-        });
-
-        if (reconstruction) {
-            return await Reconstruction.getAsData(reconstruction.id);
-        }
-
-        return null;
-    }
-
     public static async findWithMultipleReconstructions(minCount: number = 2): Promise<Neuron[]> {
         const potential = await Neuron.findAll({
             attributes: [[Sequelize.fn("COUNT", Sequelize.col("Reconstructions.id")), "ReconstructionCount"], "id", "idString"],

@@ -9,9 +9,14 @@ export const coreTypeDefinitions = gql`
         name: String
     }
 
+    type Features {
+        enableUpdatedViewer: Boolean
+    }
+
     type SystemSettings {
         apiVersion: String
         neuronCount: Int
+        features: Features
     }
 
     type User {
@@ -219,7 +224,7 @@ export const coreTypeDefinitions = gql`
         createdAt: Date
         updatedAt: Date
     }
-    
+
     type Collection {
         id: String!
         name: String!
@@ -228,7 +233,7 @@ export const coreTypeDefinitions = gql`
         createdAt: Date
         updatedAt: Date
     }
-    
+
     type Issue {
         id: String!
         kind: Int

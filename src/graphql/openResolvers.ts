@@ -125,6 +125,9 @@ export const openResolvers = {
 interface ISystemSettings {
     apiVersion: string;
     neuronCount: number;
+    features: {
+        enableUpdatedViewer: boolean;
+    }
 }
 
 async function getSystemSettings(): Promise<ISystemSettings> {
@@ -132,6 +135,9 @@ async function getSystemSettings(): Promise<ISystemSettings> {
 
     return {
         apiVersion: ServiceOptions.version,
-        neuronCount: reconstructionCount
+        neuronCount: reconstructionCount,
+        features: {
+            enableUpdatedViewer: process.env.NODE_ENV != "production"
+        }
     }
 }
