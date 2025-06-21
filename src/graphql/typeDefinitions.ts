@@ -66,6 +66,8 @@ export const typeDefinitions = gql`
 
         nearestNode(id: String!, location: [Float!]!): NearestNodeOutput
 
+        issueCount: Int!
+
         openIssues: [Issue!]!
     }
 

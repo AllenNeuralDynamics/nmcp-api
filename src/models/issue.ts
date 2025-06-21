@@ -33,6 +33,17 @@ export class Issue extends BaseModel {
     public readonly Neuron: Neuron;
     public readonly Reconstruction: Reconstruction;
 
+
+    public static async getCount(): Promise<number> {
+        return await Issue.count({
+            where: {
+                status: {
+                    [Op.ne]: IssueStatus.Closed
+                }
+            }
+        });
+    }
+
     public static async getOpen(): Promise<Issue[]> {
         return await Issue.findAll({
             where: {
@@ -40,7 +51,7 @@ export class Issue extends BaseModel {
                     [Op.ne]: IssueStatus.Closed
                 }
             }
-        })
+        });
     }
 
     public static async createWith(creatorId: string, kind: IssueKind,  description: string, neuronId: string = null, reconstructionId: string = null): Promise<Issue> {

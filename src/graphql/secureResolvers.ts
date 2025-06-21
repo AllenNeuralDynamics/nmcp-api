@@ -423,6 +423,19 @@ export const secureResolvers = {
             });
         },
 
+        async issueCount(_: any, __: any, context: User): Promise<number> {
+            if (context.permissions & UserPermissions.Admin) {
+                return Issue.getCount();
+            }
+
+            throw new GraphQLError("User is not authenticated", {
+                extensions: {
+                    code: "UNAUTHENTICATED",
+                    http: {status: 401},
+                },
+            });
+        },
+
         async openIssues(_: any, __: any, context: User): Promise<Issue[]> {
             if (context.permissions & UserPermissions.Admin) {
                 return Issue.getOpen();
