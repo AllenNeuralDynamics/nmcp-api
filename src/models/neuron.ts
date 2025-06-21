@@ -25,6 +25,7 @@ import {TracingStructure} from "./tracingStructure";
 import {Reconstruction} from "./reconstruction";
 import {ReconstructionStatus} from "./reconstructionStatus";
 import {User} from "./user";
+import {SynchronizationMarker, SynchronizationMarkerKind} from "./synchronizationMarker";
 
 const debug = require("debug")("mnb:nmcp-api:neuron-model");
 
@@ -641,6 +642,31 @@ export class Neuron extends BaseModel {
             ],
             order: [[{model: Sample, as: "Sample"}, 'animalId', "ASC"], ["idString", "ASC"]]
         });
+    }
+
+    public static async getReconstructionData(id: string): Promise<string> {
+        const options = {
+            where: {
+                id: id,
+                "$Reconstructions.status$": ReconstructionStatus.Complete
+            },
+            include: [
+                {
+                    model: Reconstruction,
+                    as: "Reconstructions",
+                    attributes: ["id", "status"],
+                    required: true
+                }
+            ]
+        };
+
+        const neuron = await Neuron.findOne(options);
+
+        if (neuron && neuron.Reconstructions.length > 0) {
+            return Reconstruction.getAsData(neuron.Reconstructions[0].id);
+        }
+
+        return null;
     }
 }
 
