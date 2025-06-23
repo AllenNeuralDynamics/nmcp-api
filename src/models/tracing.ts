@@ -129,7 +129,7 @@ export class Tracing extends BaseModel {
         };
 
         if (publishedOnly) {
-            options.where["$Reconstruction.status$"] = ReconstructionStatus.Complete
+            options.where["$Reconstruction.status$"] = ReconstructionStatus.Published
             options["include"] = [
                 {
                     model: Reconstruction,

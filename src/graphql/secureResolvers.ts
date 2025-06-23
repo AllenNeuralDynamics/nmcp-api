@@ -398,7 +398,7 @@ export const secureResolvers = {
         },
 
         async reviewableReconstructions(_: any, args: ReviewPageArguments, context: User): Promise<IReconstructionPage> {
-            if (context.permissions & UserPermissions.Review) {
+            if (context.permissions & UserPermissions.FullReview) {
                 return Reconstruction.getReviewableReconstructions(args.input);
             }
 
@@ -411,7 +411,7 @@ export const secureResolvers = {
         },
 
         async candidatesForReview(_: any, __: any, context: User): Promise<Neuron[]> {
-            if (context.permissions & UserPermissions.Review) {
+            if (context.permissions & UserPermissions.FullReview) {
                 return Neuron.getCandidateNeuronsForReview();
             }
 
@@ -700,7 +700,7 @@ export const secureResolvers = {
         },
 
         uploadSwc(_: any, args: ITracingUploadArguments, context: User): Promise<IUploadOutput> {
-            if (context.permissions & UserPermissions.Review) {
+            if (context.permissions & UserPermissions.FullReview) {
                 return Tracing.createTracingFromUpload(args.reconstructionId, args.structureId, args.file);
             }
 
@@ -738,6 +738,19 @@ export const secureResolvers = {
             });
         },
 
+        async requestReconstructionPeerReview(_: any, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
+            if (await Reconstruction.isUserAnnotator(args.id, context.id)) {
+                return Reconstruction.markReconstructionForPeerReview(args.id);
+            }
+
+            throw new GraphQLError("User is not authenticated", {
+                extensions: {
+                    code: "UNAUTHENTICATED",
+                    http: {status: 401},
+                },
+            });
+        },
+
         async cancelReconstruction(_: any, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
             if (await Reconstruction.isUserAnnotator(args.id, context.id)) {
                 return Reconstruction.cancelAnnotation(args.id);
@@ -752,7 +765,7 @@ export const secureResolvers = {
         },
 
         async updateReconstruction(_: any, args: IMarkReconstructionCompleteArguments, context: User): Promise<IErrorOutput> {
-            if (context.permissions & UserPermissions.Review || await Reconstruction.isUserAnnotator(args.id, context.id)) {
+            if (context.permissions & UserPermissions.FullReview || await Reconstruction.isUserAnnotator(args.id, context.id)) {
                 return Reconstruction.updateReconstruction(args.id, args.duration, args.length, args.notes, args.checks);
             }
 
@@ -778,7 +791,7 @@ export const secureResolvers = {
         },
 
         approveReconstruction(_: any, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
-            if (context.permissions & UserPermissions.Review) {
+            if (context.permissions & UserPermissions.FullReview) {
                 return Reconstruction.approveAnnotation(args.id, context.id);
             }
 
@@ -791,7 +804,7 @@ export const secureResolvers = {
         },
 
         declineReconstruction(_: any, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
-            if (context.permissions & UserPermissions.Review) {
+            if (context.permissions & UserPermissions.FullReview) {
                 return Reconstruction.declineAnnotation(args.id, context.id);
             }
 
@@ -804,7 +817,7 @@ export const secureResolvers = {
         },
 
         completeReconstruction(_: any, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
-            if (context.permissions & UserPermissions.Review) {
+            if (context.permissions & UserPermissions.FullReview) {
                 return Reconstruction.completeAnnotation(args.id);
             }
 
@@ -969,7 +982,7 @@ export const secureResolvers = {
         async tracings(neuron: Neuron): Promise<Tracing[]> {
             let reconstructions = await neuron.getReconstructions();
 
-            reconstructions = reconstructions.filter(r => r.status == ReconstructionStatus.Complete);
+            reconstructions = reconstructions.filter(r => r.status == ReconstructionStatus.Published);
 
             if (reconstructions.length == 0) {
                 return [];

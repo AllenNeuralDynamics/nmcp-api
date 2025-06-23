@@ -21,6 +21,7 @@ import {MouseStrain} from "./mouseStrain";
 import {SearchContent} from "./searchContent";
 import {removeTracingFromMiddlewareCache} from "../rawquery/tracingQueryMiddleware";
 import _ = require("lodash");
+import {Collection} from "./collection";
 
 const debug = require("debug")("mnb:nmcp-api:reconstruction-model");
 
@@ -250,6 +251,21 @@ export class Reconstruction extends BaseModel {
         return null;
     }
 
+    public static async markReconstructionForPeerReview(id: string): Promise<IErrorOutput> {
+        const annotation = await Reconstruction.findByPk(id);
+
+        if (!annotation) {
+            return {
+                message: "The reconstruction could not be found",
+                name: "NotFound"
+            }
+        }
+
+        await annotation.update({status: ReconstructionStatus.InPeerReview});
+
+        return null;
+    }
+
     public static async approveAnnotation(id: string, proofreaderId: string): Promise<IErrorOutput> {
         const annotation = await Reconstruction.findByPk(id);
 
@@ -291,7 +307,7 @@ export class Reconstruction extends BaseModel {
         }
 
         await reconstruction.update({
-            status: ReconstructionStatus.Complete,
+            status: ReconstructionStatus.Published,
             completedAt: Date.now()
         });
 
@@ -343,7 +359,7 @@ export class Reconstruction extends BaseModel {
 
             const reconstructions: Reconstruction[] = await Reconstruction.findAll({
                 where: {
-                    status: ReconstructionStatus.Complete
+                    status: ReconstructionStatus.Published
                 }
             });
 
@@ -391,6 +407,9 @@ export class Reconstruction extends BaseModel {
                     }, {
                         model: MouseStrain,
                         as: "MouseStrain"
+                    }, {
+                        model: Collection,
+                        as: "Collection"
                     }]
                 }]
             }, {
@@ -468,7 +487,13 @@ export class Reconstruction extends BaseModel {
             const sample = {
                 date: reconstruction.Neuron.Sample.sampleDate,
                 subject: reconstruction.Neuron.Sample.animalId,
-                genotype: reconstruction.Neuron.Sample.mouseStrain?.name || null
+                genotype: reconstruction.Neuron.Sample.mouseStrain?.name || null,
+                collection: {
+                    id: reconstruction.Neuron.Sample.collection?.id || null,
+                    name: reconstruction.Neuron.Sample.collection?.name || null,
+                    description: reconstruction.Neuron.Sample.collection?.description || null,
+                    reference: reconstruction.Neuron.Sample.collection?.reference || null
+                }
             };
 
             if (soma.length > 0) {
@@ -556,7 +581,7 @@ export class Reconstruction extends BaseModel {
 
                 await Promise.all(promises);
 
-                if (reconstruction.status == ReconstructionStatus.Complete) {
+                if (reconstruction.status == ReconstructionStatus.Published) {
                     await reconstruction.update({status: ReconstructionStatus.Approved}, {transaction});
                 }
 

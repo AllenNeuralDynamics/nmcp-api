@@ -173,7 +173,7 @@ export class Neuron extends BaseModel {
         options = optionsWhereCompartmentIds(input, options);
 
         if (input && input.reconstructionStatus) {
-            options.where = Object.assign(options.where || {}, {"$Reconstructions.status$": ReconstructionStatus.Complete});
+            options.where = Object.assign(options.where || {}, {"$Reconstructions.status$": ReconstructionStatus.Published});
 
             const include = {
                 model: Reconstruction,
@@ -246,7 +246,7 @@ export class Neuron extends BaseModel {
     public static async getCandidateNeurons(input: NeuronQueryInput, includeInProgress: boolean = false): Promise<EntityQueryOutput<Neuron>> {
         const neuronIds = (await Neuron.findAll({attributes: ["id"]})).map(n => n.id);
 
-        const reconstructionWhere = includeInProgress ? {status: ReconstructionStatus.Complete} : null;
+        const reconstructionWhere = includeInProgress ? {status: ReconstructionStatus.Published} : null;
 
         const neuronIdsWithCompletedReconstruction = (await Reconstruction.findAll({
             where: reconstructionWhere,
@@ -501,7 +501,7 @@ export class Neuron extends BaseModel {
             return false;
         }
 
-        const published = neuron.Reconstructions.filter(r => r.status == ReconstructionStatus.Complete);
+        const published = neuron.Reconstructions.filter(r => r.status == ReconstructionStatus.Published);
 
         if (published.length == 0) {
             return false;
@@ -599,7 +599,7 @@ export class Neuron extends BaseModel {
             });
 
             if (existingAnnotation) {
-                if (existingAnnotation.status == ReconstructionStatus.InReview || existingAnnotation.status == ReconstructionStatus.OnHold) {
+                if (existingAnnotation.status == ReconstructionStatus.InReview || existingAnnotation.status == ReconstructionStatus.InPeerReview || existingAnnotation.status == ReconstructionStatus.OnHold) {
                     await existingAnnotation.update({status: ReconstructionStatus.InProgress});
                 }
 
@@ -648,7 +648,7 @@ export class Neuron extends BaseModel {
         const options = {
             where: {
                 id: id,
-                "$Reconstructions.status$": ReconstructionStatus.Complete
+                "$Reconstructions.status$": ReconstructionStatus.Published
             },
             include: [
                 {

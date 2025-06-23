@@ -103,7 +103,7 @@ export async function loadTracingCache(performDelay = true) {
 
     const totalCount = await Tracing.count({
         where: {
-            "$Reconstruction.status$": ReconstructionStatus.Complete
+            "$Reconstruction.status$": ReconstructionStatus.Published
         },
         include: [
             {

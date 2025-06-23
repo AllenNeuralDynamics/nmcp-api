@@ -55,10 +55,12 @@ export class Sample extends BaseModel {
     public sampleDate: Date;
     public tomography: string;
 
+    public getCollection!: BelongsToGetAssociationMixin<Collection>;
     public getMouseStrain!: BelongsToGetAssociationMixin<MouseStrain>;
     public getNeurons!: HasManyGetAssociationsMixin<Neuron>;
     public getInjections!: HasManyGetAssociationsMixin<Injection>;
 
+    public readonly collection?: Collection;
     public readonly mouseStrain?: MouseStrain;
     public readonly Injections?: Injection[];
     public readonly Neurons?: Neuron[];
@@ -85,7 +87,7 @@ export class Sample extends BaseModel {
         if (input && input.reconstructionStatus) {
             const neurons = await Neuron.findAll({
                     where: {
-                        "$Reconstructions.status$": ReconstructionStatus.Complete
+                        "$Reconstructions.status$": ReconstructionStatus.Published
                     },
                     include: [
                         {

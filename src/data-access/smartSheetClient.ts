@@ -311,7 +311,7 @@ async function sampleFromRowContents(s: SampleRowContents, reconstructionLocatio
             }
 
             // Do not replace tracing if already published.
-            if (reconstruction.status == ReconstructionStatus.Complete) {
+            if (reconstruction.status == ReconstructionStatus.Published) {
                 return;
             }
 

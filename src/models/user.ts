@@ -19,9 +19,10 @@ export enum UserPermissions {
     Edit = 0x10,
     // Any edit permutations through 0x800
     EditAll = Edit,
-    Review = 0x100,
+    FullReview = 0x100,
+    PeerReview = 0x200,
     // Any review permutations through 0x8000
-    ReviewAll = Review,
+    ReviewAll = FullReview | PeerReview,
     Admin = 0x1000,
     // Any admin permutations through 0x80000
     AdminAll = Admin,

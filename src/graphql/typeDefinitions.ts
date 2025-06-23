@@ -109,6 +109,7 @@ export const typeDefinitions = gql`
         requestReconstruction(id: String!): Tracing
         requestReconstructionReview(id: String!, duration: Float!, length: Float!, notes: String!, checks: String!): Error
         requestReconstructionHold(id: String!): Error
+        requestReconstructionPeerReview(id: String!): Error
         approveReconstruction(id: String!): Error
         declineReconstruction(id: String!): Error
         cancelReconstruction(id: String!): Error

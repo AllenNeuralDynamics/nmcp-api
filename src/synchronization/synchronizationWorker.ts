@@ -51,7 +51,7 @@ async function republishUpdatedNeurons() {
 
     const options = {
         where: {
-            "$Reconstructions.status$": ReconstructionStatus.Complete
+            "$Reconstructions.status$": ReconstructionStatus.Published
         },
         include: [
             {
@@ -142,7 +142,7 @@ async function notifyPrecomputed() {
                 [Op.or]: [
                     {[Op.eq]: ReconstructionStatus.InReview},
                     {[Op.eq]: ReconstructionStatus.Approved},
-                    {[Op.eq]: ReconstructionStatus.Complete}
+                    {[Op.eq]: ReconstructionStatus.Published}
                 ]
             },
             "$Precomputed$": null

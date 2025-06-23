@@ -22,7 +22,7 @@ parentPort.on("message", async (param: ITracingCacheWorkerInput) => {
 
     const loaded = await Tracing.findAll({
         where: {
-            "$Reconstruction.status$": ReconstructionStatus.Complete
+            "$Reconstruction.status$": ReconstructionStatus.Published
         },
         include: [
             {
