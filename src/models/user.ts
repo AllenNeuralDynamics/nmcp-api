@@ -198,5 +198,6 @@ export const modelInit = (sequelize: Sequelize) => {
 
 export const modelAssociate = () => {
     User.hasMany(Reconstruction, {foreignKey: "annotatorId", as: "Reconstructions"});
-    User.hasMany(Reconstruction, {foreignKey: "proofreaderId", as: "Approvals"});
+    User.hasMany(Reconstruction, {foreignKey: "proofreaderId", as: "Proofread"});
+    User.hasMany(Reconstruction, {foreignKey: "peerReviewerId", as: "PeerReviewed"});
 };

@@ -1,5 +1,6 @@
 import {BelongsToGetAssociationMixin, DataTypes, HasManyGetAssociationsMixin, Op, Sequelize} from "sequelize";
 import {concat, uniqBy} from "lodash"
+import _ = require("lodash");
 
 import {ReconstructionTableName} from "./TableNames";
 import {BaseModel} from "./baseModel";
@@ -8,7 +9,6 @@ import {ReconstructionStatus} from "./reconstructionStatus";
 import {Tracing} from "./tracing";
 import {AxonStructureId, DendriteStructureId} from "./tracingStructure";
 import {User} from "./user";
-import {IErrorOutput, IReconstructionPage, IReconstructionPageInput, ReviewPageInput} from "../graphql/secureResolvers";
 import {Precomputed} from "./precomputed";
 import {TracingNode} from "./tracingNode";
 import {StructureIdentifier} from "./structureIdentifier";
@@ -19,9 +19,9 @@ import {InjectionVirus} from "./injectionVirus";
 import {Injection} from "./injection";
 import {MouseStrain} from "./mouseStrain";
 import {SearchContent} from "./searchContent";
-import {removeTracingFromMiddlewareCache} from "../rawquery/tracingQueryMiddleware";
-import _ = require("lodash");
 import {Collection} from "./collection";
+import {IErrorOutput, IReconstructionPage, IReconstructionPageInput, ReviewPageInput} from "../graphql/secureResolvers";
+import {removeTracingFromMiddlewareCache} from "../rawquery/tracingQueryMiddleware";
 
 const debug = require("debug")("mnb:nmcp-api:reconstruction-model");
 
@@ -46,6 +46,7 @@ export class Reconstruction extends BaseModel {
 
     public getAnnotator!: BelongsToGetAssociationMixin<User>;
     public getProofreader!: BelongsToGetAssociationMixin<User>;
+    public getPeerReviewer!: BelongsToGetAssociationMixin<User>;
     public getNeuron!: BelongsToGetAssociationMixin<Neuron>;
     public getPrecomputed!: BelongsToGetAssociationMixin<Precomputed>;
     public getTracings!: HasManyGetAssociationsMixin<Tracing>;
@@ -429,7 +430,6 @@ export class Reconstruction extends BaseModel {
             }]
         });
 
-
         if (reconstruction && reconstruction.Tracings.length == 2) {
             let axon = [];
             let axonId = null;
@@ -487,12 +487,12 @@ export class Reconstruction extends BaseModel {
             const sample = {
                 date: reconstruction.Neuron.Sample.sampleDate,
                 subject: reconstruction.Neuron.Sample.animalId,
-                genotype: reconstruction.Neuron.Sample.mouseStrain?.name || null,
+                genotype: reconstruction.Neuron.Sample.MouseStrain?.name || null,
                 collection: {
-                    id: reconstruction.Neuron.Sample.collection?.id || null,
-                    name: reconstruction.Neuron.Sample.collection?.name || null,
-                    description: reconstruction.Neuron.Sample.collection?.description || null,
-                    reference: reconstruction.Neuron.Sample.collection?.reference || null
+                    id: reconstruction.Neuron.Sample.Collection?.id || null,
+                    name: reconstruction.Neuron.Sample.Collection?.name || null,
+                    description: reconstruction.Neuron.Sample.Collection?.description || null,
+                    reference: reconstruction.Neuron.Sample.Collection?.reference || null
                 }
             };
 
@@ -510,6 +510,9 @@ export class Reconstruction extends BaseModel {
                                 version: 3,
                                 description: "Annotation Space: CCFv3.0 Axes> X: Anterior-Posterior; Y: Inferior-Superior; Z:Left-Right"
                             },
+                            annotator: await reconstruction.getAnnotator(),
+                            proofreader: await reconstruction.getProofreader(),
+                            peerReviewer: await reconstruction.getPeerReviewer(),
                             soma: {
                                 x: soma[0].x,
                                 y: soma[0].y,
@@ -523,7 +526,7 @@ export class Reconstruction extends BaseModel {
                             allenInformation: allenInfo
                         }
                     ]
-                }
+                };
 
                 return JSON.stringify(obj);
             }
@@ -740,6 +743,7 @@ export const modelInit = (sequelize: Sequelize) => {
 export const modelAssociate = () => {
     Reconstruction.belongsTo(User, {foreignKey: "annotatorId", as: "Annotator"});
     Reconstruction.belongsTo(User, {foreignKey: "proofreaderId", as: "Proofreader"});
+    Reconstruction.belongsTo(User, {foreignKey: "peerReviewerId", as: "PeerReviewer"});
     Reconstruction.belongsTo(Neuron, {foreignKey: "neuronId", as: "Neuron"});
     Reconstruction.hasMany(Tracing, {foreignKey: "reconstructionId", as: "Tracings"});
     Reconstruction.hasOne(Precomputed, {foreignKey: "reconstructionId", as: "Precomputed"});

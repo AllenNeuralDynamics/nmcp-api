@@ -60,8 +60,8 @@ export class Sample extends BaseModel {
     public getNeurons!: HasManyGetAssociationsMixin<Neuron>;
     public getInjections!: HasManyGetAssociationsMixin<Injection>;
 
-    public readonly collection?: Collection;
-    public readonly mouseStrain?: MouseStrain;
+    public readonly Collection?: Collection;
+    public readonly MouseStrain?: MouseStrain;
     public readonly Injections?: Injection[];
     public readonly Neurons?: Neuron[];
 
