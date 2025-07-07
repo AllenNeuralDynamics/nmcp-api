@@ -171,7 +171,14 @@ export const inputTypeDefinitions = gql`
         limit: Int
         sampleIds: [String!]
         status: [Int!]
-    }    
+    }
+
+    input PeerReviewPageInput {
+        offset: Int
+        limit: Int
+        sampleIds: [String!]
+        tag: String
+    }
 
     input InputPosition {
         x: Float

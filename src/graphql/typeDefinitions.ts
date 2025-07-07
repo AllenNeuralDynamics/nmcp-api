@@ -60,6 +60,7 @@ export const typeDefinitions = gql`
         reconstructions(pageInput: ReconstructionPageInput): ReconstructionPage!
         candidatesForReview: [Neuron!]!
         reviewableReconstructions(input: ReviewPageInput): ReconstructionPage!
+        peerReviewableReconstructions(input: PeerReviewPageInput): ReconstructionPage!
 
         reconstructionData(id: String!): String
         neuronReconstructionData(id: String!): String
@@ -105,15 +106,16 @@ export const typeDefinitions = gql`
 
         uploadSwc(reconstructionId: String, structureId: String, file: Upload): TracingUploadOutput!
 
-        updateReconstruction(id: String!, duration: Float!, length: Float!, notes: String!, checks: String!): Error
         requestReconstruction(id: String!): Tracing
-        requestReconstructionReview(id: String!, duration: Float!, length: Float!, notes: String!, checks: String!): Error
         requestReconstructionHold(id: String!): Error
-        requestReconstructionPeerReview(id: String!): Error
+        requestReconstructionPeerReview(id: String!, duration: Float!, length: Float!, notes: String!, checks: String!): Error
+        requestReconstructionReview(id: String!, duration: Float!, length: Float!, notes: String!, checks: String!): Error
+        updateReconstruction(id: String!, duration: Float!, length: Float!, notes: String!, checks: String!): Error
+        approveReconstructionPeerReview(id: String!): Error
         approveReconstruction(id: String!): Error
         declineReconstruction(id: String!): Error
         cancelReconstruction(id: String!): Error
-        completeReconstruction(id: String!): Error
+        publishReconstruction(id: String!): Error
         deleteReconstruction(id: String!): Boolean
 
         unpublish(id: String!): Boolean

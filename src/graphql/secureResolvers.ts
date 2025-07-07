@@ -87,7 +87,7 @@ interface ITracingUploadArguments {
     file: Promise<IUploadFile>;
 }
 
-interface IMarkReconstructionCompleteArguments {
+interface IRequestReconstructionReviewArguments {
     id: string;
     duration: number;
     length: number;
@@ -121,9 +121,21 @@ export interface ReviewPageInput {
     status: ReconstructionStatus[];
 }
 
+export interface PeerReviewPageInput {
+    offset: number;
+    limit: number;
+    sampleIds: string[];
+    tag: string;
+}
+
 export interface ReviewPageArguments {
     input: ReviewPageInput;
 }
+
+export interface PeerReviewPageArguments {
+    input: PeerReviewPageInput;
+}
+
 
 export interface IUploadOutput {
     tracings: Tracing[];
@@ -400,6 +412,19 @@ export const secureResolvers = {
         async reviewableReconstructions(_: any, args: ReviewPageArguments, context: User): Promise<IReconstructionPage> {
             if (context.permissions & UserPermissions.FullReview) {
                 return Reconstruction.getReviewableReconstructions(args.input);
+            }
+
+            throw new GraphQLError("User is not authenticated", {
+                extensions: {
+                    code: "UNAUTHENTICATED",
+                    http: {status: 401},
+                },
+            });
+        },
+
+        async peerReviewableReconstructions(_: any, args: PeerReviewPageArguments, context: User): Promise<IReconstructionPage> {
+            if (context.permissions & UserPermissions.PeerReview) {
+                return Reconstruction.getPeerReviewableReconstructions(args.input);
             }
 
             throw new GraphQLError("User is not authenticated", {
@@ -738,19 +763,6 @@ export const secureResolvers = {
             });
         },
 
-        async requestReconstructionPeerReview(_: any, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
-            if (await Reconstruction.isUserAnnotator(args.id, context.id)) {
-                return Reconstruction.markReconstructionForPeerReview(args.id);
-            }
-
-            throw new GraphQLError("User is not authenticated", {
-                extensions: {
-                    code: "UNAUTHENTICATED",
-                    http: {status: 401},
-                },
-            });
-        },
-
         async cancelReconstruction(_: any, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
             if (await Reconstruction.isUserAnnotator(args.id, context.id)) {
                 return Reconstruction.cancelAnnotation(args.id);
@@ -764,7 +776,7 @@ export const secureResolvers = {
             });
         },
 
-        async updateReconstruction(_: any, args: IMarkReconstructionCompleteArguments, context: User): Promise<IErrorOutput> {
+        async updateReconstruction(_: any, args: IRequestReconstructionReviewArguments, context: User): Promise<IErrorOutput> {
             if (context.permissions & UserPermissions.FullReview || await Reconstruction.isUserAnnotator(args.id, context.id)) {
                 return Reconstruction.updateReconstruction(args.id, args.duration, args.length, args.notes, args.checks);
             }
@@ -777,9 +789,35 @@ export const secureResolvers = {
             });
         },
 
-        async requestReconstructionReview(_: any, args: IMarkReconstructionCompleteArguments, context: User): Promise<IErrorOutput> {
+        async requestReconstructionPeerReview(_: any, args: IRequestReconstructionReviewArguments, context: User): Promise<IErrorOutput> {
             if (await Reconstruction.isUserAnnotator(args.id, context.id)) {
-                return Reconstruction.updateReconstruction(args.id, args.duration, args.length, args.notes, args.checks, true);
+                return Reconstruction.updateReconstruction(args.id, args.duration, args.length, args.notes, args.checks, ReconstructionStatus.InPeerReview);
+            }
+
+            throw new GraphQLError("User is not authenticated", {
+                extensions: {
+                    code: "UNAUTHENTICATED",
+                    http: {status: 401},
+                },
+            });
+        },
+
+        async requestReconstructionReview(_: any, args: IRequestReconstructionReviewArguments, context: User): Promise<IErrorOutput> {
+            if (context.permissions & UserPermissions.PeerReview || await Reconstruction.isUserAnnotator(args.id, context.id)) {
+                return Reconstruction.updateReconstruction(args.id, args.duration, args.length, args.notes, args.checks, ReconstructionStatus.InReview);
+            }
+
+            throw new GraphQLError("User is not authenticated", {
+                extensions: {
+                    code: "UNAUTHENTICATED",
+                    http: {status: 401},
+                },
+            });
+        },
+
+        approveReconstructionPeerReview(_: any, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
+            if (context.permissions & UserPermissions.PeerReview) {
+                return Reconstruction.approveReconstructionPeerReview(args.id, context.id);
             }
 
             throw new GraphQLError("User is not authenticated", {
@@ -816,9 +854,9 @@ export const secureResolvers = {
             });
         },
 
-        completeReconstruction(_: any, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
+        publishReconstruction(_: any, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
             if (context.permissions & UserPermissions.FullReview) {
-                return Reconstruction.completeAnnotation(args.id);
+                return Reconstruction.publishAnnotation(args.id);
             }
 
             throw new GraphQLError("User is not authenticated", {

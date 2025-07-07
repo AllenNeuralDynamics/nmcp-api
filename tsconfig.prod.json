@@ -9,7 +9,6 @@
   "exclude": [
     "__tests__",
     "dist",
-    "node_modules",
-    "migrations"
+    "node_modules"
   ]
 }

@@ -3,6 +3,7 @@ import {DataTypes, HasManyGetAssociationsMixin, Sequelize, Op} from "sequelize";
 import {Reconstruction} from "./reconstruction";
 import {Semaphore} from "../util/semaphore";
 import {FiniteMap} from "../util/finiteMap";
+import {ApiKey} from "./apiKey";
 
 const debug = require("debug")("mnb:nmcp-api:user");
 
@@ -41,6 +42,7 @@ export class User extends BaseModel {
     public isAnonymousForComplete: boolean;
     public isAnonymousForCandidate: boolean;
     public crossAuthenticationId: string;
+    public authDirectoryId: string;
 
     public getReconstructions!: HasManyGetAssociationsMixin<Reconstruction>;
 
@@ -149,11 +151,30 @@ export class User extends BaseModel {
     public static async updatePermissions(id: string, permissions: number): Promise<User> {
         let user = await User.findByPk(id);
 
-        if (user) {
-            user = await user.update({
-                permissions
-            });
+        if (!user) {
+            return null;
         }
+
+        if (!this.userSemaphores.has(user.authDirectoryId)) {
+            this.userSemaphores.set(user.authDirectoryId, new Semaphore());
+        }
+
+        const lock = this.userSemaphores.get(user.authDirectoryId);
+
+        await lock.acquire();
+
+        try {
+            if (user) {
+                user = await user.update({
+                    permissions
+                });
+
+                this.userCache.delete(user.authDirectoryId);
+            }
+        } catch {
+        }
+
+        lock.release();
 
         return user;
     }
@@ -200,4 +221,5 @@ export const modelAssociate = () => {
     User.hasMany(Reconstruction, {foreignKey: "annotatorId", as: "Reconstructions"});
     User.hasMany(Reconstruction, {foreignKey: "proofreaderId", as: "Proofread"});
     User.hasMany(Reconstruction, {foreignKey: "peerReviewerId", as: "PeerReviewed"});
+    User.hasMany(ApiKey, {foreignKey: "userId", as: "User"});
 };

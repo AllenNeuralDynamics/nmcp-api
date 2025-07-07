@@ -1,6 +1,5 @@
 import {BelongsToGetAssociationMixin, DataTypes, HasManyGetAssociationsMixin, Op, Sequelize} from "sequelize";
 import {concat, uniqBy} from "lodash"
-import _ = require("lodash");
 
 import {ReconstructionTableName} from "./TableNames";
 import {BaseModel} from "./baseModel";
@@ -20,8 +19,9 @@ import {Injection} from "./injection";
 import {MouseStrain} from "./mouseStrain";
 import {SearchContent} from "./searchContent";
 import {Collection} from "./collection";
-import {IErrorOutput, IReconstructionPage, IReconstructionPageInput, ReviewPageInput} from "../graphql/secureResolvers";
+import {IErrorOutput, IReconstructionPage, IReconstructionPageInput, PeerReviewPageInput, ReviewPageInput} from "../graphql/secureResolvers";
 import {removeTracingFromMiddlewareCache} from "../rawquery/tracingQueryMiddleware";
+import _ = require("lodash");
 
 const debug = require("debug")("mnb:nmcp-api:reconstruction-model");
 
@@ -146,6 +146,56 @@ export class Reconstruction extends BaseModel {
         });
     }
 
+    public static async getPeerReviewableReconstructions(input: PeerReviewPageInput): Promise<IReconstructionPage> {
+        let out: IReconstructionPage = {
+            offset: 0,
+            limit: 0,
+            totalCount: 0,
+            reconstructions: []
+        };
+
+        try {
+            const options = {
+                where: {status: ReconstructionStatus.InPeerReview},
+                include: {model: Neuron, as: "Neuron", include: [{model: Sample, as: "Sample"}]}
+            };
+
+            if (input.sampleIds && input.sampleIds.length > 0) {
+                options.where["$Neuron.Sample.id$"] = {[Op.in]: input.sampleIds}
+            }
+
+            if (input.tag) {
+                options.where["$Neuron.tag$"] = {[Op.iLike]: `%${input.tag}%`};
+            }
+
+            out.totalCount = await Reconstruction.count(options);
+
+            options["order"] = [["Neuron", "Sample", "animalId", "ASC"], ["Neuron", "idString", "ASC"]];
+
+            if (input) {
+                if (input.offset) {
+                    options["offset"] = input.offset;
+                    out.offset = input.offset;
+                }
+
+                if (input.limit) {
+                    options["limit"] = input.limit;
+                    out.limit = input.limit;
+                }
+            }
+
+            if (out.limit === 1) {
+                out.reconstructions = [await Reconstruction.findOne(options)];
+            } else {
+                out.reconstructions = await Reconstruction.findAll(options);
+            }
+        } catch (err) {
+            debug(err);
+        }
+
+        return out;
+    }
+
     public static async getReviewableReconstructions(input: ReviewPageInput): Promise<IReconstructionPage> {
         let out: IReconstructionPage = {
             offset: 0,
@@ -155,15 +205,6 @@ export class Reconstruction extends BaseModel {
         };
 
         try {
-            out.totalCount = await Reconstruction.count({
-                where: {
-                    [Op.or]: [
-                        {status: ReconstructionStatus.InReview},
-                        {status: ReconstructionStatus.Approved}
-                    ]
-                }
-            });
-
             const options = {where: {}, include: []};
 
             if (input.status && input.status.length > 0) {
@@ -211,7 +252,7 @@ export class Reconstruction extends BaseModel {
         return out;
     }
 
-    public static async updateReconstruction(id: string, duration: number, length: number, notes: string, checks: string, markForReview: boolean = false): Promise<IErrorOutput> {
+    public static async updateReconstruction(id: string, duration: number, length: number, notes: string, checks: string, status: ReconstructionStatus = ReconstructionStatus.Unknown): Promise<IErrorOutput> {
         const reconstruction = await Reconstruction.findByPk(id);
 
         if (!reconstruction) {
@@ -228,8 +269,8 @@ export class Reconstruction extends BaseModel {
             checks: checks
         }
 
-        if (markForReview) {
-            update["status"] = ReconstructionStatus.InReview;
+        if (status != ReconstructionStatus.Unknown) {
+            update["status"] = status;
         }
 
         await reconstruction.update(update);
@@ -267,6 +308,21 @@ export class Reconstruction extends BaseModel {
         return null;
     }
 
+    public static async approveReconstructionPeerReview(id: string, peerReviewerId: string): Promise<IErrorOutput> {
+        const reconstruction = await Reconstruction.findByPk(id);
+
+        if (!reconstruction) {
+            return {
+                message: "The reconstruction could not be found",
+                name: "NotFound"
+            }
+        }
+
+        await reconstruction.update({status: ReconstructionStatus.InReview, peerReviewerId: peerReviewerId});
+
+        return null;
+    }
+
     public static async approveAnnotation(id: string, proofreaderId: string): Promise<IErrorOutput> {
         const annotation = await Reconstruction.findByPk(id);
 
@@ -297,7 +353,7 @@ export class Reconstruction extends BaseModel {
         return null;
     }
 
-    public static async completeAnnotation(id: string): Promise<IErrorOutput> {
+    public static async publishAnnotation(id: string): Promise<IErrorOutput> {
         const reconstruction = await Reconstruction.findByPk(id);
 
         if (!reconstruction) {
