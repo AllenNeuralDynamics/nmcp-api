@@ -1,50 +1,31 @@
 import {QueryInterface} from "sequelize";
 
-import {IssueTableName, NeuronTableName, ReconstructionTableName, UserTableName} from "./src/TableNames";
+import {ApiKeyTableName, UserTableName} from "../models/TableNames";
 
 export = {
     up: async (queryInterface: QueryInterface, Sequelize: any) => {
         await queryInterface.createTable(
-            IssueTableName,
+            ApiKeyTableName,
             {
                 id: {
                     primaryKey: true,
                     type: Sequelize.UUID,
                     defaultValue: Sequelize.UUIDV4
                 },
-                kind: {
+                permissions: {
                     type: Sequelize.INTEGER,
                     allowNull: false,
                     defaultValue: 0
                 },
-                status: {
-                    type: Sequelize.INTEGER,
-                    allowNull: false,
-                    defaultValue: 0
+                expiration: {
+                    type: Sequelize.DATE
                 },
                 description: Sequelize.TEXT,
-                response: Sequelize.TEXT,
-                creatorId: {
+                userId: {
                     type: Sequelize.UUID,
                     allowNull: true,
                     references: {
                         model: UserTableName,
-                        key: "id"
-                    }
-                },
-                neuronId: {
-                    type: Sequelize.UUID,
-                    allowNull: true,
-                    references: {
-                        model: NeuronTableName,
-                        key: "id"
-                    }
-                },
-                reconstructionId: {
-                    type: Sequelize.UUID,
-                    allowNull: true,
-                    references: {
-                        model: ReconstructionTableName,
                         key: "id"
                     }
                 },
@@ -55,6 +36,6 @@ export = {
     },
 
     down: async (queryInterface: QueryInterface, Sequelize: any) => {
-        await queryInterface.dropTable(IssueTableName);
+        await queryInterface.dropTable(ApiKeyTableName);
     }
 }

@@ -9,7 +9,7 @@ import {
     TracingStructureTableName,
     TracingTableName,
     UserTableName
-} from "./src/TableNames";
+} from "../models/TableNames";
 
 export = {
     up: async (queryInterface: QueryInterface, Sequelize: any) => {

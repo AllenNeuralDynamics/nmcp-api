@@ -36,7 +36,6 @@ tasks:
       - cp docker-entry.sh dist/
       - cp .sequelizerc dist/
       - cp migrate.sh dist/
-      - cp -r migrations dist/
       - cp -r fixtures dist/
   docker-build:
     cmds:

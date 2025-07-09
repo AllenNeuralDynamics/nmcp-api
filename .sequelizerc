@@ -1,9 +1,9 @@
 const path = require("path");
 
 // Folder structure is slightly flattened in dist
-const location = (!process.env.NODE_ENV || process.env.NODE_ENV === "development") ? "dist" : "";
+const location = (!process.env.NODE_ENV || process.env.NODE_ENV === "development") ? "src" : "";
 
 module.exports = {
     config: path.resolve(location, "options", "sequelizeOptions.js"),
-    "migrations-path": "migrations"
+    "migrations-path": path.join(location, "migrations")
 };

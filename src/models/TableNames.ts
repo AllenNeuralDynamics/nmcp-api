@@ -21,3 +21,4 @@ export const UserTableName = "User";
 
 export const IssueTableName = "Issue";
 
+export const ApiKeyTableName = "ApiKey";

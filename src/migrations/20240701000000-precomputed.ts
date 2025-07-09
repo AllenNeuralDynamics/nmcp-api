@@ -5,9 +5,8 @@ import {
     NeuronTableName,
     SearchContentTable,
     PrecomputedTableName,
-    ReconstructionTableName,
-    SynchronizationMarkerTableName
-} from "./src/TableNames";
+    ReconstructionTableName
+} from "../models/TableNames";
 
 export = {
     up: async (queryInterface: QueryInterface, Sequelize: any) => {

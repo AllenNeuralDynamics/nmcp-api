@@ -1,6 +1,6 @@
 import {QueryInterface} from "sequelize";
 
-import {NeuronTableName} from "./src/TableNames";
+import {NeuronTableName} from "../models/TableNames";
 
 export = {
     up: async (queryInterface: QueryInterface, Sequelize: any) => {
