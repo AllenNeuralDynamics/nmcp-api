@@ -13,7 +13,6 @@ import {staticApiClient} from "../data-access/staticApiService";
 import {IQueryDataPage, Neuron} from "../models/neuron";
 import {ISearchContextInput, SearchContext} from "../models/searchContext";
 import {Collection} from "../models/collection";
-import {TracingNode} from "../models/tracingNode";
 
 const debug = require("debug")("mnb:api:resolvers");
 
@@ -44,7 +43,7 @@ export const openResolvers = {
             return context;
         },
 
-        systemSettings(): any {
+        async systemSettings(): Promise<ISystemSettings> {
             return getSystemSettings();
         },
 
@@ -52,11 +51,11 @@ export const openResolvers = {
             return operators;
         },
 
-        structureIdentifiers(_: any, __: any, ___: User): Promise<StructureIdentifier[]> {
+        async structureIdentifiers(_: any, __: any, ___: User): Promise<StructureIdentifier[]> {
             return StructureIdentifier.findAll({});
         },
 
-        tracingStructures(_: any, __: any, ___: User): Promise<TracingStructure[]> {
+        async tracingStructures(_: any, __: any, ___: User): Promise<TracingStructure[]> {
             return TracingStructure.findAll({});
         },
 
@@ -66,7 +65,7 @@ export const openResolvers = {
             return output.items;
         },
 
-        brainArea(_: any, args: IIdOnlyArguments): Promise<BrainArea> {
+        async brainArea(_: any, args: IIdOnlyArguments): Promise<BrainArea> {
             return BrainArea.findByPk(args.id);
         },
 
@@ -83,7 +82,7 @@ export const openResolvers = {
             return [];
         },
 
-        collections(): Promise<Collection[]> {
+        async collections(): Promise<Collection[]> {
             return Collection.findAll();
         },
 

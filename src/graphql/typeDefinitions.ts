@@ -12,18 +12,50 @@ export const typeDefinitions = gql`
     ${mutationTypeDefinitions}
 
     type Query {
+        #
+        # Open queries that do not require authentication.
+        #
+        
+        """Provides system information, such as the current service versions and total number of reconstructions."""
         systemSettings: SystemSettings
 
+        """Returns details for the currently authenticated user."""
         user: User
-        users(input: UserQueryInput): QueryUsers
 
+        """Returns supported operators for use in search queries."""
+        queryOperators: [QueryOperator!]!
+
+        """Returns the pre-define set of all node structure identifiers (e.g., soma, branch, end, etc)."""
+        structureIdentifiers: [StructureIdentifier!]!
+
+        """Returns the pre-defined set of all tracing structures (axon, dendrite)."""
+        tracingStructures: [TracingStructure!]!
+
+        """Returns all brain compartments, subject to any input filtering."""
         brainAreas(input: BrainAreaQueryInput): [BrainArea!]!
+        
+        """Returns details for a single brain compartment."""
         brainArea(id: String!): BrainArea
 
-        structureIdentifiers: [StructureIdentifier!]!
-        structureIdentifier(id: String): StructureIdentifier!
+        """Returns details for all collections."""
+        collections: [Collection!]!
 
-        tracingStructures: [TracingStructure!]!
+        """Returns all tomography metadata for referencing or loading default or sample-based slices."""
+        tomographyMetadata: [TomographyMetadata!]        
+
+        """Returns the closest node in the reconstruction graph to the given location."""
+        nearestNode(id: String!, location: [Float!]!): NearestNodeOutput
+
+        """Returns a set of reconstructions based on the provided search criteria."""
+        searchNeurons(context: SearchContext): SearchOutput
+        
+        #
+        # Secure queries that require user-level authentication.
+        #
+        
+        users(input: UserQueryInput): QueryUsers
+
+        structureIdentifier(id: String): StructureIdentifier!
 
         mouseStrains(input: MouseStrainQueryInput): [MouseStrain!]!
         mouseStrain(id: String!): MouseStrain
@@ -43,18 +75,7 @@ export const typeDefinitions = gql`
         neurons(input: NeuronQueryInput): QueryNeurons
         neuron(id: String!): Neuron
 
-        collections: [Collection!]!
-
-        queryOperators: [QueryOperator!]!
-
-        """Provides all tomography metadata."""
-        tomographyMetadata: [TomographyMetadata!]
-
         candidateNeurons(input: NeuronQueryInput, includeInProgress: Boolean): QueryNeurons
-
-        pendingPrecomputed: [Precomputed!]!
-
-        searchNeurons(context: SearchContext): SearchOutput
 
         reconstruction(id: String): Reconstruction
         reconstructions(pageInput: ReconstructionPageInput): ReconstructionPage!
@@ -62,14 +83,19 @@ export const typeDefinitions = gql`
         reviewableReconstructions(input: ReviewPageInput): ReconstructionPage!
         peerReviewableReconstructions(input: PeerReviewPageInput): ReconstructionPage!
 
-        reconstructionData(id: String!): String
-        neuronReconstructionData(id: String!): String
-
-        nearestNode(id: String!, location: [Float!]!): NearestNodeOutput
-
         issueCount: Int!
 
         openIssues: [Issue!]!
+        
+        #
+        # Internal queries that require system authentication.
+        #
+        
+        reconstructionData(id: String!): String
+        
+        neuronReconstructionData(id: String!): String
+
+        pendingPrecomputed: [Precomputed!]!
     }
 
     type Mutation {
