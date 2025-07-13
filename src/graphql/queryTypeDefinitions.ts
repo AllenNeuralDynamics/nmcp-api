@@ -38,6 +38,14 @@ export const queryTypeDefinitions = gql`
         error: String
     }
 
+    type PublishedReconstructionPage {
+        totalCount: Int!
+        offset: Int!
+        limit: Int!
+        sampleIds: [String!]!
+        reconstructions: [Reconstruction!]!
+    }
+
     type SearchOutput {
         nonce: String
         queryTime: Int

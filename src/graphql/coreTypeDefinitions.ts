@@ -246,6 +246,11 @@ export const coreTypeDefinitions = gql`
         createdAt: Date
         updatedAt: Date
     }
+    
+    enum ExportFormat {
+        SWC
+        JSON
+    }
 
     """
     The range of valid indices for requesting slices for each plane.  Not required if requesting by actual location.

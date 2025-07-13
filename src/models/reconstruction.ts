@@ -1,4 +1,5 @@
 import {BelongsToGetAssociationMixin, DataTypes, HasManyGetAssociationsMixin, Op, Sequelize} from "sequelize";
+import _ = require("lodash");
 import {concat, uniqBy} from "lodash"
 
 import {ReconstructionTableName} from "./TableNames";
@@ -21,9 +22,22 @@ import {SearchContent} from "./searchContent";
 import {Collection} from "./collection";
 import {IErrorOutput, IReconstructionPage, IReconstructionPageInput, PeerReviewPageInput, ReviewPageInput} from "../graphql/secureResolvers";
 import {removeTracingFromMiddlewareCache} from "../rawquery/tracingQueryMiddleware";
-import _ = require("lodash");
 
 const debug = require("debug")("mnb:nmcp-api:reconstruction-model");
+
+export type PublishedReconstructionPageInput = {
+    offset?: number;
+    limit?: number;
+    sampleIds?: string[];
+}
+
+export type PublishedReconstructionPage = {
+    totalCount: number;
+    offset: number;
+    limit: number;
+    sampleIds: string[];
+    reconstructions: Reconstruction[];
+}
 
 export type NearestNodeOutput = {
     reconstructionId: string;
@@ -84,7 +98,6 @@ export class Reconstruction extends BaseModel {
         options["order"] = [["Neuron", "Sample", "animalId", "ASC"], ["Neuron", "idString", "ASC"]];
 
         if (queryInput) {
-
             if (queryInput.offset) {
                 options["offset"] = queryInput.offset;
                 out.offset = queryInput.offset;
@@ -103,6 +116,44 @@ export class Reconstruction extends BaseModel {
         }
 
         return out;
+    }
+
+    public static async getPublishedReconstructions(input?: PublishedReconstructionPageInput): Promise<PublishedReconstructionPage> {
+        const page = {
+            totalCount: 0,
+            offset: input?.offset || 0,
+            limit: input?.limit || 0,
+            sampleIds: input?.sampleIds || [],
+            reconstructions: []
+        };
+
+        const options = {where: {}, include: []};
+
+        options.include.push({model: Neuron, as: "Neuron", include: [{model: Sample, as: "Sample"}]});
+
+        if (input?.sampleIds && input.sampleIds.length > 0) {
+            options.where["$Neuron.Sample.id$"] = {[Op.in]: input.sampleIds}
+        }
+
+        page.totalCount = await Reconstruction.count(options);
+
+        options["order"] = [["Neuron", "Sample", "animalId", "ASC"], ["Neuron", "idString", "ASC"]];
+
+        if (page.offset > 0) {
+            options["offset"] = input.offset;
+        }
+
+        if (page.limit > 0) {
+            options["limit"] = input.limit;
+        }
+
+        if (page.limit === 1) {
+            page.reconstructions = [await Reconstruction.findOne(options)];
+        } else {
+            page.reconstructions = await Reconstruction.findAll(options);
+        }
+
+        return page;
     }
 
     public static async isUserAnnotator(id: string, userId: string): Promise<boolean> {

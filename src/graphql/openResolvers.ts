@@ -2,7 +2,7 @@ import {Kind} from "graphql/language";
 
 import {GraphQLScalarType} from "graphql/type";
 import {IQueryOperator, operators} from "../models/queryOperator";
-import {NearestNodeOutput, Reconstruction} from "../models/reconstruction";
+import {NearestNodeOutput, PublishedReconstructionPage, PublishedReconstructionPageInput, Reconstruction} from "../models/reconstruction";
 import {ServiceOptions} from "../options/serviceOptions";
 import {PredicateType} from "../models/queryPredicate";
 import {BrainArea, CompartmentQueryInput} from "../models/brainArea";
@@ -13,6 +13,7 @@ import {staticApiClient} from "../data-access/staticApiService";
 import {IQueryDataPage, Neuron} from "../models/neuron";
 import {ISearchContextInput, SearchContext} from "../models/searchContext";
 import {Collection} from "../models/collection";
+import {GraphQLError} from "graphql/error";
 
 const debug = require("debug")("mnb:api:resolvers");
 
@@ -88,6 +89,10 @@ export const openResolvers = {
 
         async nearestNode(_: any, args: NearestNodeArguments, __: User): Promise<NearestNodeOutput> {
             return Reconstruction.nearestNode(args.id, args.location);
+        },
+
+        async publishedReconstructions(_: any, args: { input: PublishedReconstructionPageInput }, __: User): Promise<PublishedReconstructionPage> {
+            return Reconstruction.getPublishedReconstructions(args.input);
         },
 
         async searchNeurons(_: any, args: SearchNeuronsArguments, __: User): Promise<IQueryDataPage> {

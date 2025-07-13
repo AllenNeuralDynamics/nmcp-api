@@ -46,6 +46,10 @@ export const typeDefinitions = gql`
         """Returns the closest node in the reconstruction graph to the given location."""
         nearestNode(id: String!, location: [Float!]!): NearestNodeOutput
 
+        publishedReconstructions(input: PublishedReconstructionPageInput): PublishedReconstructionPage!
+        
+        downloadReconstruction(id: String!, format: ExportFormat): String
+
         """Returns a set of reconstructions based on the provided search criteria."""
         searchNeurons(context: SearchContext): SearchOutput
         

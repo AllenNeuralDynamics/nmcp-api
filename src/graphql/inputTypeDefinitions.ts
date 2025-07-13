@@ -180,6 +180,12 @@ export const inputTypeDefinitions = gql`
         tag: String
     }
 
+    input PublishedReconstructionPageInput {
+        offset: Int
+        limit: Int
+        sampleIds: [String!]
+    }
+
     input InputPosition {
         x: Float
         y: Float
