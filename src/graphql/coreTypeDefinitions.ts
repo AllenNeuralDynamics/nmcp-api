@@ -205,6 +205,8 @@ export const coreTypeDefinitions = gql`
         annotator: User
         proofreaderId: String
         proofreader: User
+        peerReviewerId: String
+        peerReviewer: User
         neuronId: String
         neuron: Neuron
         tracings: [Tracing!]

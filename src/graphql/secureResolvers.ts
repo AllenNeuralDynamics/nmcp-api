@@ -18,7 +18,7 @@ import {GraphQLError} from "graphql/error";
 import {Collection, CollectionInput} from "../models/collection";
 import {Issue, IssueKind} from "../models/issue";
 import {loadTracingCache} from "../rawquery/tracingQueryMiddleware";
-import {synchronize} from "../data-access/smartSheetClient";
+import {synchronize} from "../tools/smartSheetClient";
 import {Precomputed} from "../models/precomputed";
 import GraphQLUpload = require('graphql-upload/GraphQLUpload.js');
 
@@ -1057,6 +1057,9 @@ export const secureResolvers = {
         },
         proofreader(reconstruction: Reconstruction): Promise<User> {
             return reconstruction.getProofreader();
+        },
+        peerReviewer(reconstruction: Reconstruction): Promise<User> {
+            return reconstruction.getPeerReviewer();
         },
         neuron(reconstruction: Reconstruction): Promise<Neuron> {
             return reconstruction.getNeuron();

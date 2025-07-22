@@ -8,7 +8,8 @@
   "scripts": {
     "debug": "tsc && node --trace-warnings --max-old-space-size=8192 --optimize-for-size src/app.js",
     "express": "node dist/app.js",
-    "smartsheet": "npx run-func src/data-access/smartSheetClient.js synchronize",
+    "smartsheet": "npx run-func src/tools/smartSheetClient.js synchronize",
+    "import-somas": "npx run-func src/tools/importSomaProperties.js importSomaProperties",
     "show-duplicate": "npx run-func src/util/processDuplicateReconstructions.js processDuplicateReconstructions"
   },
   "jest": {

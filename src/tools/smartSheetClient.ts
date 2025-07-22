@@ -1,6 +1,6 @@
 import moment = require("moment");
 import {BrainArea} from "../models/brainArea";
-import {RemoteDatabaseClient} from "./remoteDatabaseClient";
+import {RemoteDatabaseClient} from "../data-access/remoteDatabaseClient";
 import {Neuron, NeuronInput} from "../models/neuron";
 import {Cell, Client, createClient, Row, Sheet} from "smartsheet";
 import {Sample, SampleInput} from "../models/sample";

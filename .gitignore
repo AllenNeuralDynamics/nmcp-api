@@ -12,6 +12,8 @@ dist/
 
 *.js
 *.js.map
+*.csv
+*.cl*
 
 .env
 

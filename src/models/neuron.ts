@@ -25,7 +25,6 @@ import {TracingStructure} from "./tracingStructure";
 import {Reconstruction} from "./reconstruction";
 import {ReconstructionStatus} from "./reconstructionStatus";
 import {User} from "./user";
-import {SynchronizationMarker, SynchronizationMarkerKind} from "./synchronizationMarker";
 
 const debug = require("debug")("mnb:nmcp-api:neuron-model");
 
@@ -54,6 +53,7 @@ export interface NeuronInput {
     sampleZ?: number;
     doi?: string;
     metadata?: string;
+    somaProperties?: object;
     consensus?: ConsensusStatus;
     brainStructureId?: string;
     sampleId?: string;
@@ -83,6 +83,7 @@ export class Neuron extends BaseModel {
     public z: number;
     public doi: string;
     public metadata?: string;
+    public somaProperties?: object;
     public consensus: ConsensusStatus;
     public brainStructureId?: string;
 
@@ -734,6 +735,9 @@ export const modelInit = (sequelize: Sequelize) => {
             set: function (value: IAnnotationMetadata) {
                 this.setDataValue("metadata", JSON.stringify(value));
             }
+        },
+        somaProperties: {
+            type: DataTypes.JSONB
         }
     }, {
         tableName: "Neuron",
