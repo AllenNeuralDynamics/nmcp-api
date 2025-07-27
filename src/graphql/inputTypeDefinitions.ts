@@ -144,17 +144,24 @@ export const inputTypeDefinitions = gql`
         reference: String
     }
 
-    input TracingPageInput {
-        offset: Int
-        limit: Int
-        neuronIds: [String!]
-        tracingStructureId: String
-    }
-
     input TracingInput {
         id: String!
         annotator: String
         neuronId: String
+        tracingStructureId: String
+    }
+    
+    input ImportSomasOptions {
+        sampleId: String
+        tag: String
+        shouldLookupSoma: Boolean
+        noEmit: Boolean
+    }
+    
+    input TracingPageInput {
+        offset: Int
+        limit: Int
+        neuronIds: [String!]
         tracingStructureId: String
     }
 

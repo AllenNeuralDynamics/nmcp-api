@@ -1,5 +1,5 @@
 import {Sequelize, Model, FindOptions} from "sequelize";
-const validate = require("uuid-validate");
+import {validate, version} from "uuid";
 
 export type SortOrder = "ASC" | "DESC";
 
@@ -48,15 +48,15 @@ export class BaseModel extends Model {
     public readonly updatedAt: Date;
     public readonly deletedAt: Date;
 
-    protected static async findOneWithValidationInternal(model, id: string) : Promise<BaseModel> {
-        if (validate(id, 4)) {
+    protected static async findOneWithValidationInternal(model, id: string): Promise<BaseModel> {
+        if (validate(id) && version(id) == 4) {
             return model.findByPk(id);
         } else {
             return null;
         }
     }
 
-    protected static async findIdWithValidationInternal(model, id: string) : Promise<string> {
+    protected static async findIdWithValidationInternal(model, id: string): Promise<string> {
         return (await this.findOneWithValidationInternal(model, id))?.id;
     }
 

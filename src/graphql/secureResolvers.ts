@@ -87,6 +87,18 @@ interface ITracingUploadArguments {
     file: Promise<IUploadFile>;
 }
 
+export type SomaImportOptions = {
+    sampleId: string;
+    tag: string;
+    shouldLookupSoma: boolean;
+    noEmit: boolean;
+}
+
+interface IImportSomasArguments {
+    file: Promise<IUploadFile>;
+    options: SomaImportOptions
+}
+
 interface IRequestReconstructionReviewArguments {
     id: string;
     duration: number;
@@ -136,9 +148,14 @@ export interface PeerReviewPageArguments {
     input: PeerReviewPageInput;
 }
 
-
 export interface IUploadOutput {
     tracings: Tracing[];
+    error: Error;
+}
+
+export type ImportSomasOutput = {
+    count: number;
+    idStrings: string[];
     error: Error;
 }
 
@@ -727,6 +744,19 @@ export const secureResolvers = {
         uploadSwc(_: any, args: ITracingUploadArguments, context: User): Promise<IUploadOutput> {
             if (context.permissions & UserPermissions.FullReview) {
                 return Tracing.createTracingFromUpload(args.reconstructionId, args.structureId, args.file);
+            }
+
+            throw new GraphQLError("User is not authenticated", {
+                extensions: {
+                    code: "UNAUTHENTICATED",
+                    http: {status: 401},
+                },
+            });
+        },
+
+        importSomas(_: any, args: IImportSomasArguments, context: User): Promise<ImportSomasOutput> {
+            if (context.permissions & UserPermissions.Edit) {
+                return Neuron.receiveSomaPropertiesUpload(args.file, args.options);
             }
 
             throw new GraphQLError("User is not authenticated", {

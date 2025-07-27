@@ -1,7 +1,8 @@
 import {BelongsToGetAssociationMixin, DataTypes, FindOptions, HasManyGetAssociationsMixin, Op, Sequelize} from "sequelize";
-
 import "fs";
 import * as _ from "lodash";
+import {version as uuidVersion} from "uuid";
+import {validate as uuidValidate} from "uuid";
 
 import {BaseModel, DeleteOutput, EntityMutateOutput, EntityQueryInput, EntityQueryOutput} from "./baseModel";
 import {
@@ -25,6 +26,8 @@ import {TracingStructure} from "./tracingStructure";
 import {Reconstruction} from "./reconstruction";
 import {ReconstructionStatus} from "./reconstructionStatus";
 import {User} from "./user";
+import {ImportSomasOutput, SomaImportOptions} from "../graphql/secureResolvers";
+import {parseSomaPropertySteam} from "../util/somaPropertyParser";
 
 const debug = require("debug")("mnb:nmcp-api:neuron-model");
 
@@ -668,6 +671,129 @@ export class Neuron extends BaseModel {
         }
 
         return null;
+    }
+
+    public static async receiveSomaPropertiesUpload(uploadFile: Promise<any>, options: SomaImportOptions): Promise<ImportSomasOutput> {
+        if (!uploadFile) {
+            return {
+                count: 0,
+                idStrings: [],
+                error: {name: "ImportSomasError", message: "There are no files attached to import."}
+            };
+        }
+
+        if (!options.sampleId) {
+            return {
+                count: 0,
+                idStrings: [],
+                error: {name: "ImportSomasError", message: "A sample id must be provided."}
+            };
+        }
+
+        if (!uuidValidate(options.sampleId) || uuidVersion(options.sampleId) != 4) {
+            return {
+                count: 0,
+                idStrings: [],
+                error: {name: "ImportSomasError", message: "The sample id must be UUID (v4) format."}
+            };
+        }
+
+        const sample = await Sample.findByPk(options.sampleId);
+
+        if (!sample) {
+            return {
+                count: 0,
+                idStrings: [],
+                error: {name: "ImportSomasError", message: `Sample with id ${options.sampleId} does not exist.`}
+            };
+        }
+
+        try {
+            let file = await uploadFile;
+
+            debug(`import somas from ${file.filename}`);
+
+            const records = await parseSomaPropertySteam(file.createReadStream());
+
+            const nextNumber = await Neuron.findNextAvailableIdNumber(sample.id);
+
+            const idStrings = await Neuron.insertSomaEntries(records, sample, nextNumber, options.noEmit);
+
+            return {
+                count: records.length,
+                idStrings: idStrings,
+                error: null
+            }
+        } catch (error) {
+            debug(`Error parsing soma properties: ${error.message}`);
+
+            return {
+                count: 0,
+                idStrings: [],
+                error: {name: "ImportSomasError", message: error.message}
+            };
+        }
+    }
+
+    public static async findNextAvailableIdNumber(sampleId: string): Promise<number> {
+        const existingNeurons = await Neuron.findAll({
+            where: {sampleId: sampleId},
+            attributes: ['idString'],
+            order: [['idString', 'DESC']]
+        });
+
+        let nextNumber = 1;
+
+        if (existingNeurons.length > 0) {
+            const existingNumbers = existingNeurons
+                .map(n => n.idString)
+                .filter(idString => /^N\d{3,}$/.test(idString))
+                .map(idString => parseInt(idString.substring(1)))
+                .filter(num => !isNaN(num));
+
+            if (existingNumbers.length > 0) {
+                nextNumber = Math.max(...existingNumbers) + 1;
+            }
+        }
+
+        return nextNumber;
+    }
+
+    public static async insertSomaEntries(records: any[], sample: Sample, idNumberBase: number, noEmit: boolean = false): Promise<string[]> {
+        const idStrings: string[] = [];
+
+        const t = await Neuron.sequelize.transaction();
+
+        try {
+            for (let i = 0; i < records.length; i++) {
+                const record = records[i];
+                const idString = `N${String(idNumberBase + i).padStart(3, '0')}`;
+
+                const neuron = await Neuron.create({
+                    sampleId: sample.id,
+                    idString: idString,
+                    x: record.xyz?.x || 0,
+                    y: record.xyz?.y || 0,
+                    z: record.xyz?.z || 0,
+                    somaProperties: record
+                }, {transaction: t});
+
+                idStrings.push(neuron.idString);
+            }
+
+            if (!noEmit) {
+                await t.commit();
+            } else {
+                debug(`Skipping database update (noEmit is true). Created ${idStrings.length} soma entries.`);
+                await t.rollback();
+            }
+        } catch (error) {
+            debug(`Error inserting soma entries: ${error.message}`);
+            await t.rollback();
+            throw new Error(`Failed to insert soma entries: ${error.message}`);
+        }
+
+        return idStrings;
     }
 }
 

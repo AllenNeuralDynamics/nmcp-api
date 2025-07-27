@@ -15,7 +15,7 @@ export const typeDefinitions = gql`
         #
         # Open queries that do not require authentication.
         #
-        
+
         """Provides system information, such as the current service versions and total number of reconstructions."""
         systemSettings: SystemSettings
 
@@ -33,7 +33,7 @@ export const typeDefinitions = gql`
 
         """Returns all brain compartments, subject to any input filtering."""
         brainAreas(input: BrainAreaQueryInput): [BrainArea!]!
-        
+
         """Returns details for a single brain compartment."""
         brainArea(id: String!): BrainArea
 
@@ -41,22 +41,22 @@ export const typeDefinitions = gql`
         collections: [Collection!]!
 
         """Returns all tomography metadata for referencing or loading default or sample-based slices."""
-        tomographyMetadata: [TomographyMetadata!]        
+        tomographyMetadata: [TomographyMetadata!]
 
         """Returns the closest node in the reconstruction graph to the given location."""
         nearestNode(id: String!, location: [Float!]!): NearestNodeOutput
 
         publishedReconstructions(input: PublishedReconstructionPageInput): PublishedReconstructionPage!
-        
+
         downloadReconstruction(id: String!, format: ExportFormat): String
 
         """Returns a set of reconstructions based on the provided search criteria."""
         searchNeurons(context: SearchContext): SearchOutput
-        
+
         #
         # Secure queries that require user-level authentication.
         #
-        
+
         users(input: UserQueryInput): QueryUsers
 
         structureIdentifier(id: String): StructureIdentifier!
@@ -90,13 +90,13 @@ export const typeDefinitions = gql`
         issueCount: Int!
 
         openIssues: [Issue!]!
-        
+
         #
         # Internal queries that require system authentication.
         #
-        
+
         reconstructionData(id: String!): String
-        
+
         neuronReconstructionData(id: String!): String
 
         pendingPrecomputed: [Precomputed!]!
@@ -126,6 +126,8 @@ export const typeDefinitions = gql`
         createNeuron(neuron: NeuronInput): MutatedNeuron!
         updateNeuron(neuron: NeuronInput): MutatedNeuron!
         deleteNeuron(id: String!): DeleteOutput!
+
+        importSomas(file: Upload!, options: ImportSomasOptions!): ImportSomasOutput!
 
         createCollection(collection: CollectionInput!): MutatedCollection!
         updateCollection(collection: CollectionInput!): MutatedCollection!

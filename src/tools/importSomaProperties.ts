@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 
-import {parseSomaPropertyData} from "../util/somaPropertyParser";
+import {parseSomaPropertyFile} from "../util/somaPropertyParser";
 import {RemoteDatabaseClient} from "../data-access/remoteDatabaseClient";
 import {Sample} from "../models/sample";
 import {Neuron} from "../models/neuron";
@@ -32,48 +32,18 @@ export async function importSomaProperties(filename: string, subjectId: string =
         throw new Error(`No sample found with animalId: ${subjectId}`);
     }
 
-    const processedRecords = await parseSomaPropertyData(filename);
+    const processedRecords = await parseSomaPropertyFile(filename);
 
-    const existingNeurons = await Neuron.findAll({
-        where: { sampleId: sample.id },
-        attributes: ['idString'],
-        order: [['idString', 'DESC']]
-    });
+    const nextNumber = await Neuron.findNextAvailableIdNumber(sample.id);
 
-    let nextNumber = 1;
-
-    if (existingNeurons.length > 0) {
-        const existingNumbers = existingNeurons
-            .map(n => n.idString)
-            .filter(idString => /^N\d{3,}$/.test(idString))
-            .map(idString => parseInt(idString.substring(1)))
-            .filter(num => !isNaN(num));
-        
-        if (existingNumbers.length > 0) {
-            nextNumber = Math.max(...existingNumbers) + 1;
-        }
-    }
     debug(`Starting neuron labelling from base index ${nextNumber}`);
 
     console.log(processedRecords);
 
-    if (!noEmit) {
-        for (let i = 0; i < processedRecords.length; i++) {
-            const record = processedRecords[i];
-            const idString = `N${String(nextNumber + i).padStart(3, '0')}`;
+    const idStrings = await Neuron.insertSomaEntries(processedRecords, sample, nextNumber, noEmit);
 
-            const neuron = await Neuron.create({
-                sampleId: sample.id,
-                idString: idString,
-                x: record.xyz?.x || 0,
-                y: record.xyz?.y || 0,
-                z: record.xyz?.z || 0,
-                somaProperties: record
-            });
-        }
+    console.log(idStrings);
 
-        debug(`Created ${processedRecords.length} neurons for sample ${sample.id}`);
-    } else {
-        debug(`Skipping database update (noEmit is true).`);
-    }
+    debug(`Created ${processedRecords.length} neurons for sample ${sample.id}`);
+
 }
