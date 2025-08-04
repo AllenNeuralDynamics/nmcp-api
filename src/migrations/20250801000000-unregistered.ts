@@ -1,19 +1,18 @@
 import {QueryInterface} from "sequelize";
 
 import {
-    BrainStructureTableName,
     NeuronTableName,
-    ReconstructionTableName,
     StructureIdentifierTableName,
-    TracingNodeTableName,
     TracingStructureTableName,
-    TracingTableName,
+    UnregisteredReconstructionTableName,
+    UnregisteredTracingTableName,
+    UnregisteredNodeTableName,
     UserTableName
 } from "../models/TableNames";
 
 export = {
     up: async (queryInterface: QueryInterface, Sequelize: any) => {
-        await queryInterface.createTable(ReconstructionTableName,
+        await queryInterface.createTable(UnregisteredReconstructionTableName,
             {
                 id: {
                     primaryKey: true,
@@ -22,9 +21,6 @@ export = {
                 },
                 status: Sequelize.INTEGER,
                 notes: Sequelize.TEXT,
-                checks: Sequelize.TEXT,
-                durationHours: Sequelize.DOUBLE,
-                lengthMillimeters: Sequelize.DOUBLE,
                 neuronId: {
                     type: Sequelize.UUID,
                     references: {
@@ -39,25 +35,16 @@ export = {
                         key: "id"
                     }
                 },
-                proofreaderId: {
-                    type: Sequelize.UUID,
-                    references: {
-                        model: UserTableName,
-                        key: "id"
-                    }
-                },
-                startedAt: Sequelize.DATE,
-                completedAt: Sequelize.DATE,
                 createdAt: Sequelize.DATE,
                 updatedAt: Sequelize.DATE,
                 deletedAt: Sequelize.DATE
             }
         );
 
-        await queryInterface.addIndex(ReconstructionTableName, ["status"]);
+        await queryInterface.addIndex(UnregisteredReconstructionTableName, ["status"]);
 
         await queryInterface.createTable(
-            TracingTableName,
+            UnregisteredTracingTableName,
             {
                 id: {
                     primaryKey: true,
@@ -89,11 +76,6 @@ export = {
                     type: Sequelize.INTEGER,
                     defaultValue: 0
                 },
-                nodeLookupAt: Sequelize.DATE,
-                searchTransformAt: Sequelize.DATE,
-                somaNodeId: {
-                    type: Sequelize.UUID
-                },
                 tracingStructureId: {
                     type: Sequelize.UUID,
                     references: {
@@ -104,7 +86,7 @@ export = {
                 reconstructionId: {
                     type: Sequelize.UUID,
                     references: {
-                        model: ReconstructionTableName,
+                        model: UnregisteredReconstructionTableName,
                         key: "id"
                     }
                 },
@@ -113,11 +95,11 @@ export = {
                 deletedAt: Sequelize.DATE
             });
 
-        await queryInterface.addIndex(TracingTableName, ["reconstructionId"]);
-        await queryInterface.addIndex(TracingTableName, ["tracingStructureId"]);
+        await queryInterface.addIndex(UnregisteredTracingTableName, ["reconstructionId"]);
+        await queryInterface.addIndex(UnregisteredTracingTableName, ["tracingStructureId"]);
 
         await queryInterface.createTable(
-            TracingNodeTableName,
+            UnregisteredNodeTableName,
             {
                 id: {
                     primaryKey: true,
@@ -138,17 +120,10 @@ export = {
                         key: "id"
                     }
                 },
-                brainStructureId: {
-                    type: Sequelize.UUID,
-                    references: {
-                        model: BrainStructureTableName,
-                        key: "id"
-                    }
-                },
                 tracingId: {
                     type: Sequelize.UUID,
                     references: {
-                        model: TracingTableName,
+                        model: UnregisteredTracingTableName,
                         key: "id"
                     }
                 },
@@ -156,14 +131,14 @@ export = {
                 updatedAt: Sequelize.DATE
             });
 
-        await queryInterface.addIndex(TracingNodeTableName, ["tracingId"]);
-        await queryInterface.addIndex(TracingNodeTableName, ["brainStructureId"]);
-        await queryInterface.addIndex(TracingNodeTableName, ["structureIdentifierId"]);
+        await queryInterface.addIndex(UnregisteredNodeTableName, ["tracingId"]);
+        await queryInterface.addIndex(UnregisteredNodeTableName, ["brainStructureId"]);
+        await queryInterface.addIndex(UnregisteredNodeTableName, ["structureIdentifierId"]);
     },
 
     down: async (queryInterface: QueryInterface, _: any) => {
-        await queryInterface.dropTable(ReconstructionTableName);
-        await queryInterface.dropTable(TracingNodeTableName);
-        await queryInterface.dropTable(TracingTableName);
+        await queryInterface.dropTable(UnregisteredReconstructionTableName);
+        await queryInterface.dropTable(UnregisteredTracingTableName);
+        await queryInterface.dropTable(UnregisteredNodeTableName);
     }
 }
