@@ -69,6 +69,13 @@ export const inputTypeDefinitions = gql`
         offset: Int
         limit: Int
     }
+    
+    input SomaPropertyInput {
+        brightnessOperator: Int
+        brightness: Float
+        volumeOperator: Int
+        volume: Float
+    }
 
     input NeuronQueryInput {
         ids: [String!]
@@ -77,6 +84,7 @@ export const inputTypeDefinitions = gql`
         brainStructureIds: [String!]
         tag: String
         reconstructionStatus: Int
+        somaProperties: SomaPropertyInput
         sortField: String
         sortOrder: String
         offset: Int

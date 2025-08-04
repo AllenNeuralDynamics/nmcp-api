@@ -28,10 +28,41 @@ import {ReconstructionStatus} from "./reconstructionStatus";
 import {User} from "./user";
 import {ImportSomasOutput, SomaImportOptions} from "../graphql/secureResolvers";
 import {parseSomaPropertySteam} from "../util/somaPropertyParser";
+import {isNotNullOrUndefined} from "../util/objectUtil";
 
 const debug = require("debug")("mnb:nmcp-api:neuron-model");
 
 type NeuronCache = Map<string, Neuron>;
+
+function getSequelizeOperator(operator: SomaPropertyOperator, value: number) {
+    switch (operator) {
+        case SomaPropertyOperator.LessThan:
+            return {[Op.lt]: value};
+        case SomaPropertyOperator.GreaterThan:
+            return {[Op.gt]: value};
+        case SomaPropertyOperator.Equals:
+        default:
+            return value;
+    }
+}
+
+function isValidSomaPropertyOperator(operator: SomaPropertyOperator): boolean {
+    return isNotNullOrUndefined(operator) && operator != SomaPropertyOperator.None;
+}
+
+export enum SomaPropertyOperator {
+    None = 0,
+    Equals = 1,
+    LessThan = 2,
+    GreaterThan = 3
+}
+
+export type SomaPropertyInput = {
+    brightnessOperator: SomaPropertyOperator;
+    brightness: number;
+    volumeOperator: SomaPropertyOperator;
+    volume: number;
+}
 
 export type NeuronQueryInput =
     EntityQueryInput
@@ -39,7 +70,8 @@ export type NeuronQueryInput =
     & WithCompartmentQueryInput
     & WithReconstructionStatusQueryInput
     & {
-    tag?: string
+    tag?: string;
+    somaProperties?: SomaPropertyInput;
 };
 
 export interface NeuronInput {
@@ -269,6 +301,21 @@ export class Neuron extends BaseModel {
 
         if (input.brainStructureIds && input.brainStructureIds.length > 0) {
             options.where["brainStructureId"] = {[Op.in]: input.brainStructureIds}
+        }
+
+        if (input.somaProperties) {
+            if (isValidSomaPropertyOperator(input.somaProperties.brightnessOperator) && isNotNullOrUndefined(input.somaProperties.brightness)) {
+                options.where["somaProperties"] = {
+                    brightness: getSequelizeOperator(input.somaProperties.brightnessOperator, input.somaProperties.brightness)
+                };
+            }
+
+            if (isValidSomaPropertyOperator(input.somaProperties.volumeOperator) && isNotNullOrUndefined(input.somaProperties.volume)) {
+                if (!options.where["somaProperties"]) {
+                    options.where["somaProperties"] = {};
+                }
+                options.where["somaProperties"]["volume"] = getSequelizeOperator(input.somaProperties.volumeOperator, input.somaProperties.volume);
+            }
         }
 
         options.include.push({model: Sample, as: "Sample", attributes: ["id", "animalId"]});
