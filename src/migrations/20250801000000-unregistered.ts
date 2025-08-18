@@ -99,7 +99,6 @@ export = {
             });
 
         await queryInterface.addIndex(UnregisteredNodeTableName, ["tracingId"]);
-        await queryInterface.addIndex(UnregisteredNodeTableName, ["brainStructureId"]);
         await queryInterface.addIndex(UnregisteredNodeTableName, ["structureIdentifierId"]);
     },
 
