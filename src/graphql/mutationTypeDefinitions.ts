@@ -71,12 +71,17 @@ export const mutationTypeDefinitions = gql`
         error: Error
     }
 
+    type UnregisteredTracingUploadOutput {
+        tracings: [UnregisteredTracing]
+        error: Error
+    }
+
     type ImportSomasOutput {
         count: Int
         idStrings: [String]
         error: Error
     }
-    
+
     type UpdateTracingOutput {
         tracing: Tracing
         error: Error

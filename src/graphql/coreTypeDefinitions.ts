@@ -194,6 +194,19 @@ export const coreTypeDefinitions = gql`
         updatedAt: Date
     }
 
+    type UnregisteredTracing {
+        id: String!
+        filename: String
+        fileComments: String
+        nodeCount: Int
+        pathCount: Int
+        branchCount: Int
+        endCount: Int
+        tracingStructure: TracingStructure
+        createdAt: Date
+        updatedAt: Date
+    }
+
     type Reconstruction {
         id: String!
         status: Int

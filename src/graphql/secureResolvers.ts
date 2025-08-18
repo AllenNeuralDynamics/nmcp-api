@@ -150,7 +150,7 @@ export interface PeerReviewPageArguments {
 }
 
 export interface IUploadOutput {
-    tracings: Tracing[];
+    tracings: Tracing[] | UnregisteredTracing[];
     error: Error;
 }
 
@@ -756,7 +756,7 @@ export const secureResolvers = {
         },
 
         uploadUnregisteredSwc(_: any, args: ITracingUploadArguments, context: User): Promise<IUploadOutput> {
-            if (context.permissions & UserPermissions.FullReview) {
+            if (context.permissions & UserPermissions.PeerReview) {
                 return UnregisteredTracing.createFromUpload(args.reconstructionId, args.structureId, args.file);
             }
 

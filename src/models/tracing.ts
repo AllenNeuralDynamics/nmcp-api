@@ -1,66 +1,36 @@
-import {BelongsToGetAssociationMixin, DataTypes, HasManyGetAssociationsMixin, Op, Sequelize} from "sequelize";
+import * as fs from "fs";
+import * as path from "path";
+import {DataTypes, HasManyGetAssociationsMixin, Op, Sequelize} from "sequelize";
 
-import {BaseModel, DeleteOutput} from "./baseModel";
+import { DeleteOutput} from "./baseModel";
 import {AxonStructureId, DendriteStructureId, TracingStructure} from "./tracingStructure";
 import {TracingNode, TracingNodeMutationData} from "./tracingNode";
 import {IUploadOutput} from "../graphql/secureResolvers";
-import {SwcData, swcParse} from "../util/SwcParser";
 import {StructureIdentifier, StructureIdentifiers} from "./structureIdentifier";
-import * as fs from "fs";
 import {ServiceOptions} from "../options/serviceOptions";
 import {performNodeMap} from "../transform/tracingTransformWorker";
 import {SearchContent} from "./searchContent";
 import {Reconstruction} from "./reconstruction";
 import {jsonParse} from "../util/JsonParser";
 import {ReconstructionStatus} from "./reconstructionStatus";
-import * as path from "path";
 import {Neuron} from "./neuron";
 import {FiniteMap} from "../util/finiteMap";
 import {KDTree} from "../util/kdtree";
+import {ITracingDataInput, IUploadIntermediate, TracingBaseModel} from "./tracingBaseModel";
 
 const debug = require("debug")("mnb:nmcp-api:tracing");
-
-export interface ITracingInput {
-    id?: string;
-    filename?: string;
-    fileComments?: string;
-    tracingStructureId?: string;
-    neuronId?: string;
-}
 
 export interface TransformResult {
     tracing: Tracing;
     error: string;
 }
 
-interface IUploadIntermediate {
-    tracing: Tracing;
-    error: Error;
-}
-
-interface ITracingDataInput {
-    input: SwcData;
-    tracingStructureId: string;
-}
-
-export class Tracing extends BaseModel {
-    public id: string;
-    public filename: string;
-    public fileComments: string;
-    public nodeCount?: number;
-    public pathCount?: number;
-    public branchCount?: number;
-    public endCount?: number;
+export class Tracing extends TracingBaseModel {
     public somaNodeId: string;
-    public reconstructionId: string;
-    public tracingStructureId?: string;
 
-    public getTracingStructure!: BelongsToGetAssociationMixin<TracingStructure>;
-    public getReconstruction!: BelongsToGetAssociationMixin<Reconstruction>;
-    public getNodes!: HasManyGetAssociationsMixin<TracingNode>;
+    public getNodes!: HasManyGetAssociationsMixin<TracingNode>
 
     public Nodes?: TracingNode[];
-    public Reconstruction: Reconstruction;
 
     private static _nearestNodeCache: FiniteMap<string, KDTree> = new FiniteMap<string, KDTree>(10);
 
@@ -195,25 +165,10 @@ export class Tracing extends BaseModel {
             };
         }
 
-        let file = await uploadFile;
-
-        let tracingInputs: ITracingDataInput[] = [];
+        const file = await uploadFile;
 
         try {
-            if (file.filename.endsWith(".json")) {
-                const [axonData, dendriteData] = await jsonParse(file.createReadStream());
-
-                if (axonData) {
-                    tracingInputs.push({input: axonData, tracingStructureId: AxonStructureId});
-                }
-
-                if (dendriteData) {
-                    tracingInputs.push({input: dendriteData, tracingStructureId: DendriteStructureId});
-                }
-            } else {
-                const data = await swcParse(file.createReadStream());
-                tracingInputs.push({input: data, tracingStructureId: tStructureId});
-            }
+            const tracingInputs = await TracingBaseModel.parseUploadedFile(file, tStructureId);
 
             return Tracing.createTracingFromInput(reconstructionId, tracingInputs, file.filename);
         } catch (err) {
@@ -416,6 +371,7 @@ export class Tracing extends BaseModel {
     }
 }
 
+// noinspection JSUnusedGlobalSymbols
 export const modelInit = (sequelize: Sequelize) => {
     Tracing.init({
         id: {
@@ -447,6 +403,7 @@ export const modelInit = (sequelize: Sequelize) => {
     });
 };
 
+// noinspection JSUnusedGlobalSymbols
 export const modelAssociate = () => {
     Tracing.hasMany(TracingNode, {foreignKey: "tracingId", as: "Nodes"});
     Tracing.belongsTo(TracingStructure, {foreignKey: "tracingStructureId"});
