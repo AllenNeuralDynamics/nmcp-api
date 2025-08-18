@@ -76,7 +76,9 @@ export class User extends BaseModel {
 
             // An earlier request may have since created.
             if (this.userCache.has(authId)) {
-                return this.userCache.get(authId);
+                const value = this.userCache.get(authId);
+                lock.release();
+                return value;
             }
 
             try {

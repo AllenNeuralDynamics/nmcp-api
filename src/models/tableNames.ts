@@ -23,6 +23,5 @@ export const IssueTableName = "Issue";
 
 export const ApiKeyTableName = "ApiKey";
 
-export const UnregisteredReconstructionTableName = "UnregisteredReconstruction";
 export const UnregisteredTracingTableName = "UnregisteredTracing";
 export const UnregisteredNodeTableName = "UnregisteredNode";

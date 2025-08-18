@@ -14,7 +14,7 @@ import {StructureIdentifier} from "../models/structureIdentifier";
 import {TracingStructure} from "../models/tracingStructure";
 import {loadTracingCache} from "../rawquery/tracingQueryMiddleware";
 import {Reconstruction} from "../models/reconstruction";
-import {NeuronTableName, SampleTableName} from "../models/TableNames";
+import {NeuronTableName, SampleTableName} from "../models/tableNames";
 
 export class RemoteDatabaseClient {
     public static async Start(prepareSearchContents = false, enableLog: boolean = false, options: Options = SequelizeOptions): Promise<RemoteDatabaseClient> {

@@ -1,6 +1,6 @@
 import {BelongsToGetAssociationMixin, DataTypes, Op, Sequelize} from "sequelize";
 
-import {IssueTableName} from "./TableNames";
+import {IssueTableName} from "./tableNames";
 import {BaseModel} from "./baseModel";
 import {Neuron} from "./neuron";
 import {Reconstruction} from "./reconstruction"

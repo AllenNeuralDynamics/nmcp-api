@@ -21,6 +21,7 @@ import {loadTracingCache} from "../rawquery/tracingQueryMiddleware";
 import {synchronize} from "../tools/smartSheetClient";
 import {Precomputed} from "../models/precomputed";
 import GraphQLUpload = require('graphql-upload/GraphQLUpload.js');
+import {UnregisteredTracing} from "../models/unregisteredTracing";
 
 export class UnauthorizedError extends GraphQLError {
     public constructor() {
@@ -744,6 +745,19 @@ export const secureResolvers = {
         uploadSwc(_: any, args: ITracingUploadArguments, context: User): Promise<IUploadOutput> {
             if (context.permissions & UserPermissions.FullReview) {
                 return Tracing.createTracingFromUpload(args.reconstructionId, args.structureId, args.file);
+            }
+
+            throw new GraphQLError("User is not authenticated", {
+                extensions: {
+                    code: "UNAUTHENTICATED",
+                    http: {status: 401},
+                },
+            });
+        },
+
+        uploadUnregisteredSwc(_: any, args: ITracingUploadArguments, context: User): Promise<IUploadOutput> {
+            if (context.permissions & UserPermissions.FullReview) {
+                return UnregisteredTracing.createFromUpload(args.reconstructionId, args.structureId, args.file);
             }
 
             throw new GraphQLError("User is not authenticated", {

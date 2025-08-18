@@ -1,48 +1,15 @@
 import {QueryInterface} from "sequelize";
 
 import {
-    NeuronTableName,
     StructureIdentifierTableName,
     TracingStructureTableName,
-    UnregisteredReconstructionTableName,
     UnregisteredTracingTableName,
     UnregisteredNodeTableName,
-    UserTableName
-} from "../models/TableNames";
+    ReconstructionTableName,
+} from "../models/tableNames";
 
 export = {
     up: async (queryInterface: QueryInterface, Sequelize: any) => {
-        await queryInterface.createTable(UnregisteredReconstructionTableName,
-            {
-                id: {
-                    primaryKey: true,
-                    type: Sequelize.UUID,
-                    defaultValue: Sequelize.UUIDV4
-                },
-                status: Sequelize.INTEGER,
-                notes: Sequelize.TEXT,
-                neuronId: {
-                    type: Sequelize.UUID,
-                    references: {
-                        model: NeuronTableName,
-                        key: "id"
-                    }
-                },
-                annotatorId: {
-                    type: Sequelize.UUID,
-                    references: {
-                        model: UserTableName,
-                        key: "id"
-                    }
-                },
-                createdAt: Sequelize.DATE,
-                updatedAt: Sequelize.DATE,
-                deletedAt: Sequelize.DATE
-            }
-        );
-
-        await queryInterface.addIndex(UnregisteredReconstructionTableName, ["status"]);
-
         await queryInterface.createTable(
             UnregisteredTracingTableName,
             {
@@ -86,7 +53,7 @@ export = {
                 reconstructionId: {
                     type: Sequelize.UUID,
                     references: {
-                        model: UnregisteredReconstructionTableName,
+                        model: ReconstructionTableName,
                         key: "id"
                     }
                 },
@@ -137,8 +104,7 @@ export = {
     },
 
     down: async (queryInterface: QueryInterface, _: any) => {
-        await queryInterface.dropTable(UnregisteredReconstructionTableName);
-        await queryInterface.dropTable(UnregisteredTracingTableName);
         await queryInterface.dropTable(UnregisteredNodeTableName);
+        await queryInterface.dropTable(UnregisteredTracingTableName);
     }
 }

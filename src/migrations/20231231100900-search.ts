@@ -7,7 +7,7 @@ import {
     SynchronizationMarkerTableName,
     TracingStructureTableName,
     TracingTableName
-} from "../models/TableNames";
+} from "../models/tableNames";
 
 export = {
     up: async (queryInterface: QueryInterface, Sequelize: any) => {

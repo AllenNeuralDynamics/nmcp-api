@@ -1,6 +1,6 @@
 import {QueryInterface} from "sequelize";
 
-import {ReconstructionTableName, UserTableName} from "../models/TableNames";
+import {ReconstructionTableName, UserTableName} from "../models/tableNames";
 
 export = {
     up: async (queryInterface: QueryInterface, Sequelize: any) => {

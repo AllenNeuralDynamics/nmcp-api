@@ -1,6 +1,6 @@
 import {QueryInterface} from "sequelize";
 
-import {CollectionTableName, SampleTableName} from "../models/TableNames";
+import {CollectionTableName, SampleTableName} from "../models/tableNames";
 
 export = {
     up: async (queryInterface: QueryInterface, Sequelize: any) => {

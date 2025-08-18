@@ -24,7 +24,7 @@ import {MouseStrain} from "./mouseStrain";
 import {Neuron} from "./neuron";
 import {Injection} from "./injection";
 import {Collection} from "./collection";
-import {SampleTableName} from "./TableNames";
+import {SampleTableName} from "./tableNames";
 import {ReconstructionStatus} from "./reconstructionStatus";
 import {Reconstruction} from "./reconstruction";
 

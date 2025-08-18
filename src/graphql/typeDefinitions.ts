@@ -137,6 +137,7 @@ export const typeDefinitions = gql`
         invalidatePrecomputed(ids: [String!]!): [String!]!
 
         uploadSwc(reconstructionId: String, structureId: String, file: Upload): TracingUploadOutput!
+        uploadUnregisteredSwc(reconstructionId: String, structureId: String, file: Upload): TracingUploadOutput!
 
         requestReconstruction(id: String!): Tracing
         requestReconstructionHold(id: String!): Error

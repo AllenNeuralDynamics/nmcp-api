@@ -2,7 +2,7 @@ import {BelongsToGetAssociationMixin, DataTypes, HasManyGetAssociationsMixin, Op
 import _ = require("lodash");
 import {concat, uniqBy} from "lodash"
 
-import {ReconstructionTableName} from "./TableNames";
+import {ReconstructionTableName} from "./tableNames";
 import {BaseModel} from "./baseModel";
 import {Neuron} from "./neuron";
 import {ReconstructionStatus} from "./reconstructionStatus";
