@@ -67,6 +67,8 @@ export class BrainArea extends BaseModel {
 
     private static _compartmentSafeNameCache = new Map<string, BrainArea>();
 
+    private static _compartmentAtlasStructureIdCache = new Map<number, BrainArea>();
+
     private static _wholeBrainId: string;
 
     public static getOne(id: string) {
@@ -85,12 +87,16 @@ export class BrainArea extends BaseModel {
         return this._compartmentSafeNameCache.get(name.toLowerCase());
     }
 
-    public static wholeBrainId(): string {
-        return this._wholeBrainId;
+    public static getFromStructureId(id: number): BrainArea {
+        return this._compartmentAtlasStructureIdCache.get(id);
     }
 
     public static getComprehensiveBrainArea(id: string): string[] {
         return this._comprehensiveCompartmentLookup.get(id);
+    }
+
+    public static wholeBrainId(): string {
+        return this._wholeBrainId;
     }
 
     public static async loadCompartmentCache() {
@@ -112,6 +118,8 @@ export class BrainArea extends BaseModel {
             this._compartmentNameCache.set(b.name.toLowerCase(), b);
 
             this._compartmentSafeNameCache.set(b.safeName.toLowerCase(), b);
+
+            this._compartmentAtlasStructureIdCache.set(b.structureId, b);
 
             const result = await BrainArea.findAll({
                 attributes: ["id", "structureIdPath"],

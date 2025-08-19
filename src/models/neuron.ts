@@ -30,7 +30,7 @@ import {ImportSomasOutput, SomaImportOptions} from "../graphql/secureResolvers";
 import {parseSomaPropertySteam} from "../util/somaPropertyParser";
 import {isNotNullOrUndefined} from "../util/objectUtil";
 
-const debug = require("debug")("mnb:nmcp-api:neuron-model");
+const debug = require("debug")("nmcp:nmcp-api:neuron-model");
 
 type NeuronCache = Map<string, Neuron>;
 
@@ -116,6 +116,9 @@ export class Neuron extends BaseModel {
     public x: number;
     public y: number;
     public z: number;
+    public sampleX: number;
+    public sampleY: number;
+    public sampleZ: number;
     public doi: string;
     public metadata?: string;
     public somaProperties?: object;
@@ -815,17 +818,23 @@ export class Neuron extends BaseModel {
             for (let i = 0; i < records.length; i++) {
                 const record = records[i];
                 const idString = `N${String(idNumberBase + i).padStart(3, '0')}`;
-
+                // console.log(record);
                 const neuron = await Neuron.create({
                     sampleId: sample.id,
                     idString: idString,
-                    x: record.xyz?.x || 0,
-                    y: record.xyz?.y || 0,
-                    z: record.xyz?.z || 0,
-                    somaProperties: record
+                    x: record.ccfxyz?.x || 0,
+                    y: record.ccfxyz?.y || 0,
+                    z: record.ccfxyz?.z || 0,
+                    sampleX: record.xyz?.x || 0,
+                    sampleY: record.xyz?.y || 0,
+                    sampleZ: record.xyz?.z || 0,
+                    somaProperties: record,
+                    brainStructureId: record.brainStructureId
                 }, {transaction: t});
 
                 idStrings.push(neuron.idString);
+
+                // console.log(neuron.dataValues);
             }
 
             if (!noEmit) {
@@ -844,6 +853,7 @@ export class Neuron extends BaseModel {
     }
 }
 
+// noinspection JSUnusedGlobalSymbols
 export const modelInit = (sequelize: Sequelize) => {
     Neuron.init({
         id: {
@@ -920,6 +930,7 @@ export const modelInit = (sequelize: Sequelize) => {
     });
 };
 
+// noinspection JSUnusedGlobalSymbols
 export const modelAssociate = () => {
     Neuron.belongsTo(Sample, {foreignKey: "sampleId", as: "Sample"});
     Neuron.belongsTo(BrainArea, {foreignKey: {name: "brainStructureId", allowNull: true}});

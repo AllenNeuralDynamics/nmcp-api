@@ -5,6 +5,7 @@ import {parseSomaPropertyFile} from "../util/somaPropertyParser";
 import {RemoteDatabaseClient} from "../data-access/remoteDatabaseClient";
 import {Sample} from "../models/sample";
 import {Neuron} from "../models/neuron";
+import {BrainArea} from "../models/brainArea";
 
 const debug = require("debug")("nmcp:api:tools:importSomaProperties");
 
@@ -26,6 +27,8 @@ export async function importSomaProperties(filename: string, subjectId: string =
         }
     }
 
+    await BrainArea.loadCompartmentCache();
+
     const sample = await Sample.findOne({ where: { animalId: subjectId } });
 
     if (!sample) {
@@ -38,12 +41,11 @@ export async function importSomaProperties(filename: string, subjectId: string =
 
     debug(`Starting neuron labelling from base index ${nextNumber}`);
 
-    console.log(processedRecords);
+    // console.log(processedRecords);
 
     const idStrings = await Neuron.insertSomaEntries(processedRecords, sample, nextNumber, noEmit);
 
-    console.log(idStrings);
+    debug(`Created ${processedRecords.length} neurons for sample ${sample.animalId} (${sample.id})`);
 
-    debug(`Created ${processedRecords.length} neurons for sample ${sample.id}`);
-
+    debug(`First ids: ${idStrings.slice(0, 5).join(", ")}`);
 }

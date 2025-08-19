@@ -8,6 +8,6 @@ mkdir -p /var/log/nmcp
 
 wait
 
-export DEBUG=mnb*
+export DEBUG=mnb:*,nmcp:*
 
 node --max-old-space-size=8192 --optimize-for-size app.js >> /var/log/nmcp/nmcp-api-${logName}.log 2>&1

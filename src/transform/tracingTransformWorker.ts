@@ -14,8 +14,7 @@ export async function performNodeMap(tracing: Tracing, isFork: boolean = false):
 
     if (brainIdLookup.size === 0) {
         logMessage("populating brain area id lookup");
-        const brainAreas = await
-            BrainArea.findAll();
+        const brainAreas = await BrainArea.findAll();
 
         brainAreas.forEach(brainArea => {
             brainIdLookup.set(brainArea.structureId, brainArea);
