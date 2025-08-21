@@ -116,7 +116,7 @@ async function parseSomaPropertyRecords(records: any[]): Promise<SomaPropertyRec
 function parseXyzString(xyzStr: string): { x: number, y: number, z: number } {
     const cleanStr = xyzStr.replace(/[()]/g, "");
     const [x, y, z] = cleanStr.split(",").map(s => parseFloat(s.trim()));
-    return {x: z, y: y, z: x};
+    return {x, y, z};
 }
 
 function normalizeColumnName(columnName: string): string {

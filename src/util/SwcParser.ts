@@ -209,9 +209,9 @@ function oneSwcLine(line: string, swcData: SwcData) {
         sampleNumber: sampleNumber,
         parentNumber: parentNumber,
         structure: structure,
-        z: swcData.offsetX + parseFloat(data[2]),
+        x: swcData.offsetX + parseFloat(data[2]),
         y: swcData.offsetY + parseFloat(data[3]),
-        x: swcData.offsetZ + parseFloat(data[4]),
+        z: swcData.offsetZ + parseFloat(data[4]),
         radius: parseFloat(data[5]),
         lengthToParent: 0
     });

@@ -11,6 +11,7 @@ import {ReconstructionStatus} from "../models/reconstructionStatus";
 import * as path from "path";
 import * as fs from "fs";
 import {Tracing} from "../models/tracing";
+import {glob} from "glob";
 
 const debug = require("debug")("nmcp:api:smartsheet");
 
@@ -129,7 +130,11 @@ function reconstructionStatusForSmartSheetStatus(status: Status) {
 
 async function ensureUser(name: string, email: string) {
     if (name && email) {
-        const names = name.split(" ");
+        let names = name.split(" ");
+
+        if (email == "kevianna.adams@alleninstitute.org") {
+            names = ["Kevianna", "Adams"];
+        }
 
         return await User.findOrCreateUser(null, names.length > 0 ? names[0] : "", names.length > 1 ? names[1] : "", email)
     }
@@ -243,9 +248,7 @@ async function sampleFromRowContents(s: SampleRowContents, reconstructionLocatio
         }
     }, Promise.resolve());
 
-    await neuronsForReconstructions.reduce(async (promise: Promise<void>, n) => {
-        await promise;
-
+    for (const n of neuronsForReconstructions) {
         if (!n.id) {
             // Earlier issue w/parsing - neuron not created.
             return;
@@ -303,72 +306,58 @@ async function sampleFromRowContents(s: SampleRowContents, reconstructionLocatio
                     startedAt: null
                 });
 
-                debug(`created reconstruction ${reconstruction.id} (${n.idString}-${s.subjectId})`)
-            }
-
-            if (!parseFiles) {
-                return;
+                // debug(`created reconstruction ${reconstruction.id} (${n.idString}-${s.subjectId})`)
             }
 
             // Do not replace tracing if already published.
             if (reconstruction.status == ReconstructionStatus.Published) {
+                debug(`updating reconstruction ${reconstruction.id} (${n.idString}-${s.subjectId}) is already published.`)
                 return;
             }
 
             const file_prefix = `${n.idString}-${s.subjectId}`;
 
             const annotatorInitials = (u: User): string => {
-                return `${u.firstName.length > 0 ? u.firstName[0] : ""}${u.lastName.length > 0 ? u.lastName[0] : ""}`.toUpperCase();
+                if (!u) {
+                    return "";
+                }
+
+                return `${u.firstName?.length > 0 ? u.firstName[0] : ""}${u.lastName?.length > 0 ? u.lastName[0] : ""}`.toUpperCase();
             };
 
             try {
-                let jsonFile = `${file_prefix}-consensus.json`;
-                let jsonPath = path.join(reconstructionLocation, jsonFile);
+                let initials = [annotatorInitials(annotator1), annotatorInitials(annotator2), annotatorInitials(proofreader)].filter(i => i.length > 0);
 
-                if (!fs.existsSync(jsonPath)) {
-                    jsonFile = `${file_prefix}-CONSENSUS.json`;
-                    jsonPath = path.join(reconstructionLocation, jsonFile);
+                const jsonPath = await locateReconstructionFile(reconstructionLocation, file_prefix, initials);
 
-                    if (!fs.existsSync(jsonPath)) {
-                        if (annotator1) {
-                            jsonFile = `${file_prefix}-${annotatorInitials(annotator1)}.json`;
-                            jsonPath = path.join(reconstructionLocation, jsonFile);
-                        }
+                if (jsonPath) {
+                    debug(`\tupdating or adding reconstruction data for ${file_prefix}`)
 
-                        if (!fs.existsSync(jsonPath)) {
-                            if (annotator2) {
-                                jsonFile = `${file_prefix}-${annotatorInitials(annotator2)}.json`;
-                                jsonPath = path.join(reconstructionLocation, jsonFile);
-                            }
-
-                            if (!fs.existsSync(jsonPath)) {
-                                if (proofreader) {
-                                    jsonFile = `${file_prefix}-${annotatorInitials(proofreader)}.json`;
-                                    jsonPath = path.join(reconstructionLocation, jsonFile);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (fs.existsSync(jsonPath)) {
-                    debug(`\tupdating or adding reconstruction data for ${n.idString}-${s.subjectId}`)
-                    const result = await Tracing.createTracingFromJson(reconstruction.id, jsonPath);
+                    const result = await Tracing.createTracingFromJson(reconstruction.id, jsonPath, parseFiles);
 
                     if (result.error) {
-                        debug(`\t---> parsing error for ${jsonFile}`);
+                        debug(`\t---> parsing error for ${jsonPath}`);
                         debug(`\t---> ${result.error}`);
                     }
                 } else if (reconstruction.status == ReconstructionStatus.Approved) {
-                    debug(`\t---> expected reconstruction data not found for ${n.idString}-${s.subjectId}`);
+                    debug(`\t---> expected reconstruction data not found for ${file_prefix}`);
                 }
             } catch (err) {
-                debug(`---> issue detecting file for ${n.idString}-${s.subjectId}`);
+                debug(`---> issue detecting file for ${file_prefix}`);
+                console.log(err);
             }
         } catch (error) {
             debug(error);
         }
-    }, Promise.resolve());
+    }
+}
+
+async function locateReconstructionFile(baseLocation: string, file_prefix: string, initials: string[]): Promise<string> {
+    // let jsonFile = `${file_prefix}-consensus.json`;
+
+    const sources = await glob(`${baseLocation}/**/${file_prefix}*.json`)
+
+    return sources?.length > 0 ? sources[0] : null;
 }
 
 export class SmartSheetClient {
@@ -411,12 +400,20 @@ export class SmartSheetClient {
         } catch (error) {
             console.log(error);
         }
+
+        for (const s of this.samples.values()) {
+            s.neurons = s.neurons.sort((a, b) => a.idString.localeCompare(b.idString));
+        }
     }
 
     public async updateDatabase(reconstructionLocation: string, parseFiles: boolean) {
-        await Promise.all([...this.samples.values()].map(async (s) => {
+        const ordered = Array.from(this.samples.values()).sort((a, b)=> a.subjectId.localeCompare(b.subjectId));
+
+        const limited = ordered.filter(s => s.subjectId == "685222");
+
+        for (const s of limited) {
             await sampleFromRowContents(s, reconstructionLocation, parseFiles);
-        }));
+        }
     }
 
     public print() {

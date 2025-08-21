@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import {DataTypes, HasManyGetAssociationsMixin, Op, Sequelize} from "sequelize";
 
-import { DeleteOutput} from "./baseModel";
+import {DeleteOutput} from "./baseModel";
 import {AxonStructureId, DendriteStructureId, TracingStructure} from "./tracingStructure";
 import {TracingNode, TracingNodeMutationData} from "./tracingNode";
 import {IUploadOutput} from "../graphql/secureResolvers";
@@ -11,12 +11,13 @@ import {ServiceOptions} from "../options/serviceOptions";
 import {performNodeMap} from "../transform/tracingTransformWorker";
 import {SearchContent} from "./searchContent";
 import {Reconstruction} from "./reconstruction";
-import {jsonParse} from "../util/JsonParser";
+import {jsonChunkParse, jsonParse} from "../util/JsonParser";
 import {ReconstructionStatus} from "./reconstructionStatus";
 import {Neuron} from "./neuron";
 import {FiniteMap} from "../util/finiteMap";
 import {KDTree} from "../util/kdtree";
 import {ITracingDataInput, IUploadIntermediate, TracingBaseModel} from "./tracingBaseModel";
+import {SwcData} from "../util/SwcParser";
 
 const debug = require("debug")("mnb:nmcp-api:tracing");
 
@@ -176,10 +177,19 @@ export class Tracing extends TracingBaseModel {
         }
     }
 
-    public static async createTracingFromJson(reconstructionId: string, source: string) {
+    public static async createTracingFromJson(reconstructionId: string, source: string, performInsert: boolean = true) {
         let tracingInputs: ITracingDataInput[] = [];
 
-        const [axonData, dendriteData] = await jsonParse(fs.createReadStream(source));
+        let axonData: SwcData, dendriteData: SwcData;
+
+        try {
+            [axonData, dendriteData] = await jsonChunkParse(fs.createReadStream(source));
+        } catch (err) {
+            debug(`Error parsing JSON file ${source}: ${err.message}`);
+            return {tracings: null, error: `Error parsing JSON file ${source}: ${err.message}`};
+        }
+
+        // const [axonData, dendriteData] = await jsonParse(fs.createReadStream(source));
 
         if (axonData) {
             tracingInputs.push({input: axonData, tracingStructureId: AxonStructureId});
@@ -191,9 +201,15 @@ export class Tracing extends TracingBaseModel {
 
         if (tracingInputs.length < 2) {
             return {tracings: null, error: `${axonData ? "" : "Axon data is missing.  "}${dendriteData ? "" : "Dendrite data is missing."}`};
+        } else {
+            debug(`Found ${tracingInputs.length} tracing inputs in JSON file ${source}`);
         }
 
-        return Tracing.createTracingFromInput(reconstructionId, tracingInputs, path.basename(source), true);
+        if (performInsert) {
+            return await Tracing.createTracingFromInput(reconstructionId, tracingInputs, path.basename(source), true);
+        } else {
+            return {tracings: null, error: null};
+        }
     }
 
     public static async createTracingFromInput(reconstructionId: string, tracingInputs: ITracingDataInput[], source: string, insertOnly: boolean = false): Promise<IUploadOutput> {
@@ -284,7 +300,15 @@ export class Tracing extends TracingBaseModel {
                         return node;
                     });
 
-                    tracing.Nodes = await TracingNode.bulkCreate(nodeData, {transaction: t});
+                    const chunkSize = 100000;
+                    if (nodeData.length > chunkSize) {
+                        tracing.Nodes = [];
+                        for (let idx = 0; idx < nodeData.length; idx += chunkSize) {
+                            tracing.Nodes = tracing.Nodes.concat(await TracingNode.bulkCreate(nodeData.slice(idx, idx + chunkSize), {transaction: t}));
+                        }
+                    } else {
+                        tracing.Nodes = await TracingNode.bulkCreate(nodeData, {transaction: t});
+                    }
                 });
 
                 debug(`inserted ${nodeData.length} nodes from ${source}`);
