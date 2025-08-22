@@ -187,7 +187,13 @@ export class TransformOperation {
             });
         }
 
-        await SearchContent.bulkCreate(searchContentByBrainStructure)
+        await Tracing.sequelize.transaction(async (t) => {
+            const chunkSize = 100000;
+
+            for (let idx = 0; idx < searchContentByBrainStructure.length; idx += chunkSize) {
+                await SearchContent.bulkCreate(searchContentByBrainStructure.slice(idx, idx + chunkSize), {transaction: t});
+            }
+        });
 
         this.logMessage(`inserted ${searchContentByBrainStructure.length} brain compartment stats`);
     }

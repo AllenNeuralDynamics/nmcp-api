@@ -301,13 +301,11 @@ export class Tracing extends TracingBaseModel {
                     });
 
                     const chunkSize = 100000;
-                    if (nodeData.length > chunkSize) {
-                        tracing.Nodes = [];
-                        for (let idx = 0; idx < nodeData.length; idx += chunkSize) {
-                            tracing.Nodes = tracing.Nodes.concat(await TracingNode.bulkCreate(nodeData.slice(idx, idx + chunkSize), {transaction: t}));
-                        }
-                    } else {
-                        tracing.Nodes = await TracingNode.bulkCreate(nodeData, {transaction: t});
+
+                    tracing.Nodes = [];
+
+                    for (let idx = 0; idx < nodeData.length; idx += chunkSize) {
+                        tracing.Nodes = tracing.Nodes.concat(await TracingNode.bulkCreate(nodeData.slice(idx, idx + chunkSize), {transaction: t}));
                     }
                 });
 
