@@ -20,14 +20,14 @@ import {Issue, IssueKind} from "../models/issue";
 import {loadTracingCache} from "../rawquery/tracingQueryMiddleware";
 import {synchronize} from "../tools/smartSheetClient";
 import {Precomputed} from "../models/precomputed";
-import GraphQLUpload = require('graphql-upload/GraphQLUpload.js');
+import GraphQLUpload = require("graphql-upload/GraphQLUpload.js");
 import {UnregisteredTracing} from "../models/unregisteredTracing";
 
 export class UnauthorizedError extends GraphQLError {
     public constructor() {
         super("User is not authenticated", {
             extensions: {
-                code: 'FORBIDDEN',
+                code: "FORBIDDEN",
                 http: {status: 401},
             },
         })
@@ -916,9 +916,9 @@ export const secureResolvers = {
                 return await Reconstruction.deleteEntry(args.id);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -934,9 +934,9 @@ export const secureResolvers = {
                 }
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -948,9 +948,9 @@ export const secureResolvers = {
                 return true;
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -963,9 +963,9 @@ export const secureResolvers = {
                 return true;
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });

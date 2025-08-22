@@ -97,6 +97,12 @@ export const typeDefinitions = gql`
 
         reconstructionData(id: String!): String
 
+        """Returns reconstruction data as a structured JSON object instead of a string"""
+        reconstructionDataJSON(id: String!): ReconstructionDataJSON
+
+        """Returns reconstruction data with support for partial fetching and chunking"""
+        reconstructionDataChunked(id: String!, input: ReconstructionDataChunkedInput): ReconstructionDataChunked
+
         neuronReconstructionData(id: String!): String
 
         pendingPrecomputed: [Precomputed!]!

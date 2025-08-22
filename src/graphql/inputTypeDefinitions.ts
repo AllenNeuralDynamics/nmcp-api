@@ -227,4 +227,20 @@ export const inputTypeDefinitions = gql`
         scope: Int
         predicates: [Predicate!]
     }
+
+    """
+    Input for chunked reconstruction data query
+    """
+    input ReconstructionDataChunkedInput {
+        """Which parts of the reconstruction to fetch"""
+        parts: [ReconstructionDataPart!]
+        """Offset for axon nodes pagination"""
+        axonOffset: Int
+        """Limit for axon nodes pagination"""
+        axonLimit: Int
+        """Offset for dendrite nodes pagination"""
+        dendriteOffset: Int
+        """Limit for dendrite nodes pagination"""
+        dendriteLimit: Int
+    }
 `;

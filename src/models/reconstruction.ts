@@ -46,6 +46,113 @@ export type NearestNodeOutput = {
     error: String;
 }
 
+export type ReconstructionDataNode = {
+    sampleNumber: number;
+    structureIdentifier: number;
+    x: number;
+    y: number;
+    z: number;
+    radius: number;
+    parentNumber: number;
+    allenId: number | null;
+}
+
+export type ReconstructionAllenInfo = {
+    allenId: number;
+    name: string;
+    safeName: string;
+    acronym: string;
+    graphOrder: number;
+    structurePath: string;
+    colorHex: string;
+}
+
+export type ReconstructionAnnotationSpace = {
+    version: number;
+    description: string;
+}
+
+export type ReconstructionSoma = {
+    x: number;
+    y: number;
+    z: number;
+    allenId: number | null;
+}
+
+export type ReconstructionLabel = {
+    virus: string;
+    fluorophore: string;
+}
+
+export type ReconstructionSampleCollection = {
+    id: string | null;
+    name: string | null;
+    description: string | null;
+    reference: string | null;
+}
+
+export type ReconstructionSample = {
+    date: Date | null;
+    subject: string;
+    genotype: string | null;
+    collection: ReconstructionSampleCollection;
+}
+
+export type ReconstructionNeuronData = {
+    id: string;
+    idString: string;
+    DOI: string | null;
+    sample: ReconstructionSample;
+    label: ReconstructionLabel[] | null;
+    annotationSpace: ReconstructionAnnotationSpace;
+    annotator: User | null;
+    proofreader: User | null;
+    peerReviewer: User | null;
+    soma: ReconstructionSoma;
+    axonId: string | null;
+    axon: ReconstructionDataNode[];
+    dendriteId: string | null;
+    dendrite: ReconstructionDataNode[];
+    allenInformation: ReconstructionAllenInfo[];
+}
+
+export type ReconstructionDataJSON = {
+    comment: string;
+    neurons: ReconstructionNeuronData[];
+}
+
+export type ReconstructionChunkInfo = {
+    totalCount: number;
+    offset: number;
+    limit: number;
+    hasMore: boolean;
+}
+
+export type ReconstructionHeaderData = {
+    id: string;
+    idString: string;
+    DOI: string | null;
+    sample: ReconstructionSample;
+    label: ReconstructionLabel[] | null;
+    annotationSpace: ReconstructionAnnotationSpace;
+    annotator: User | null;
+    proofreader: User | null;
+    peerReviewer: User | null;
+    soma: ReconstructionSoma | null;
+    axonId: string | null;
+    dendriteId: string | null;
+}
+
+export type ReconstructionDataChunked = {
+    comment: string;
+    header?: ReconstructionHeaderData;
+    axon?: ReconstructionDataNode[];
+    axonChunkInfo?: ReconstructionChunkInfo;
+    dendrite?: ReconstructionDataNode[];
+    dendriteChunkInfo?: ReconstructionChunkInfo;
+    allenInformation?: ReconstructionAllenInfo[];
+}
+
 export class Reconstruction extends BaseModel {
     status: ReconstructionStatus;
     notes: string;
@@ -494,7 +601,8 @@ export class Reconstruction extends BaseModel {
         }
     }
 
-    public static async getAsData(id: string): Promise<string> {
+
+    public static async getAsJSON(id: string): Promise<ReconstructionDataJSON | null> {
         const reconstruction = await Reconstruction.findByPk(id, {
             include: [{
                 model: Neuron,
@@ -537,59 +645,152 @@ export class Reconstruction extends BaseModel {
             }]
         });
 
-        if (reconstruction && reconstruction.Tracings.length == 2) {
-            let axon = [];
-            let axonId = null;
+        if (!reconstruction || reconstruction.Tracings.length !== 2) {
+            return null;
+        }
 
-            let dendrite = [];
-            let dendriteId = null;
+        const tracingData = extractTracingData(reconstruction.Tracings);
+        
+        // Must have a soma to proceed
+        if (!tracingData.soma) {
+            return null;
+        }
 
-            let nodes = mapNodes(reconstruction.Tracings[0].Nodes).sort((a, b) => a.sampleNumber - b.sampleNumber);
+        return await transformReconstructionToJSON(reconstruction);
+    }
 
-            if (reconstruction.Tracings[0].tracingStructureId == "68e76074-1777-42b6-bbf9-93a6a5f02fa4") {
-                axon = nodes;
-                axonId = reconstruction.Tracings[0].id;
-            } else {
-                dendrite = nodes
-                dendriteId = reconstruction.Tracings[0].id;
+    public static async getAsData(id: string): Promise<string> {
+        const jsonData = await Reconstruction.getAsJSON(id);
+        return jsonData ? JSON.stringify(jsonData) : null;
+    }
+
+    public static async getAsDataChunked(
+        id: string, 
+        options: {
+            parts?: string[];
+            axonOffset?: number;
+            axonLimit?: number;
+            dendriteOffset?: number;
+            dendriteLimit?: number;
+        } = {}
+    ): Promise<ReconstructionDataChunked | null> {
+        // Default values for options
+        const parts = options.parts || ["header", "axon", "dendrite", "allenInformation"];
+        const axonOffset = options.axonOffset || 0;
+        const axonLimit = options.axonLimit || null;
+        const dendriteOffset = options.dendriteOffset || 0;
+        const dendriteLimit = options.dendriteLimit || null;
+
+        // Determine what data needs to be loaded
+        const needsHeader = parts.includes("header");
+        const needsAxon = parts.includes("axon");
+        const needsDendrite = parts.includes("dendrite");
+        const needsAllenInfo = parts.includes("allenInformation");
+        const needsNodeData = needsAxon || needsDendrite;
+
+        // Build includes conditionally - only load what's needed
+        const includes: any[] = [];
+        
+        // Include Neuron data if header is requested
+        if (needsHeader) {
+            includes.push({
+                model: Neuron,
+                as: "Neuron",
+                include: [{
+                    model: Sample,
+                    as: "Sample",
+                    include: [{
+                        model: Injection,
+                        as: "Injections",
+                        include: [{
+                            model: InjectionVirus,
+                            as: "InjectionVirus"
+                        }, {
+                            model: Fluorophore,
+                            as: "Fluorophore"
+                        }]
+                    }, {
+                        model: MouseStrain,
+                        as: "MouseStrain"
+                    }, {
+                        model: Collection,
+                        as: "Collection"
+                    }]
+                }]
+            });
+        }
+
+        // Load base reconstruction
+        const reconstruction = await Reconstruction.findByPk(id, {
+            include: includes.length > 0 ? includes : undefined
+        });
+
+        if (!reconstruction) {
+            return null;
+        }
+
+        // Initialize result
+        const result: any = {
+            comment: ""
+        };
+
+        // Identify axon and dendrite tracings
+        let axonTracing: Tracing = null;
+        let dendriteTracing: Tracing = null;
+        let soma: any = null;
+
+        // Load tracings metadata if any tracing data is needed
+        if (needsNodeData || needsAllenInfo || needsHeader) {
+            const tracings = await Tracing.findAll({
+                where: { reconstructionId: id },
+                attributes: ["id", "tracingStructureId"]
+            });
+
+            if (tracings.length !== 2) {
+                return null;
             }
 
-            const structures1 = reconstruction.Tracings[0].Nodes.filter(n => n.BrainArea).map(n => n.BrainArea);
-
-            nodes = mapNodes(reconstruction.Tracings[1].Nodes).sort((a, b) => a.sampleNumber - b.sampleNumber);
-
-            if (reconstruction.Tracings[1].tracingStructureId == "68e76074-1777-42b6-bbf9-93a6a5f02fa4") {
-                axon = nodes;
-                axonId = reconstruction.Tracings[1].id;
-            } else {
-                dendrite = nodes
-                dendriteId = reconstruction.Tracings[1].id;
+            for (const tracing of tracings) {
+                if (tracing.tracingStructureId === "68e76074-1777-42b6-bbf9-93a6a5f02fa4") {
+                    axonTracing = tracing;
+                } else {
+                    dendriteTracing = tracing;
+                }
             }
+        }
 
-            const structures2 = reconstruction.Tracings[1].Nodes.filter(n => n.BrainArea).map(n => n.BrainArea);
+        // Find soma for header (usually in dendrite, node with sampleNumber 1)
+        if (needsHeader && dendriteTracing) {
+            const somaNode = await TracingNode.findOne({
+                where: { 
+                    tracingId: dendriteTracing.id,
+                    sampleNumber: 1
+                },
+                include: [{
+                    model: StructureIdentifier,
+                    as: "StructureIdentifier"
+                }, {
+                    model: BrainArea,
+                    as: "BrainArea"
+                }]
+            });
 
-            const structures: BrainArea[] = uniqBy(concat(structures1, structures2), "id")
+            if (somaNode) {
+                soma = {
+                    x: somaNode.z,
+                    y: somaNode.y,
+                    z: somaNode.x,
+                    allenId: somaNode.BrainArea ? somaNode.BrainArea.structureId : null
+                };
+            }
+        }
 
-            const soma = nodes.filter(n => n.sampleNumber == 1);
-
-            const allenInfo = structures.map(s => {
-                return {
-                    allenId: s.structureId,
-                    name: s.name,
-                    safeName: s.safeName,
-                    acronym: s.acronym,
-                    graphOrder: s.graphOrder,
-                    structurePath: s.structureIdPath,
-                    colorHex: s.geometryColor
-                }
-            })
-
-            const label = reconstruction.Neuron.Sample.Injections.map(i => {
-                return {
-                    virus: i.injectionVirus.name,
-                    fluorophore: i.fluorophore.name
-                }
-            })
+        // Build header if requested
+        if (needsHeader && reconstruction.Neuron) {
+            const label = reconstruction.Neuron.Sample.Injections.map(i => ({
+                virus: i.injectionVirus.name,
+                fluorophore: i.fluorophore.name
+            }));
 
             const sample = {
                 date: reconstruction.Neuron.Sample.sampleDate,
@@ -603,43 +804,121 @@ export class Reconstruction extends BaseModel {
                 }
             };
 
-            if (soma.length > 0) {
-                const obj = {
-                    comment: "",
-                    neurons: [
-                        {
-                            id: reconstruction.Neuron.id,
-                            idString: reconstruction.Neuron.idString,
-                            DOI: reconstruction.Neuron.doi,
-                            sample,
-                            label: label.length > 0 ? label : null,
-                            annotationSpace: {
-                                version: 3,
-                                description: "Annotation Space: CCFv3.0 Axes> X: Anterior-Posterior; Y: Inferior-Superior; Z:Left-Right"
-                            },
-                            annotator: await reconstruction.getAnnotator(),
-                            proofreader: await reconstruction.getProofreader(),
-                            peerReviewer: await reconstruction.getPeerReviewer(),
-                            soma: {
-                                x: soma[0].x,
-                                y: soma[0].y,
-                                z: soma[0].z,
-                                allenId: soma[0].allenId
-                            },
-                            axonId,
-                            axon,
-                            dendriteId,
-                            dendrite,
-                            allenInformation: allenInfo
-                        }
-                    ]
-                };
-
-                return JSON.stringify(obj);
-            }
+            result.header = {
+                id: reconstruction.Neuron.id,
+                idString: reconstruction.Neuron.idString,
+                DOI: reconstruction.Neuron.doi,
+                sample,
+                label: label.length > 0 ? label : null,
+                annotationSpace: {
+                    version: 3,
+                    description: "Annotation Space: CCFv3.0 Axes> X: Anterior-Posterior; Y: Inferior-Superior; Z:Left-Right"
+                },
+                annotator: await reconstruction.getAnnotator(),
+                proofreader: await reconstruction.getProofreader(),
+                peerReviewer: await reconstruction.getPeerReviewer(),
+                soma: soma,
+                axonId: axonTracing ? axonTracing.id : null,
+                dendriteId: dendriteTracing ? dendriteTracing.id : null
+            };
         }
 
-        return null;
+        // Load axon nodes with database-level pagination if requested
+        if (needsAxon && axonTracing) {
+            // Get total count first
+            const totalAxonCount = await TracingNode.count({
+                where: { tracingId: axonTracing.id }
+            });
+
+            // Load paginated nodes
+            const axonNodes = await TracingNode.findAll({
+                where: { tracingId: axonTracing.id },
+                include: [{
+                    model: StructureIdentifier,
+                    as: "StructureIdentifier"
+                }, {
+                    model: BrainArea,
+                    as: "BrainArea"
+                }],
+                order: [["sampleNumber", "ASC"]],
+                offset: axonOffset,
+                limit: axonLimit
+            });
+
+            result.axon = mapNodes(axonNodes);
+            result.axonChunkInfo = {
+                totalCount: totalAxonCount,
+                offset: axonOffset,
+                limit: axonLimit || totalAxonCount,
+                hasMore: axonOffset + (axonLimit || totalAxonCount) < totalAxonCount
+            };
+        }
+
+        // Load dendrite nodes with database-level pagination if requested
+        if (needsDendrite && dendriteTracing) {
+            // Get total count first
+            const totalDendriteCount = await TracingNode.count({
+                where: { tracingId: dendriteTracing.id }
+            });
+
+            // Load paginated nodes
+            const dendriteNodes = await TracingNode.findAll({
+                where: { tracingId: dendriteTracing.id },
+                include: [{
+                    model: StructureIdentifier,
+                    as: "StructureIdentifier"
+                }, {
+                    model: BrainArea,
+                    as: "BrainArea"
+                }],
+                order: [["sampleNumber", "ASC"]],
+                offset: dendriteOffset,
+                limit: dendriteLimit
+            });
+
+            result.dendrite = mapNodes(dendriteNodes);
+            result.dendriteChunkInfo = {
+                totalCount: totalDendriteCount,
+                offset: dendriteOffset,
+                limit: dendriteLimit || totalDendriteCount,
+                hasMore: dendriteOffset + (dendriteLimit || totalDendriteCount) < totalDendriteCount
+            };
+        }
+
+        // Load Allen information if requested
+        if (needsAllenInfo && (axonTracing || dendriteTracing)) {
+            const tracingIds = [axonTracing?.id, dendriteTracing?.id].filter(id => id != null);
+            
+            // Get unique brain areas from nodes
+            const brainAreas = await TracingNode.findAll({
+                where: { 
+                    tracingId: { [Op.in]: tracingIds },
+                    brainAreaId: { [Op.ne]: null }
+                },
+                attributes: [],
+                include: [{
+                    model: BrainArea,
+                    as: "BrainArea",
+                    attributes: ["id", "structureId", "name", "safeName", "acronym", "graphOrder", "structureIdPath", "geometryColor"]
+                }],
+                group: ["BrainArea.id"],
+                raw: false
+            });
+
+            const uniqueAreas = uniqBy(brainAreas.map(n => n.BrainArea).filter(b => b != null), "id");
+            
+            result.allenInformation = uniqueAreas.map(s => ({
+                allenId: s.structureId,
+                name: s.name,
+                safeName: s.safeName,
+                acronym: s.acronym,
+                graphOrder: s.graphOrder,
+                structurePath: s.structureIdPath,
+                colorHex: s.geometryColor
+            }));
+        }
+
+        return result;
     }
 
     public static async unpublish(id: string): Promise<boolean> {
@@ -856,17 +1135,138 @@ export const modelAssociate = () => {
     Reconstruction.hasOne(Precomputed, {foreignKey: "reconstructionId", as: "Precomputed"});
 };
 
-function mapNodes(nodes: TracingNode[]) {
+// Pure transformation functions for testing
+export function mapNodes(nodes: TracingNode[]): ReconstructionDataNode[] {
     return nodes.map(n => {
         return {
             sampleNumber: n.sampleNumber,
             structureIdentifier: n.StructureIdentifier.value,
-            x: n.z,
+            x: n.x,
             y: n.y,
-            z: n.x,
+            z: n.z,
             radius: n.radius,
             parentNumber: n.parentNumber,
             allenId: n.BrainArea ? n.BrainArea.structureId : null
         }
     });
+}
+
+export function extractTracingData(tracings: any[]): {
+    axon: ReconstructionDataNode[];
+    axonId: string | null;
+    dendrite: ReconstructionDataNode[];
+    dendriteId: string | null;
+    soma: ReconstructionDataNode | null;
+} {
+    const AXON_STRUCTURE_ID = "68e76074-1777-42b6-bbf9-93a6a5f02fa4";
+    
+    let axon: ReconstructionDataNode[] = [];
+    let axonId: string | null = null;
+    let dendrite: ReconstructionDataNode[] = [];
+    let dendriteId: string | null = null;
+
+    let nodes = mapNodes(tracings[0].Nodes).sort((a, b) => a.sampleNumber - b.sampleNumber);
+    if (tracings[0].tracingStructureId === AXON_STRUCTURE_ID) {
+        axon = nodes;
+        axonId = tracings[0].id;
+    } else {
+        dendrite = nodes;
+        dendriteId = tracings[0].id;
+    }
+
+    nodes = mapNodes(tracings[1].Nodes).sort((a, b) => a.sampleNumber - b.sampleNumber);
+    if (tracings[1].tracingStructureId === AXON_STRUCTURE_ID) {
+        axon = nodes;
+        axonId = tracings[1].id;
+    } else {
+        dendrite = nodes;
+        dendriteId = tracings[1].id;
+    }
+
+    const soma = dendrite.find(n => n.sampleNumber === 1) || axon.find(n => n.sampleNumber === 1) || null;
+    
+    return { axon, axonId, dendrite, dendriteId, soma };
+}
+
+export function extractAllenInformation(tracings: any[]): ReconstructionAllenInfo[] {
+    const structures1 = tracings[0].Nodes.filter(n => n.BrainArea).map(n => n.BrainArea);
+    const structures2 = tracings[1].Nodes.filter(n => n.BrainArea).map(n => n.BrainArea);
+    const structures = uniqBy(concat(structures1, structures2), "id");
+    
+    return structures.map(s => ({
+        allenId: s.structureId,
+        name: s.name,
+        safeName: s.safeName,
+        acronym: s.acronym,
+        graphOrder: s.graphOrder,
+        structurePath: s.structureIdPath,
+        colorHex: s.geometryColor
+    }));
+}
+
+export function buildSampleData(sample: any): ReconstructionSample {
+    return {
+        date: sample.sampleDate,
+        subject: sample.animalId,
+        genotype: sample.MouseStrain?.name || null,
+        collection: {
+            id: sample.Collection?.id || null,
+            name: sample.Collection?.name || null,
+            description: sample.Collection?.description || null,
+            reference: sample.Collection?.reference || null
+        }
+    };
+}
+
+export function buildLabelData(injections: any[]): ReconstructionLabel[] | null {
+    if (!injections || injections.length === 0) {
+        return null;
+    }
+    
+    const labels = injections.map(i => ({
+        virus: i.injectionVirus.name,
+        fluorophore: i.fluorophore.name
+    }));
+    
+    return labels.length > 0 ? labels : null;
+}
+
+export async function transformReconstructionToJSON(
+    reconstruction: any
+): Promise<ReconstructionDataJSON> {
+    const tracingData = extractTracingData(reconstruction.Tracings);
+    const allenInfo = extractAllenInformation(reconstruction.Tracings);
+    const sample = buildSampleData(reconstruction.Neuron.Sample);
+    const label = buildLabelData(reconstruction.Neuron.Sample.Injections);
+    
+    const neuronData: ReconstructionNeuronData = {
+        id: reconstruction.Neuron.id,
+        idString: reconstruction.Neuron.idString,
+        DOI: reconstruction.Neuron.doi,
+        sample,
+        label,
+        annotationSpace: {
+            version: 3,
+            description: "Annotation Space: CCFv3.0 Axes> X: Anterior-Posterior; Y: Inferior-Superior; Z:Left-Right"
+        },
+        annotator: await reconstruction.getAnnotator(),
+        proofreader: await reconstruction.getProofreader(),
+        peerReviewer: await reconstruction.getPeerReviewer(),
+        soma: tracingData.soma ? {
+            x: tracingData.soma.x,
+            y: tracingData.soma.y,
+            z: tracingData.soma.z,
+            allenId: tracingData.soma.allenId
+        } : { x: 0, y: 0, z: 0, allenId: null },
+        axonId: tracingData.axonId,
+        axon: tracingData.axon,
+        dendriteId: tracingData.dendriteId,
+        dendrite: tracingData.dendrite,
+        allenInformation: allenInfo
+    };
+
+    return {
+        comment: "",
+        neurons: [neuronData]
+    };
 }

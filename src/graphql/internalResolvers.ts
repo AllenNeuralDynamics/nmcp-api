@@ -1,7 +1,7 @@
 import {User, UserPermissions} from "../models/user";
 import {Precomputed} from "../models/precomputed";
 import {IIdOnlyArguments} from "./openResolvers";
-import {Reconstruction} from "../models/reconstruction";
+import {Reconstruction, ReconstructionDataJSON, ReconstructionDataChunked} from "../models/reconstruction";
 import {GraphQLError} from "graphql/error";
 import {Neuron} from "../models/neuron";
 
@@ -11,6 +11,17 @@ interface IPrecomputedUpdateArguments {
     id: string;
     version: number;
     generatedAt: number;
+}
+
+interface IReconstructionDataChunkedArguments {
+    id: string;
+    input?: {
+        parts?: string[];
+        axonOffset?: number;
+        axonLimit?: number;
+        dendriteOffset?: number;
+        dendriteLimit?: number;
+    };
 }
 
 /**
@@ -23,9 +34,33 @@ export const internalResolvers = {
                 return Reconstruction.getAsData(args.id);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
+                    http: {status: 401},
+                },
+            });
+        },
+        reconstructionDataJSON(_: any, args: IIdOnlyArguments, context: User): Promise<ReconstructionDataJSON | null> {
+            if (context.permissions == InternalPermission) {
+                return Reconstruction.getAsJSON(args.id);
+            }
+
+            throw new GraphQLError("User is not authenticated", {
+                extensions: {
+                    code: "UNAUTHENTICATED",
+                    http: {status: 401},
+                },
+            });
+        },
+        reconstructionDataChunked(_: any, args: IReconstructionDataChunkedArguments, context: User): Promise<ReconstructionDataChunked | null> {
+            if (context.permissions == InternalPermission) {
+                return Reconstruction.getAsDataChunked(args.id, args.input || {});
+            }
+
+            throw new GraphQLError("User is not authenticated", {
+                extensions: {
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -35,9 +70,9 @@ export const internalResolvers = {
                 return Neuron.getReconstructionData(args.id);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -47,9 +82,9 @@ export const internalResolvers = {
                 return Precomputed.getPending();
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -61,9 +96,9 @@ export const internalResolvers = {
                 return Precomputed.markAsGenerated(args.id, args.version, args.generatedAt);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });
@@ -73,9 +108,9 @@ export const internalResolvers = {
                 return Precomputed.invalidate(args.ids);
             }
 
-            throw new GraphQLError('User is not authenticated', {
+            throw new GraphQLError("User is not authenticated", {
                 extensions: {
-                    code: 'UNAUTHENTICATED',
+                    code: "UNAUTHENTICATED",
                     http: {status: 401},
                 },
             });

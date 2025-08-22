@@ -235,7 +235,7 @@ export class Neuron extends BaseModel {
 
         const count = await this.setSortAndLimiting(options, input);
 
-        options.order = [[{model: Sample, as: "Sample"}, 'animalId', "ASC"], ["idString", "ASC"]];
+        options.order = [[{model: Sample, as: "Sample"}, "animalId", "ASC"], ["idString", "ASC"]];
         try {
             const neurons = await Neuron.findAll(options);
 
@@ -694,7 +694,7 @@ export class Neuron extends BaseModel {
                 {model: Reconstruction, as: "Reconstructions"},
                 {model: Sample, as: "Sample"}
             ],
-            order: [[{model: Sample, as: "Sample"}, 'animalId', "ASC"], ["idString", "ASC"]]
+            order: [[{model: Sample, as: "Sample"}, "animalId", "ASC"], ["idString", "ASC"]]
         });
     }
 
@@ -788,8 +788,8 @@ export class Neuron extends BaseModel {
     public static async findNextAvailableIdNumber(sampleId: string): Promise<number> {
         const existingNeurons = await Neuron.findAll({
             where: {sampleId: sampleId},
-            attributes: ['idString'],
-            order: [['idString', 'DESC']]
+            attributes: ["idString"],
+            order: [["idString", "DESC"]]
         });
 
         let nextNumber = 1;
@@ -817,7 +817,7 @@ export class Neuron extends BaseModel {
         try {
             for (let i = 0; i < records.length; i++) {
                 const record = records[i];
-                const idString = `N${String(idNumberBase + i).padStart(3, '0')}`;
+                const idString = `N${String(idNumberBase + i).padStart(3, "0")}`;
                 // console.log(record);
                 const neuron = await Neuron.create({
                     sampleId: sample.id,

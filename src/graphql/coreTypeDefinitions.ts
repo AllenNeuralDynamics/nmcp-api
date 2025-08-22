@@ -291,4 +291,157 @@ export const coreTypeDefinitions = gql`
         threshold: [Float]
         limits: SliceLimits
     }
+
+    """
+    Node structure for reconstruction data
+    """
+    type ReconstructionDataNode {
+        sampleNumber: Int!
+        structureIdentifier: Int!
+        x: Float!
+        y: Float!
+        z: Float!
+        radius: Float!
+        parentNumber: Int!
+        allenId: Int
+    }
+
+    """
+    Allen brain area information for reconstruction
+    """
+    type ReconstructionAllenInfo {
+        allenId: Int!
+        name: String!
+        safeName: String!
+        acronym: String!
+        graphOrder: Int!
+        structurePath: String!
+        colorHex: String!
+    }
+
+    """
+    Annotation space information
+    """
+    type ReconstructionAnnotationSpace {
+        version: Int!
+        description: String!
+    }
+
+    """
+    Soma information for reconstruction
+    """
+    type ReconstructionSoma {
+        x: Float!
+        y: Float!
+        z: Float!
+        allenId: Int
+    }
+
+    """
+    Label information for reconstruction
+    """
+    type ReconstructionLabel {
+        virus: String!
+        fluorophore: String!
+    }
+
+    """
+    Collection information for sample
+    """
+    type ReconstructionSampleCollection {
+        id: String
+        name: String
+        description: String
+        reference: String
+    }
+
+    """
+    Sample information for reconstruction
+    """
+    type ReconstructionSample {
+        date: Date
+        subject: String
+        genotype: String
+        collection: ReconstructionSampleCollection
+    }
+
+    """
+    Individual neuron data within reconstruction
+    """
+    type ReconstructionNeuronData {
+        id: String!
+        idString: String!
+        DOI: String
+        sample: ReconstructionSample!
+        label: [ReconstructionLabel!]
+        annotationSpace: ReconstructionAnnotationSpace!
+        annotator: User
+        proofreader: User
+        peerReviewer: User
+        soma: ReconstructionSoma!
+        axonId: String
+        axon: [ReconstructionDataNode!]!
+        dendriteId: String
+        dendrite: [ReconstructionDataNode!]!
+        allenInformation: [ReconstructionAllenInfo!]!
+    }
+
+    """
+    Complete reconstruction data as JSON object
+    """
+    type ReconstructionDataJSON {
+        comment: String!
+        neurons: [ReconstructionNeuronData!]!
+    }
+
+    """
+    Enum for reconstruction data parts
+    """
+    enum ReconstructionDataPart {
+        header
+        axon
+        dendrite
+        allenInformation
+    }
+
+    """
+    Chunk information for paginated data
+    """
+    type ReconstructionChunkInfo {
+        totalCount: Int!
+        offset: Int!
+        limit: Int!
+        hasMore: Boolean!
+    }
+
+    """
+    Header information for chunked reconstruction (everything except axon, dendrite, and allenInformation)
+    """
+    type ReconstructionHeaderData {
+        id: String!
+        idString: String!
+        DOI: String
+        sample: ReconstructionSample!
+        label: [ReconstructionLabel!]
+        annotationSpace: ReconstructionAnnotationSpace!
+        annotator: User
+        proofreader: User
+        peerReviewer: User
+        soma: ReconstructionSoma!
+        axonId: String
+        dendriteId: String
+    }
+
+    """
+    Chunked reconstruction data response
+    """
+    type ReconstructionDataChunked {
+        comment: String!
+        header: ReconstructionHeaderData
+        axon: [ReconstructionDataNode!]
+        axonChunkInfo: ReconstructionChunkInfo
+        dendrite: [ReconstructionDataNode!]
+        dendriteChunkInfo: ReconstructionChunkInfo
+        allenInformation: [ReconstructionAllenInfo!]
+    }
 `;
