@@ -6,6 +6,7 @@
   "author": "Patrick Edson <pedson@leapscientific.com>",
   "license": "SEE LICENSE IN LICENSE",
   "scripts": {
+    "test": "jest",
     "debug": "tsc && node --trace-warnings --max-old-space-size=8192 --optimize-for-size src/app.js",
     "express": "node dist/app.js",
     "smartsheet": "npx run-func src/tools/smartSheetClient.js synchronize",
@@ -13,8 +14,16 @@
     "show-duplicate": "npx run-func src/util/processDuplicateReconstructions.js processDuplicateReconstructions"
   },
   "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
     "transform": {
-      "^.+\\.tsx?$": "ts-jest"
+      "^.+\\.tsx?$": [
+        "ts-jest",
+        {
+          "tsconfig": "tsconfig.test.json",
+          "diagnostics": false
+        }
+      ]
     },
     "testRegex": "/__tests__/.*\\.(test|spec)\\.(tsx?)$",
     "moduleFileExtensions": [
@@ -24,6 +33,13 @@
       "jsx",
       "json",
       "node"
+    ],
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "/dist/"
+    ],
+    "modulePathIgnorePatterns": [
+      "<rootDir>/dist/"
     ]
   },
   "dependencies": {
@@ -50,6 +66,8 @@
     "pg": "^8.7.1",
     "sequelize": "^6.34.0",
     "smartsheet": "^4.0.2",
+    "to": "^0.2.9",
+    "upgrade": "^1.1.0",
     "uuid": "^11.1.0"
   },
   "devDependencies": {
@@ -57,13 +75,13 @@
     "@types/graphql-upload": "^15.0.2",
     "@types/gulp": "4.0.6",
     "@types/isomorphic-fetch": "^0.0.35",
-    "@types/jest": "^24.0.21",
+    "@types/jest": "^29.5.14",
     "@types/node": "^12.12.6",
     "@types/uuid": "^3.4.5",
     "@types/validator": "^10.11.3",
-    "jest": "^24.9.0",
+    "jest": "^29.7.0",
     "sqlite3": "^5.1.7",
-    "ts-jest": "^24.1.0",
+    "ts-jest": "^29.4.1",
     "typescript": "^5.3.3"
   }
 }

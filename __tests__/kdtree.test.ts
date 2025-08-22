@@ -16,9 +16,17 @@ const points : Point[] = [
 
 const tree = new KDTree(points);
 
-confirmNearestNeighbor(tree, points,  {x: 0.5, y: 0.5, z: 0.5});
-confirmNearestNeighbor(tree, points,  {x: 0.1, y: 0.5, z: 0.5});
-confirmNearestNeighbor(tree, points,  {x: 0.3, y: 0.5, z: 0.1});
+describe("validate nearest neighbor", () => {
+    it("checks a location", () => {
+        confirmNearestNeighbor(tree, points,  {x: 0.5, y: 0.5, z: 0.5});
+    });
+    it("checks a location", () => {
+        confirmNearestNeighbor(tree, points,  {x: 0.1, y: 0.5, z: 0.5});
+    });
+    it("checks a location", () => {
+        confirmNearestNeighbor(tree, points,  {x: 0.3, y: 0.5, z: 0.1});
+    });
+});
 
 function confirmNearestNeighbor(tree: KDTree, points: Point[], point: Point) {
     // Brute force to verify implementation.
@@ -41,12 +49,6 @@ function confirmNearestNeighbor(tree: KDTree, points: Point[], point: Point) {
 
     const nearest = tree.nearest(point);
 
-    if (nearest[0].point.id === id) {
-        console.log("selection match")
-    } else {
-        console.log("selection mismatch")
-        console.log(nearest[0])
-        console.log(minDistance)
-        console.log(id)
-    }
+    expect(nearest.length).toBe(1);
+    expect(nearest[0].point.id).toBe(id);
 }
