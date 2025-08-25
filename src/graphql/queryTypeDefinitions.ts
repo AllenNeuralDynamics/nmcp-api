@@ -66,8 +66,4 @@ export const queryTypeDefinitions = gql`
         node: TracingNode
         error: String
     }
-    
-    type Query {
-        reconstructionDataChunked(id: String!, chunkSize: Int, axonChunkIndex: Int, dendriteChunkIndex: Int): String
-    }
 `;

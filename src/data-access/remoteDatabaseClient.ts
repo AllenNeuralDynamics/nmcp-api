@@ -191,7 +191,8 @@ export class RemoteDatabaseClient {
 
         await Reconstruction.loadReconstructionCache();
 
-        await loadTracingCache();
+        // TODO Turn back ok if ok for legacy viewer.
+        // await loadTracingCache();
     }
 
     private log(message: any) {

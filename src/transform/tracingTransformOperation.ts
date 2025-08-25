@@ -9,6 +9,8 @@ import {TracingNode} from "../models/tracingNode";
 import {StructureIdentifier, StructureIdentifiers} from "../models/structureIdentifier";
 import {SearchContent} from "../models/searchContent";
 
+const preferredDatabaseChunkSize = 25000;
+
 export interface ITransformOperationProgressStatus {
     inputNodeCount?: number;
     outputNodeCount?: number;
@@ -41,6 +43,8 @@ export class TransformOperation {
 
     private _ccfv30CompartmentMap: CompartmentStatisticsMap;
 
+    private _nrrdContent: NrrdFile;
+
     public get Tracing(): Tracing {
         return this._context.tracing;
     }
@@ -55,55 +59,76 @@ export class TransformOperation {
         await this.updateTracing();
     }
 
-    public async assignNodeCompartments(): Promise<void> {
-        const nodes = this._context.tracing.Nodes;
+    private async assignNodeCompartments(): Promise<void> {
+        this._ccfv30CompartmentMap = new Map<string, ICompartmentStatistics>();
 
-        if (!nodes) {
-            return;
+        this._nrrdContent = new NrrdFile(ServiceOptions.ccfv30OntologyPath);
+
+        this._nrrdContent.init();
+
+        this.logMessage(`brain lookup extents (nrrd30 order) ${this._nrrdContent.size[0]} ${this._nrrdContent.size[1]} ${this._nrrdContent.size[2]}`);
+
+        const count = await TracingNode.count({where: {tracingId: this.Tracing.id}});
+
+        this.logMessage(`assigning compartments to ${count} nodes for tracing ${this.Tracing.id}`);
+
+        let failedLookupTotal = 0;
+
+        for (let idx = 0; idx < count; idx += preferredDatabaseChunkSize) {
+            const nodes = await TracingNode.findAll({where: {tracingId: this.Tracing.id}, offset: idx, limit: preferredDatabaseChunkSize, order: [["sampleNumber", "ASC"]]});
+
+            this.logMessage(`\tassigning compartments for chunk starting at ${idx} for tracing ${this.Tracing.id}`);
+
+            failedLookupTotal += await this.assignNodeChunkCompartments(nodes);
+
+            this.logMessage("\tpartial assignment complete");
         }
 
-        const nrrdContent = new NrrdFile(ServiceOptions.ccfv30OntologyPath);
+        this.logMessage(`\tassignment complete (${failedLookupTotal} failed lookups)`);
 
-        nrrdContent.init();
+        this._nrrdContent.close();
+    }
 
-        this.logMessage(`brain lookup extents (nrrd30 order) ${nrrdContent.size[0]} ${nrrdContent.size[1]} ${nrrdContent.size[2]}`);
+    private async assignNodeChunkCompartments(nodes: TracingNode[]): Promise<number> {
+        if (!nodes) {
+            return 0;
+        }
 
-        this._ccfv30CompartmentMap = new Map<string, ICompartmentStatistics>();
+        const nrrdContent = this._nrrdContent;
 
         let failedLookup = 0;
 
         const somaStructureId = StructureIdentifier.idForValue(StructureIdentifiers.soma);
 
         const promises = nodes.map(async (node, index) => {
-            let brainAreaIdCcfv30: string = null;
+            let brainStructureId: string = node.brainStructureId;
 
-            try {
-                // In NRRD z, y, x order after reverse
-                const transformedLocation = [Math.ceil(node.x / 10), Math.ceil(node.y / 10), Math.ceil(node.z / 10)].reverse();
+            if (!brainStructureId) {
+                try {
+                    const transformedLocation = [Math.ceil(node.x / 10), Math.ceil(node.y / 10), Math.ceil(node.z / 10)].reverse();
 
-                // const brainAreaInput = [0, 0, 0];
-                const ccfv30StructureId: number = nrrdContent.findStructureId(transformedLocation[0], transformedLocation[1], transformedLocation[2]);
+                    const allenStructureId: number = nrrdContent.findStructureId(transformedLocation[0], transformedLocation[1], transformedLocation[2]);
 
-                brainAreaIdCcfv30 = this.findCompartmentId(ccfv30StructureId);
-            } catch (err) {
-                this.logMessage(`${index}`);
-                this.logMessage(err);
+                    brainStructureId = this.findCompartmentId(allenStructureId);
+                } catch (err) {
+                    this.logMessage(`${index}`);
+                    this.logMessage(err);
+                }
+
+                if (!brainStructureId) {
+                    failedLookup++;
+                    brainStructureId = this._context.compartmentMap.get(997).id;
+                }
+
+                await node.update({brainStructureId: brainStructureId});
             }
 
-            if (!brainAreaIdCcfv30) {
-                failedLookup++;
-                // this.logMessage(`failed brain structure lookup for ${swcNode.sampleNumber}`);
-                brainAreaIdCcfv30 = this._context.compartmentMap.get(997).id;
-            }
-
-            this.populateCompartmentMap(brainAreaIdCcfv30, node);
-
-            await node.update({brainStructureId: brainAreaIdCcfv30});
+            this.populateCompartmentMap(brainStructureId, node);
 
             if (node.structureIdentifierId == somaStructureId && this._context.tracing?.Reconstruction?.Neuron?.brainStructureId) {
                 const somaBrainStructureId = this._context.tracing?.Reconstruction.Neuron.brainStructureId;
 
-                if (somaBrainStructureId != brainAreaIdCcfv30) {
+                if (somaBrainStructureId != brainStructureId) {
                     this.populateCompartmentMap(somaBrainStructureId, node, true);
                 }
             }
@@ -112,21 +137,19 @@ export class TransformOperation {
         await Promise.all(promises);
 
         if (failedLookup > 0) {
-            this.logMessage(`${failedLookup} of ${nodes.length} nodes failed the brain structure lookup`);
+            this.logMessage(`\t\t${failedLookup} of ${nodes.length} nodes failed the brain structure lookup`);
         }
 
-        this.logMessage("assignment complete");
-
-        nrrdContent.close();
+        return failedLookup;
     }
 
-    public async updateTracing(): Promise<void> {
+    private async updateTracing(): Promise<void> {
         if (this.Tracing.id === null) {
-            this.logMessage(`can not update tracing without context id`);
+            this.logMessage("\tcan not update tracing without context id");
             return;
         }
 
-        this.logMessage("starting tracing dependent updates");
+        this.logMessage("\tstarting tracing dependent updates");
 
         await this.updateBrainCompartmentContent();
 
@@ -162,9 +185,13 @@ export class TransformOperation {
 
         const neuron = await reconstruction.getNeuron();
 
+        this.logMessage("\tremoving exising SearchContent entries");
+
         await SearchContent.destroy({where: {tracingId: tracing.id}, force: true});
 
         let searchContentByBrainStructure = [];
+
+        this.logMessage(`\tpreparing ${this._ccfv30CompartmentMap.size} SearchContent entries`);
 
         for (const entry of this._ccfv30CompartmentMap.entries()) {
             searchContentByBrainStructure.push({
@@ -186,6 +213,8 @@ export class TransformOperation {
                 endCount: entry[1].End
             });
         }
+
+        this.logMessage(`\tinserting ${this._ccfv30CompartmentMap.size} SearchContent entries`);
 
         await Tracing.sequelize.transaction(async (t) => {
             const chunkSize = 100000;

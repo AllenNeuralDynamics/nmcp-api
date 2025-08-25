@@ -12,6 +12,7 @@ export class Precomputed extends BaseModel {
     static async getPending(): Promise<Precomputed[]> {
         return await Precomputed.findAll({
             where: {
+                "version": null,
                 "generatedAt": null
             }
         })

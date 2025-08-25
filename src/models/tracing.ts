@@ -342,7 +342,17 @@ export class Tracing extends TracingBaseModel {
 
     public static async applyTransform(id: string): Promise<TransformResult> {
         try {
-            const tracing = await Tracing.findByPk(id);
+            let tracing = await Tracing.findByPk(id, {
+                include: [{
+                    model: Reconstruction,
+                    as: "Reconstruction",
+                    attributes: ["id", "neuronId"],
+                    include: [{
+                        model: Neuron,
+                        as: "Neuron",
+                        attributes: ["id", "brainStructureId"]
+                    }]
+                }]});
 
             if (!fs.existsSync(ServiceOptions.ccfv30OntologyPath)) {
                 debug(`CCF v3.0 ontology file ${ServiceOptions.ccfv30OntologyPath} does not exist`);
@@ -352,16 +362,9 @@ export class Tracing extends TracingBaseModel {
                 };
             }
 
-            return new Promise((resolve, reject) => {
-                setTimeout(async () => {
-                    // Reload with nodes and required data for transform.
-                    const fullTracing = await Tracing.findOneForTransform(id);
+            tracing = await performNodeMap(tracing);
 
-                    await performNodeMap(fullTracing);
-
-                    resolve({tracing: fullTracing, error: null});
-                }, 0);
-            });
+            return {tracing: tracing, error: null}
         } catch (err) {
             debug(err)
             return {tracing: null, error: err};
@@ -371,6 +374,9 @@ export class Tracing extends TracingBaseModel {
     public async nearestNode(location: number[]): Promise<any> {
         let tree: KDTree = null;
 
+        return null;
+        // TODO Too slow for 2 million node tracings.
+        /*
         if (Tracing._nearestNodeCache.has(this.id)) {
             tree = Tracing._nearestNodeCache.get(this.id);
         } else {
@@ -390,6 +396,7 @@ export class Tracing extends TracingBaseModel {
         }
 
         return null;
+         */
     }
 }
 

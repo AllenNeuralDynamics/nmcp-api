@@ -140,8 +140,8 @@ async function notifyPrecomputed() {
         where: {
             "status": {
                 [Op.or]: [
-                    {[Op.eq]: ReconstructionStatus.InReview},
-                    {[Op.eq]: ReconstructionStatus.Approved},
+                    // {[Op.eq]: ReconstructionStatus.InReview},
+                    // {[Op.eq]: ReconstructionStatus.Approved},
                     {[Op.eq]: ReconstructionStatus.Published}
                 ]
             },

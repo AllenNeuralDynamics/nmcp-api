@@ -1,4 +1,4 @@
-import { ApolloClient, InMemoryCache } from '@apollo/client/core';
+import {ApolloClient, HttpLink, InMemoryCache} from '@apollo/client/core';
 
 const gql = require("graphql-tag");
 
@@ -15,7 +15,7 @@ export class StaticApiClient {
         debug(`creating apollo client for static service ${url}`);
 
         this._client = new ApolloClient({
-            uri: url,
+            link: new HttpLink({uri: url}),
             cache: new InMemoryCache()
         });
     }

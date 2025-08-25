@@ -45,7 +45,7 @@ export function synchronizationManagerStart(){
 
     proc.on("message", async (data: any)=> {
         // Must happen on the original process.  data should be the id of a tracing.
-        await addTracingToMiddlewareCacheById(data);
+        // TODO legacy viewer if used await addTracingToMiddlewareCacheById(data);
         await Neuron.ensureForTracingInCache(data);
         await Reconstruction.loadReconstructionCache();
     });
