@@ -99,14 +99,14 @@ export class BrainArea extends BaseModel {
         return this._wholeBrainId;
     }
 
-    public static async loadCompartmentCache() {
+    public static async loadCompartmentCache(reason: string) {
         if (this._comprehensiveCompartmentLookup.size > 0) {
             return
         }
 
         const brainAreas = await BrainArea.findAll({});
 
-        debug(`caching ${brainAreas.length} brain areas`);
+        debug(`caching ${brainAreas.length} brain areas (${reason})`);
 
         for (let idx = 0; idx < brainAreas.length; idx++) {
             const b = brainAreas[idx];

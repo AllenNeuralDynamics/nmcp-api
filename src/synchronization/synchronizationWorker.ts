@@ -16,7 +16,7 @@ setTimeout(async () => {
 
     await RemoteDatabaseClient.Start();
 
-    await BrainArea.loadCompartmentCache();
+    await BrainArea.loadCompartmentCache("synchronization process");
 
     await performSynchronization();
 

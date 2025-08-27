@@ -94,7 +94,7 @@ export const synchronize = async (sheetId: number = 0, pathToReconstructions: st
 
     await RemoteDatabaseClient.Start(false, false);
 
-    await BrainArea.loadCompartmentCache();
+    await BrainArea.loadCompartmentCache("smartsheet import");
 
     const s = new SmartSheetClient(token);
 
@@ -308,9 +308,9 @@ async function sampleFromRowContents(s: SampleRowContents, reconstructionLocatio
             }
 
             // Do not replace tracing if already published.
-            if (reconstruction.status == ReconstructionStatus.Published) {
-                debug(`updating reconstruction ${reconstruction.id} (${n.idString}-${s.subjectId}) is already published.`)
-                return;
+            if (reconstruction.status >= ReconstructionStatus.PendingStructureAssignment) {
+                debug(`updating reconstruction ${reconstruction.id} (${n.idString}-${s.subjectId}) is already published or pending publication.`)
+                continue;
             }
 
             const file_prefix = `${n.idString}-${s.subjectId}`;
@@ -407,7 +407,7 @@ export class SmartSheetClient {
     public async updateDatabase(reconstructionLocation: string, parseFiles: boolean) {
         const ordered = Array.from(this.samples.values()).sort((a, b)=> a.subjectId.localeCompare(b.subjectId));
 
-        const limited = ordered.filter(s => s.subjectId == "685222");
+        const limited = ordered; //.filter(s => s.subjectId == "685222");
 
         for (const s of limited) {
             await sampleFromRowContents(s, reconstructionLocation, parseFiles);

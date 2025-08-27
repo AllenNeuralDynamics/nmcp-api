@@ -184,7 +184,7 @@ export class RemoteDatabaseClient {
     private async prepareSearchContents() {
         this.log(`preparing search contents`);
 
-        await BrainArea.loadCompartmentCache();
+        await BrainArea.loadCompartmentCache("search contents preparation");
 
         await Neuron.loadNeuronCache();
 

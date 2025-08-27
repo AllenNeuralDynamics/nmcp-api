@@ -27,7 +27,7 @@ export async function importSomaProperties(filename: string, subjectId: string =
         }
     }
 
-    await BrainArea.loadCompartmentCache();
+    await BrainArea.loadCompartmentCache("soma candidate import");
 
     const sample = await Sample.findOne({ where: { animalId: subjectId } });
 
