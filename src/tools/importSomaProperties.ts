@@ -41,8 +41,6 @@ export async function importSomaProperties(filename: string, subjectId: string =
 
     debug(`Starting neuron labelling from base index ${nextNumber}`);
 
-    // console.log(processedRecords);
-
     const idStrings = await Neuron.insertSomaEntries(processedRecords, sample, nextNumber, noEmit);
 
     debug(`Created ${processedRecords.length} neurons for sample ${sample.animalId} (${sample.id})`);

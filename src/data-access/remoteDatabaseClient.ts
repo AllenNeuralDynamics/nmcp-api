@@ -12,7 +12,6 @@ import {Sample} from "../models/sample";
 import {Neuron} from "../models/neuron";
 import {StructureIdentifier} from "../models/structureIdentifier";
 import {TracingStructure} from "../models/tracingStructure";
-import {loadTracingCache} from "../rawquery/tracingQueryMiddleware";
 import {Reconstruction} from "../models/reconstruction";
 import {NeuronTableName, SampleTableName} from "../models/tableNames";
 
@@ -190,9 +189,6 @@ export class RemoteDatabaseClient {
         await Neuron.loadNeuronCache();
 
         await Reconstruction.loadReconstructionCache();
-
-        // TODO Turn back ok if ok for legacy viewer.
-        // await loadTracingCache();
     }
 
     private log(message: any) {

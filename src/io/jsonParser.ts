@@ -1,11 +1,12 @@
 import * as byline from "byline";
 import * as fs from "fs";
 import JSONStream = require("JSONStream");
-import {ISwcSample, SwcData} from "./SwcParser";
+import {ParsedNode, ParsedReconstruction} from "./parsedReconstruction";
+import {BrainArea} from "../models/brainArea";
 
 const debug = require("debug")("nmcp:nmcp-api:json-parser");
 
-export async function jsonChunkParse(fileStream: fs.ReadStream): Promise<[SwcData, SwcData]> {
+export async function jsonChunkParse(fileStream: fs.ReadStream): Promise<[ParsedReconstruction, ParsedReconstruction]> {
     const parser = JSONStream.parse('neurons.*'); // Parses each element in an array or root object
 
     fileStream.pipe(parser);
@@ -33,7 +34,7 @@ export async function jsonChunkParse(fileStream: fs.ReadStream): Promise<[SwcDat
     });
 }
 
-export async function jsonParse(fileStream: fs.ReadStream): Promise<[SwcData, SwcData]> {
+export async function jsonParse(fileStream: fs.ReadStream): Promise<[ParsedReconstruction, ParsedReconstruction]> {
     const stream = byline.createStream(fileStream);
 
     let data: string = "";
@@ -65,7 +66,7 @@ function oneFileComplete(data: string, resolve) {
     resolve([axonData, dendriteData]);
 }
 
-function parseObj(obj: any): [SwcData, SwcData] {
+function parseObj(obj: any): [ParsedReconstruction, ParsedReconstruction] {
     const axonData = createSwcData(obj.axon);
 
     if (axonData) {
@@ -81,11 +82,11 @@ function parseObj(obj: any): [SwcData, SwcData] {
     return [axonData, dendriteData];
 }
 
-function createSwcData(nodes: any[]): SwcData {
+function createSwcData(nodes: any[]): ParsedReconstruction {
     if (!nodes) {
         return null;
     }
-    const axonData = new SwcData();
+    const axonData = new ParsedReconstruction();
 
     const samples = parseSamples(nodes);
 
@@ -96,7 +97,7 @@ function createSwcData(nodes: any[]): SwcData {
     return axonData;
 }
 
-function parseSamples(nodes: any[]): ISwcSample[] {
+function parseSamples(nodes: any[]): ParsedNode[] {
     return nodes.map((n: any) => {
         return {
             sampleNumber: n.sampleNumber,
@@ -106,7 +107,8 @@ function parseSamples(nodes: any[]): ISwcSample[] {
             y: n.y,
             z: n.z,
             radius: n.radius,
-            lengthToParent: 0
+            lengthToParent: 0,
+            brainStructureId: BrainArea.getFromStructureId(n.allenId)?.id
         };
     });
 }

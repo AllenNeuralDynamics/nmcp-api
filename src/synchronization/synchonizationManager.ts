@@ -1,11 +1,9 @@
 import {fork} from "child_process";
 import * as path from "path";
 
-const debugWorker = require("debug")("mnb:synchronization:synchronization-worker");
+const debugWorker = require("debug")("nmcp:synchronization:synchronization-worker");
 
-import {addTracingToMiddlewareCacheById} from "../rawquery/tracingQueryMiddleware";
 import {Reconstruction} from "../models/reconstruction";
-import {Neuron} from "../models/neuron";
 
 /**
  * Start and manage a separate node process for synchronizing published reconstruction data.
@@ -21,16 +19,19 @@ import {Neuron} from "../models/neuron";
 export function synchronizationManagerStart(){
     const proc = fork(path.join(__dirname, "synchronizationWorker"), [], {
         silent: true,
-        execArgv: []
+        execArgv: [],
+        stdio: [
+            /* stdin: */ 0,
+            /* stdout: */ "pipe",
+            /* stderr: */ "pipe",
+            "ipc"
+        ],
+        env: Object.assign({}, process.env, {
+            DEBUG_COLORS: 1
+        }),
     });
 
-    proc.stdout.on("data", data => {
-        debugWorker(`${data.slice(0, -1)}`);
-    });
-
-    proc.stderr.on("data", data => {
-        console.error(`${data.slice(0, -1)}`);
-    });
+    proc.stderr.pipe(process.stderr, { end: false });
 
     proc.on("exit", code => {
         debugWorker(`synchronization worker exit: ${code}`);
@@ -44,9 +45,7 @@ export function synchronizationManagerStart(){
     });
 
     proc.on("message", async (data: any)=> {
-        // Must happen on the original process.  data should be the id of a tracing.
-        // TODO legacy viewer if used await addTracingToMiddlewareCacheById(data);
-        await Neuron.ensureForTracingInCache(data);
-        await Reconstruction.loadReconstructionCache();
+        // Must happen on the original process.  data should be the id of a reconstruction.
+        await Reconstruction.loadReconstructionCache(data);
     });
 }

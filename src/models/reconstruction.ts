@@ -1,6 +1,5 @@
-import {BelongsToGetAssociationMixin, DataTypes, HasManyGetAssociationsMixin, Op, Sequelize} from "sequelize";
-import _ = require("lodash");
-import {concat, uniqBy} from "lodash"
+import {BelongsToGetAssociationMixin, DataTypes, FindOptions, HasManyGetAssociationsMixin, Op, Sequelize} from "sequelize";
+import {concat, uniq, uniqBy} from "lodash"
 
 import {ReconstructionTableName} from "./tableNames";
 import {BaseModel} from "./baseModel";
@@ -20,8 +19,14 @@ import {Injection} from "./injection";
 import {MouseStrain} from "./mouseStrain";
 import {SearchContent} from "./searchContent";
 import {Collection} from "./collection";
-import {IErrorOutput, IReconstructionPage, IReconstructionPageInput, PeerReviewPageInput, ReviewPageInput} from "../graphql/secureResolvers";
-import {removeTracingFromMiddlewareCache} from "../rawquery/tracingQueryMiddleware";
+import {
+    FullReviewPageInput,
+    IErrorOutput,
+    IReconstructionPage,
+    IReconstructionPageInput,
+    PeerReviewPageInput,
+    ReviewPageInput
+} from "../graphql/secureResolvers";
 
 const debug = require("debug")("mnb:nmcp-api:reconstruction-model");
 
@@ -155,14 +160,14 @@ export type ReconstructionDataChunked = {
 
 export class Reconstruction extends BaseModel {
     status: ReconstructionStatus;
-    notes: string;
-    checks: string;
-    durationHours: number;
-    lengthMillimeters: number;
+    // notes: string;
+    // checks: string;
+    // durationHours: number;
+    // lengthMillimeters: number;
     annotatorId: string;
     proofreaderId: string;
     neuronId: string;
-    startedAt: Date;
+    // startedAt: Date;
     completedAt: Date;
 
     public getAnnotator!: BelongsToGetAssociationMixin<User>;
@@ -263,6 +268,34 @@ export class Reconstruction extends BaseModel {
         return page;
     }
 
+    public static async findPrecomputedMissing() {
+        const options = {
+            where: {
+                "status": {
+                    [Op.or]: [
+                        // {[Op.eq]: ReconstructionStatus.InReview},
+                        // {[Op.eq]: ReconstructionStatus.Approved},
+                        {[Op.eq]: ReconstructionStatus.PendingPrecomputed}
+                    ]
+                },
+                "$Precomputed$": null
+            },
+            include: [
+                {
+                    model: Precomputed,
+                    as: "Precomputed"
+                },
+                {
+                    model: Tracing,
+                    as: "Tracings",
+                    attributes: ["searchTransformAt"]
+                }
+            ]
+        };
+
+        return await Reconstruction.findAll(options);
+    }
+
     public static async isUserAnnotator(id: string, userId: string): Promise<boolean> {
         const reconstruction = await Reconstruction.findByPk(id, {
             attributes: ["annotatorId"]
@@ -326,21 +359,7 @@ export class Reconstruction extends BaseModel {
                 options.where["$Neuron.tag$"] = {[Op.iLike]: `%${input.tag}%`};
             }
 
-            out.totalCount = await Reconstruction.count(options);
-
-            options["order"] = [["Neuron", "Sample", "animalId", "ASC"], ["Neuron", "idString", "ASC"]];
-
-            if (input) {
-                if (input.offset) {
-                    options["offset"] = input.offset;
-                    out.offset = input.offset;
-                }
-
-                if (input.limit) {
-                    options["limit"] = input.limit;
-                    out.limit = input.limit;
-                }
-            }
+            await this.configureFindOptions(out, options, input);
 
             if (out.limit === 1) {
                 out.reconstructions = [await Reconstruction.findOne(options)];
@@ -354,7 +373,25 @@ export class Reconstruction extends BaseModel {
         return out;
     }
 
-    public static async getReviewableReconstructions(input: ReviewPageInput): Promise<IReconstructionPage> {
+    private static async configureFindOptions(out: IReconstructionPage, options: FindOptions, input: ReviewPageInput) {
+        out.totalCount = await Reconstruction.count(options);
+
+        options["order"] = [["Neuron", "Sample", "animalId", "ASC"], ["Neuron", "idString", "ASC"]];
+
+        if (input) {
+            if (input.offset) {
+                options["offset"] = input.offset;
+                out.offset = input.offset;
+            }
+
+            if (input.limit) {
+                options["limit"] = input.limit;
+                out.limit = input.limit;
+            }
+        }
+    }
+
+    public static async getReviewableReconstructions(input: FullReviewPageInput): Promise<IReconstructionPage> {
         let out: IReconstructionPage = {
             offset: 0,
             limit: 0,
@@ -382,21 +419,7 @@ export class Reconstruction extends BaseModel {
                 options.where["$Neuron.Sample.id$"] = {[Op.in]: input.sampleIds}
             }
 
-            out.totalCount = await Reconstruction.count(options);
-
-            options["order"] = [["Neuron", "Sample", "animalId", "ASC"], ["Neuron", "idString", "ASC"]];
-
-            if (input) {
-                if (input.offset) {
-                    options["offset"] = input.offset;
-                    out.offset = input.offset;
-                }
-
-                if (input.limit) {
-                    options["limit"] = input.limit;
-                    out.limit = input.limit;
-                }
-            }
+            await this.configureFindOptions(out, options, input);
 
             if (out.limit === 1) {
                 out.reconstructions = [await Reconstruction.findOne(options)];
@@ -522,8 +545,7 @@ export class Reconstruction extends BaseModel {
         }
 
         await reconstruction.update({
-            status: ReconstructionStatus.Published,
-            completedAt: Date.now()
+            status: ReconstructionStatus.PendingStructureAssignment
         });
 
         return null;
@@ -564,13 +586,52 @@ export class Reconstruction extends BaseModel {
         });
     }
 
+    public static async getPublishPending(status: ReconstructionStatus): Promise<Reconstruction[]> {
+        let options = {
+            where: {
+                status: status
+            }
+        };
+
+        if (status == ReconstructionStatus.PendingPrecomputed) {
+            options["include"] = [
+                {
+                    model: Precomputed,
+                    as: "Precomputed"
+                }
+            ];
+        } else {
+            options["include"] = [
+                {
+                    model: Tracing,
+                    as: "Tracings",
+                    required: true
+                }
+            ];
+        }
+
+        return Reconstruction.findAll(options);
+    }
+
     public static reconstructionCount() {
         return this._reconstructionCount;
     }
 
-    public static async loadReconstructionCache() {
+    public static async loadReconstructionCache(reconstructionIds: string[] = []) {
         try {
-            debug(`loading reconstructions`);
+            if (reconstructionIds.length > 0) {
+                debug(`reloading reconstructions`);
+                for (let id of reconstructionIds) {
+                    const reconstruction = await Reconstruction.findByPk(id);
+
+                    if (reconstruction) {
+                        await reconstruction.reload();
+                        debug(`reconstruction ${reconstruction.id} reloaded`);
+                    }
+                }
+            }
+
+            debug(`loading reconstruction cache`);
 
             const reconstructions: Reconstruction[] = await Reconstruction.findAll({
                 where: {
@@ -578,15 +639,15 @@ export class Reconstruction extends BaseModel {
                 }
             });
 
-            debug(`${reconstructions.length} reconstructions marked complete`);
+            debug(`${reconstructions.length} reconstructions marked published`);
 
             // const r = reconstructions.filter(r => r.getAxon() != null && r.getDendrite() != null);
 
             // debug(`${r.length} completed reconstructions have required tracings`);
 
-            const n = _.uniq(reconstructions.map(r => r.neuronId));
+            const n = uniq(reconstructions.map(r => r.neuronId));
 
-            debug(`${reconstructions.length} completed reconstructions represent ${n.length} unique neurons`);
+            debug(`${reconstructions.length} published reconstructions represent ${n.length} unique neurons`);
 
             this._reconstructionCount = n.length;
 
@@ -650,7 +711,7 @@ export class Reconstruction extends BaseModel {
         }
 
         const tracingData = extractTracingData(reconstruction.Tracings);
-        
+
         // Must have a soma to proceed
         if (!tracingData.soma) {
             return null;
@@ -665,7 +726,7 @@ export class Reconstruction extends BaseModel {
     }
 
     public static async getAsDataChunked(
-        id: string, 
+        id: string,
         options: {
             parts?: string[];
             axonOffset?: number;
@@ -690,7 +751,7 @@ export class Reconstruction extends BaseModel {
 
         // Build includes conditionally - only load what's needed
         const includes: any[] = [];
-        
+
         // Include Neuron data if header is requested
         if (needsHeader) {
             includes.push({
@@ -742,7 +803,7 @@ export class Reconstruction extends BaseModel {
         // Load tracings metadata if any tracing data is needed
         if (needsNodeData || needsAllenInfo || needsHeader) {
             const tracings = await Tracing.findAll({
-                where: { reconstructionId: id },
+                where: {reconstructionId: id},
                 attributes: ["id", "tracingStructureId"]
             });
 
@@ -762,7 +823,7 @@ export class Reconstruction extends BaseModel {
         // Find soma for header (usually in dendrite, node with sampleNumber 1)
         if (needsHeader && dendriteTracing) {
             const somaNode = await TracingNode.findOne({
-                where: { 
+                where: {
                     tracingId: dendriteTracing.id,
                     sampleNumber: 1
                 },
@@ -827,12 +888,12 @@ export class Reconstruction extends BaseModel {
         if (needsAxon && axonTracing) {
             // Get total count first
             const totalAxonCount = await TracingNode.count({
-                where: { tracingId: axonTracing.id }
+                where: {tracingId: axonTracing.id}
             });
 
             // Load paginated nodes
             const axonNodes = await TracingNode.findAll({
-                where: { tracingId: axonTracing.id },
+                where: {tracingId: axonTracing.id},
                 include: [{
                     model: StructureIdentifier,
                     as: "StructureIdentifier"
@@ -858,12 +919,12 @@ export class Reconstruction extends BaseModel {
         if (needsDendrite && dendriteTracing) {
             // Get total count first
             const totalDendriteCount = await TracingNode.count({
-                where: { tracingId: dendriteTracing.id }
+                where: {tracingId: dendriteTracing.id}
             });
 
             // Load paginated nodes
             const dendriteNodes = await TracingNode.findAll({
-                where: { tracingId: dendriteTracing.id },
+                where: {tracingId: dendriteTracing.id},
                 include: [{
                     model: StructureIdentifier,
                     as: "StructureIdentifier"
@@ -888,12 +949,12 @@ export class Reconstruction extends BaseModel {
         // Load Allen information if requested
         if (needsAllenInfo && (axonTracing || dendriteTracing)) {
             const tracingIds = [axonTracing?.id, dendriteTracing?.id].filter(id => id != null);
-            
+
             // Get unique brain areas from nodes
             const brainAreas = await TracingNode.findAll({
-                where: { 
-                    tracingId: { [Op.in]: tracingIds },
-                    brainAreaId: { [Op.ne]: null }
+                where: {
+                    tracingId: {[Op.in]: tracingIds},
+                    brainAreaId: {[Op.ne]: null}
                 },
                 attributes: [],
                 include: [{
@@ -906,7 +967,7 @@ export class Reconstruction extends BaseModel {
             });
 
             const uniqueAreas = uniqBy(brainAreas.map(n => n.BrainArea).filter(b => b != null), "id");
-            
+
             result.allenInformation = uniqueAreas.map(s => ({
                 allenId: s.structureId,
                 name: s.name,
@@ -981,8 +1042,6 @@ export class Reconstruction extends BaseModel {
                 await Promise.all(promises);
             });
 
-            removeTracingFromMiddlewareCache(tracingIds);
-
             debug(`unpublished reconstruction ${id}`);
         } catch (err) {
             debug(err);
@@ -1031,8 +1090,6 @@ export class Reconstruction extends BaseModel {
 
                 await reconstruction.destroy({force: true, transaction});
             });
-
-            removeTracingFromMiddlewareCache(tracingIds);
 
             debug(`delete reconstruction ${id}`);
         } catch (err) {
@@ -1104,6 +1161,7 @@ export class Reconstruction extends BaseModel {
     }
 }
 
+// noinspection JSUnusedGlobalSymbols
 export const modelInit = (sequelize: Sequelize) => {
     Reconstruction.init({
         id: {
@@ -1126,6 +1184,7 @@ export const modelInit = (sequelize: Sequelize) => {
     });
 };
 
+// noinspection JSUnusedGlobalSymbols
 export const modelAssociate = () => {
     Reconstruction.belongsTo(User, {foreignKey: "annotatorId", as: "Annotator"});
     Reconstruction.belongsTo(User, {foreignKey: "proofreaderId", as: "Proofreader"});
@@ -1159,7 +1218,7 @@ export function extractTracingData(tracings: any[]): {
     soma: ReconstructionDataNode | null;
 } {
     const AXON_STRUCTURE_ID = "68e76074-1777-42b6-bbf9-93a6a5f02fa4";
-    
+
     let axon: ReconstructionDataNode[] = [];
     let axonId: string | null = null;
     let dendrite: ReconstructionDataNode[] = [];
@@ -1184,15 +1243,15 @@ export function extractTracingData(tracings: any[]): {
     }
 
     const soma = dendrite.find(n => n.sampleNumber === 1) || axon.find(n => n.sampleNumber === 1) || null;
-    
-    return { axon, axonId, dendrite, dendriteId, soma };
+
+    return {axon, axonId, dendrite, dendriteId, soma};
 }
 
-export function extractAllenInformation(tracings: any[]): ReconstructionAllenInfo[] {
+export function extractAllenInformation(tracings: Tracing[]): ReconstructionAllenInfo[] {
     const structures1 = tracings[0].Nodes.filter(n => n.BrainArea).map(n => n.BrainArea);
     const structures2 = tracings[1].Nodes.filter(n => n.BrainArea).map(n => n.BrainArea);
     const structures = uniqBy(concat(structures1, structures2), "id");
-    
+
     return structures.map(s => ({
         allenId: s.structureId,
         name: s.name,
@@ -1222,23 +1281,21 @@ export function buildLabelData(injections: any[]): ReconstructionLabel[] | null 
     if (!injections || injections.length === 0) {
         return null;
     }
-    
+
     const labels = injections.map(i => ({
         virus: i.injectionVirus.name,
         fluorophore: i.fluorophore.name
     }));
-    
+
     return labels.length > 0 ? labels : null;
 }
 
-export async function transformReconstructionToJSON(
-    reconstruction: any
-): Promise<ReconstructionDataJSON> {
+export async function transformReconstructionToJSON(reconstruction: Reconstruction): Promise<ReconstructionDataJSON> {
     const tracingData = extractTracingData(reconstruction.Tracings);
     const allenInfo = extractAllenInformation(reconstruction.Tracings);
     const sample = buildSampleData(reconstruction.Neuron.Sample);
     const label = buildLabelData(reconstruction.Neuron.Sample.Injections);
-    
+
     const neuronData: ReconstructionNeuronData = {
         id: reconstruction.Neuron.id,
         idString: reconstruction.Neuron.idString,
@@ -1257,7 +1314,7 @@ export async function transformReconstructionToJSON(
             y: tracingData.soma.y,
             z: tracingData.soma.z,
             allenId: tracingData.soma.allenId
-        } : { x: 0, y: 0, z: 0, allenId: null },
+        } : {x: 0, y: 0, z: 0, allenId: null},
         axonId: tracingData.axonId,
         axon: tracingData.axon,
         dendriteId: tracingData.dendriteId,

@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import {DataTypes, HasManyGetAssociationsMixin, Op, Sequelize} from "sequelize";
+import {DataTypes, Op, Sequelize} from "sequelize";
 
 import {DeleteOutput} from "./baseModel";
 import {AxonStructureId, DendriteStructureId, TracingStructure} from "./tracingStructure";
@@ -8,18 +8,23 @@ import {TracingNode, TracingNodeMutationData} from "./tracingNode";
 import {IUploadOutput} from "../graphql/secureResolvers";
 import {StructureIdentifier, StructureIdentifiers} from "./structureIdentifier";
 import {ServiceOptions} from "../options/serviceOptions";
-import {performNodeMap} from "../transform/tracingTransformWorker";
 import {SearchContent} from "./searchContent";
 import {Reconstruction} from "./reconstruction";
-import {jsonChunkParse, jsonParse} from "../util/JsonParser";
+import {jsonChunkParse} from "../io/jsonParser";
 import {ReconstructionStatus} from "./reconstructionStatus";
 import {Neuron} from "./neuron";
 import {FiniteMap} from "../util/finiteMap";
 import {KDTree} from "../util/kdtree";
 import {ITracingDataInput, IUploadIntermediate, TracingBaseModel} from "./tracingBaseModel";
-import {SwcData} from "../util/SwcParser";
 
-const debug = require("debug")("mnb:nmcp-api:tracing");
+import {ParsedReconstruction} from "../io/parsedReconstruction";
+import {SearchContentOperation} from "../transform/searchContentOperation";
+import {BrainArea} from "./brainArea";
+import {findBrainStructure} from "../transform/atlasLookupService";
+
+const debug = require("debug")("nmcp:nmcp-api:tracing")
+
+const preferredDatabaseChunkSize = 25000;
 
 export interface TransformResult {
     tracing: Tracing;
@@ -28,8 +33,10 @@ export interface TransformResult {
 
 export class Tracing extends TracingBaseModel {
     public somaNodeId: string;
+    public nodeLookupAt: string;
+    public searchTransformAt: Date;
 
-    public getNodes!: HasManyGetAssociationsMixin<TracingNode>
+    // public getNodes!: HasManyGetAssociationsMixin<TracingNode>
 
     public Nodes?: TracingNode[];
 
@@ -92,26 +99,31 @@ export class Tracing extends TracingBaseModel {
         return Tracing.count(options);
     }
 
-    public static async getUntransformed(publishedOnly: boolean): Promise<Tracing[]> {
+    public static async getNodeStructureNotAssigned(): Promise<Tracing[]> {
+        return Tracing.getPublishedPending("nodeLookupAt", ReconstructionStatus.PendingStructureAssignment);
+    }
+
+    public static async getSearchContentsNotCalculated(): Promise<Tracing[]> {
+        return Tracing.getPublishedPending("searchTransformAt", ReconstructionStatus.PendingSearchContents);
+    }
+
+    private static async getPublishedPending(whereField: string, status: ReconstructionStatus): Promise<Tracing[]> {
         let options = {
             where: {
-                "searchTransformAt": null
+                [whereField]: null
             }
         };
 
-        if (publishedOnly) {
-            options.where["$Reconstruction.status$"] = ReconstructionStatus.Published
-            options["include"] = [
-                {
-                    model: Reconstruction,
-                    as: "Reconstruction",
-                    attributes: ["id", "status"],
-                    required: true
-                }
-            ]
-        }
+        options.where["$Reconstruction.status$"] = status;
 
-        // options.where["searchTransformAt"] = {[Op.eq]: null}
+        options["include"] = [
+            {
+                model: Reconstruction,
+                as: "Reconstruction",
+                attributes: ["id", "status"],
+                required: true
+            }
+        ]
 
         return Tracing.findAll(options);
     }
@@ -153,8 +165,6 @@ export class Tracing extends TracingBaseModel {
             await Reconstruction.reopenAnnotationAsApproved(tracing.reconstructionId);
         }
 
-        // TODO Remove from raw tracing cache
-
         return {id, error: null};
     }
 
@@ -180,7 +190,7 @@ export class Tracing extends TracingBaseModel {
     public static async createTracingFromJson(reconstructionId: string, source: string, performInsert: boolean = true) {
         let tracingInputs: ITracingDataInput[] = [];
 
-        let axonData: SwcData, dendriteData: SwcData;
+        let axonData: ParsedReconstruction, dendriteData: ParsedReconstruction;
 
         try {
             [axonData, dendriteData] = await jsonChunkParse(fs.createReadStream(source));
@@ -288,7 +298,7 @@ export class Tracing extends TracingBaseModel {
                         z: sample.z,
                         radius: sample.radius,
                         lengthToParent: sample.lengthToParent,
-                        brainStructureId: null
+                        brainStructureId: sample.brainStructureId
                     }
                 });
 
@@ -340,7 +350,64 @@ export class Tracing extends TracingBaseModel {
         }
     }
 
-    public static async applyTransform(id: string): Promise<TransformResult> {
+    public static async calculateStructureAssignments(id: string) {
+        if (!fs.existsSync(ServiceOptions.ccfv30OntologyPath)) {
+            debug(`CCF v3.0 ontology file ${ServiceOptions.ccfv30OntologyPath} does not exist`);
+            return {
+                tracing: null,
+                error: `CCF v3.0 ontology file ${ServiceOptions.ccfv30OntologyPath} does not exist`
+            };
+        }
+
+        let tracing = await Tracing.findByPk(id, {
+            include: [{
+                model: Reconstruction,
+                as: "Reconstruction",
+                attributes: ["id", "neuronId"],
+                include: [{
+                    model: Neuron,
+                    as: "Neuron",
+                    attributes: ["id", "brainStructureId"]
+                }]
+            }]
+        });
+
+        const count = await TracingNode.count({where: {tracingId: tracing.id}});
+
+        debug(`assigning compartments to ${count} nodes for tracing ${tracing.id}`);
+
+        let failedLookup = 0;
+
+        for (let idx = 0; idx < count; idx += preferredDatabaseChunkSize) {
+            const nodes = await TracingNode.findAll({
+                where: {tracingId: tracing.id},
+                offset: idx,
+                limit: preferredDatabaseChunkSize,
+                order: [["sampleNumber", "ASC"]]
+            });
+
+            const missing = nodes.filter(n => n.brainStructureId == null);
+
+            debug(`\tassigning compartments for chunk starting at ${idx} for tracing ${tracing.id} with ${missing.length} missing structure assignments`);
+
+            for (let node of missing) {
+                let brainStructureId = findBrainStructure(node);
+
+                if (!brainStructureId) {
+                    failedLookup++;
+                    brainStructureId = BrainArea.wholeBrainId();
+                }
+
+                await node.update({brainStructureId: brainStructureId});
+            }
+        }
+
+        debug(`\tassignment complete (${failedLookup} failed lookups)`);
+
+        await tracing.update({nodeLookupAt: Date.now()});
+    }
+
+    public static async calculateSearchContents(id: string): Promise<TransformResult> {
         try {
             let tracing = await Tracing.findByPk(id, {
                 include: [{
@@ -352,17 +419,14 @@ export class Tracing extends TracingBaseModel {
                         as: "Neuron",
                         attributes: ["id", "brainStructureId"]
                     }]
-                }]});
+                }]
+            });
 
-            if (!fs.existsSync(ServiceOptions.ccfv30OntologyPath)) {
-                debug(`CCF v3.0 ontology file ${ServiceOptions.ccfv30OntologyPath} does not exist`);
-                return {
-                    tracing: null,
-                    error: `CCF v3.0 ontology file ${ServiceOptions.ccfv30OntologyPath} does not exist`
-                };
-            }
+            const operation = new SearchContentOperation(tracing);
 
-            tracing = await performNodeMap(tracing);
+            await operation.processTracing();
+
+            await tracing.update({searchTransformAt: Date.now()});
 
             return {tracing: tracing, error: null}
         } catch (err) {
@@ -374,12 +438,11 @@ export class Tracing extends TracingBaseModel {
     public async nearestNode(location: number[]): Promise<any> {
         let tree: KDTree = null;
 
-        return null;
-        // TODO Too slow for 2 million node tracings.
-        /*
         if (Tracing._nearestNodeCache.has(this.id)) {
             tree = Tracing._nearestNodeCache.get(this.id);
         } else {
+            // TODO Too slow for 2 million node tracings.
+            /*
             const nodes = await this.getNodes();
             if (!Tracing._nearestNodeCache.has(this.id)) {
                 tree = new KDTree(nodes.map(n => n.toJSON()));
@@ -387,16 +450,18 @@ export class Tracing extends TracingBaseModel {
             } else {
                 tree = Tracing._nearestNodeCache.get(this.id);
             }
+             */
         }
 
-        const result = tree.nearest({x: location[2], y: location[1], z: location[0]})
+        if (tree) {
+            const result = tree.nearest({x: location[2], y: location[1], z: location[0]})
 
-        if (result.length > 0) {
-            return {id: result[0].point.id, distance: result[0].tree_distance};
+            if (result.length > 0) {
+                return {id: result[0].point.id, distance: result[0].tree_distance};
+            }
         }
 
         return null;
-         */
     }
 }
 

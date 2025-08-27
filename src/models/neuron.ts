@@ -171,17 +171,6 @@ export class Neuron extends BaseModel {
         }
     }
 
-    public static async ensureForTracingInCache(tracingId: string) {
-        const tracing = await Tracing.findByPk(tracingId);
-        if (tracing) {
-            const reconstruction = await Reconstruction.findByPk(tracing.reconstructionId);
-            if (reconstruction) {
-                await reconstruction.reload();
-                debug(`reconstruction ${reconstruction.id} reloaded`);
-            }
-        }
-    }
-
     public static async loadNeuronCache() {
         try {
             debug(`loading neurons`);

@@ -71,28 +71,28 @@ export class BrainArea extends BaseModel {
 
     private static _wholeBrainId: string;
 
-    public static getOne(id: string) {
-        return this._compartmentCache.get(id);
+    public static getOne(id: string): BrainArea {
+        return this._compartmentCache.get(id) ?? null;
     }
 
     public static getFromAcronym(acronym: string): BrainArea {
-        return this._compartmentAcronymCache.get(acronym.toLowerCase());
+        return this._compartmentAcronymCache.get(acronym.toLowerCase()) ?? null;
     }
 
     public static getFromName(name: string): BrainArea {
-        return this._compartmentNameCache.get(name.toLowerCase());
+        return this._compartmentNameCache.get(name.toLowerCase()) ?? null;
     }
 
     public static getFromSafeName(name: string): BrainArea {
-        return this._compartmentSafeNameCache.get(name.toLowerCase());
+        return this._compartmentSafeNameCache.get(name.toLowerCase()) ?? null;
     }
 
     public static getFromStructureId(id: number): BrainArea {
-        return this._compartmentAtlasStructureIdCache.get(id);
+        return this._compartmentAtlasStructureIdCache.get(id) ?? null;
     }
 
     public static getComprehensiveBrainArea(id: string): string[] {
-        return this._comprehensiveCompartmentLookup.get(id);
+        return this._comprehensiveCompartmentLookup.get(id) ?? null;
     }
 
     public static wholeBrainId(): string {

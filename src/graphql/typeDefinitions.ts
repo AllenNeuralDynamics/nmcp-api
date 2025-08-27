@@ -154,6 +154,7 @@ export const typeDefinitions = gql`
         approveReconstruction(id: String!): Error
         declineReconstruction(id: String!): Error
         cancelReconstruction(id: String!): Error
+        """Requests the reconstruction be queued for publishing.  May not be immediately available as published."""
         publishReconstruction(id: String!): Error
         deleteReconstruction(id: String!): Boolean
 

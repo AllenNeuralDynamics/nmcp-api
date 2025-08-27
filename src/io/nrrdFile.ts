@@ -1,6 +1,6 @@
 import * as fs from "fs";
 
-const debug = require("debug")("mnb:transform:io:nrrd");
+const debug = require("debug")("nmcp:nmcp-api:io:nrrd");
 
 import {parseNrrd} from "./nrrdHeader";
 

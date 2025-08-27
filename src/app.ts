@@ -19,7 +19,6 @@ import {secureResolvers} from "./graphql/secureResolvers";
 import {internalResolvers} from "./graphql/internalResolvers";
 import {RemoteDatabaseClient} from "./data-access/remoteDatabaseClient";
 
-import {tracingQueryMiddleware} from "./rawquery/tracingQueryMiddleware";
 import {synchronizationManagerStart} from "./synchronization/synchonizationManager";
 import {User, UserPermissions} from "./models/user";
 
@@ -35,8 +34,6 @@ async function start() {
     app.use(bodyParser.urlencoded({extended: true, limit: "1000mb"}));
 
     app.use(bodyParser.json({limit: "1000mb"}));
-
-    app.use("/tracings", tracingQueryMiddleware);
 
     const server = new ApolloServer<User>({
         typeDefs: typeDefinitions,

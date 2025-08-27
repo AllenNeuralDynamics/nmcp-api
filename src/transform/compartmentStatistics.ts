@@ -1,16 +1,6 @@
 import {StructureIdentifiers} from "../models/structureIdentifier";
 
-export interface ICompartmentStatistics {
-    Node: number;
-    Soma: number;
-    Path: number;
-    Branch: number;
-    End: number;
-
-    addNode(structureIdentifier: StructureIdentifiers, increaseNodeCount: boolean): void;
-}
-
-export class CompartmentStatistics implements ICompartmentStatistics {
+export class CompartmentStatistics {
     public Node: number = 0;
     public Soma: number = 0;
     public Path: number = 0;

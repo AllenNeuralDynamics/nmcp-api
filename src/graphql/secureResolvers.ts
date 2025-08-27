@@ -17,7 +17,6 @@ import {ReconstructionStatus} from "../models/reconstructionStatus";
 import {GraphQLError} from "graphql/error";
 import {Collection, CollectionInput} from "../models/collection";
 import {Issue, IssueKind} from "../models/issue";
-import {loadTracingCache} from "../rawquery/tracingQueryMiddleware";
 import {synchronize} from "../tools/smartSheetClient";
 import {Precomputed} from "../models/precomputed";
 import GraphQLUpload = require("graphql-upload/GraphQLUpload.js");
@@ -131,18 +130,18 @@ export interface ReviewPageInput {
     offset: number;
     limit: number;
     sampleIds: string[];
+}
+
+export interface FullReviewPageInput extends ReviewPageInput {
     status: ReconstructionStatus[];
 }
 
-export interface PeerReviewPageInput {
-    offset: number;
-    limit: number;
-    sampleIds: string[];
+export interface PeerReviewPageInput extends ReviewPageInput {
     tag: string;
 }
 
 export interface ReviewPageArguments {
-    input: ReviewPageInput;
+    input: FullReviewPageInput;
 }
 
 export interface PeerReviewPageArguments {
@@ -958,7 +957,6 @@ export const secureResolvers = {
 
         async reload(_: any, args: IIdOnlyArguments, context: User): Promise<boolean> {
             if (context.permissions & UserPermissions.Admin) {
-                await loadTracingCache(false);
                 await Reconstruction.loadReconstructionCache();
                 return true;
             }

@@ -7,9 +7,16 @@ import {Reconstruction} from "../models/reconstruction";
 import {ReconstructionStatus} from "../models/reconstructionStatus";
 import {SynchronizationMarker, SynchronizationMarkerKind} from "../models/synchronizationMarker";
 import {Precomputed} from "../models/precomputed";
+import {BrainArea} from "../models/brainArea";
+
+const debug = require("debug")("nmcp:synchronization:synchronization-worker");
 
 setTimeout(async () => {
+    debug("synchronization worker starting");
+
     await RemoteDatabaseClient.Start();
+
+    await BrainArea.loadCompartmentCache();
 
     await performSynchronization();
 
@@ -22,17 +29,26 @@ setTimeout(async () => {
  * @param intervalSeconds - delay in seconds between successive calls when `repeat` is `true` (default `60`)
  */
 async function performSynchronization(repeat: boolean = true, intervalSeconds = 60) {
+    await invalidateUpdatedNeurons();
 
-    await republishUpdatedNeurons();
+    await calculateStructureAssignments();
 
-    await publishUntransformedTracings();
+    await calculateSearchContents();
 
     await notifyPrecomputed();
+
+    await checkPrecomputedComplete();
 
     if (repeat) {
         setTimeout(async () => {
             await performSynchronization(repeat, intervalSeconds);
         }, intervalSeconds * 1000);
+    }
+}
+
+function reloadReconstructionCache(ids: string[]) {
+    if (ids) {
+        process.send(ids);
     }
 }
 
@@ -42,12 +58,10 @@ async function performSynchronization(repeat: boolean = true, intervalSeconds = 
  *
  * @remarks Currently implemented for any property change, even ones that do not have downstream SearchContents implications.
  */
-async function republishUpdatedNeurons() {
+async function invalidateUpdatedNeurons() {
     const when = Date.now();
 
     let lastMarker = await SynchronizationMarker.lastMarker(SynchronizationMarkerKind.Neuron);
-
-    let neurons: Neuron[] = [];
 
     const options = {
         where: {
@@ -69,28 +83,34 @@ async function republishUpdatedNeurons() {
         options.where["updatedAt"] = {[Op.gt]: lastMarker.updatedAt};
     }
 
-    neurons = await Neuron.findAll(options);
+    const neurons = await Neuron.findAll(options);
 
     if (neurons.length > 0) {
-        console.log(`${neurons.length} neuron(s) with a published reconstruction updated since last synchronization`);
+        debug(`${neurons.length} neuron(s) with a published reconstruction updated since last synchronization`);
 
-        await neurons.reduce(async (p: Promise<void>, n) => {
-            await p;
+        const updates: string[] = [];
 
+        for (let n of neurons) {
             const tracings = await Tracing.getForNeuron(n.id);
 
-            console.log(`\t${tracings.length} tracings for neuron ${n.id}`);
+            debug(`\t${tracings.length} tracings for neuron ${n.id}`);
 
             const tracingPromises = tracings.map(async (t) => {
-                const result = await Tracing.applyTransform(t.id);
+                await t.update({nodeLookupAt: null, searchTransformAt: null});
 
-                if (result.tracing) {
-                    process.send(t.id);
+                const reconstruction = await t.getReconstruction();
+
+                if (reconstruction) {
+                    await reconstruction.update({status: ReconstructionStatus.PendingStructureAssignment});
+
+                    updates.push(reconstruction.id);
                 }
             });
 
             await Promise.all(tracingPromises);
-        }, Promise.resolve());
+        }
+
+        reloadReconstructionCache(updates);
     }
 
     await lastMarker.update({appliedAt: when});
@@ -98,36 +118,80 @@ async function republishUpdatedNeurons() {
 
 // With default settings, this will give a heartbeat message that everything is published once per hour.
 const sanityCheckInterval = 60;
-let sanityCheckCount = 0;
+let sanityStructureCheckCount = sanityCheckInterval - 1;
+let sanitySearchContentsCheckCount = sanityCheckInterval - 1;
+let sanityNotifyPrecomputedCheckCount = sanityCheckInterval - 1;
+let sanityCompletedPrecomputedCheckCount = sanityCheckInterval - 1;
+
+async function calculateStructureAssignments() {
+    const pending = await Reconstruction.getPublishPending(ReconstructionStatus.PendingStructureAssignment);
+
+    if (pending.length > 0) {
+        debug(`${pending.length} reconstructions have node brain structure assignment pending`);
+
+        const updates: string[] = [];
+
+        for (let reconstruction of pending) {
+            for (let tracing of reconstruction.Tracings) {
+                if (tracing.nodeLookupAt == null) {
+                    debug(`\tassigning node brain structures for ${tracing.id}`);
+
+                    await Tracing.calculateStructureAssignments(tracing.id);
+                }
+            }
+
+            await reconstruction.update({status: ReconstructionStatus.PendingSearchContents});
+
+            updates.push(reconstruction.id);
+        }
+
+        reloadReconstructionCache(updates);
+
+        sanityStructureCheckCount = 0;
+    } else {
+        sanityStructureCheckCount++;
+
+        if (sanityStructureCheckCount >= sanityCheckInterval) {
+            debug(`there are no reconstructions in the PendingStructureAssignment state`);
+            sanityStructureCheckCount = 0;
+        }
+    }
+}
 
 /**
  * Find recently uploaded tracings for published reconstructions that require node brain structure lookup and search content entries.
  */
-async function publishUntransformedTracings() {
-    const tracings = await Tracing.getUntransformed(true);
+async function calculateSearchContents() {
+    const pending = await Reconstruction.getPublishPending(ReconstructionStatus.PendingSearchContents);
 
-    if (tracings.length > 0) {
-        console.log(`${tracings.length} published tracings have not been transformed`);
+    if (pending.length > 0) {
+        debug(`${pending.length} reconstructions have SearchContents pending`);
 
-        await tracings.reduce(async (p: Promise<void>, t) => {
-            await p;
+        const updates: string[] = [];
 
-            console.log(`\t applying transform to ${t.id}`);
+        for (let reconstruction of pending) {
+            for (let tracing of reconstruction.Tracings) {
+                if (tracing.searchTransformAt == null) {
+                    debug(`\tcalculating SearchContents for ${tracing.id}`);
 
-            const result = await Tracing.applyTransform(t.id);
-
-            if (result.tracing) {
-                process.send(t.id);
+                    await Tracing.calculateSearchContents(tracing.id);
+                }
             }
-        }, Promise.resolve());
 
-        sanityCheckCount = 0;
+            await reconstruction.update({status: ReconstructionStatus.PendingPrecomputed});
+
+            updates.push(reconstruction.id);
+        }
+
+        reloadReconstructionCache(updates);
+
+        sanitySearchContentsCheckCount = 0;
     } else {
-        sanityCheckCount++;
+        sanitySearchContentsCheckCount++;
 
-        if (sanityCheckCount >= sanityCheckInterval) {
-            console.log(`All published tracings have been transformed`);
-            sanityCheckCount = 0;
+        if (sanitySearchContentsCheckCount >= sanityCheckInterval) {
+            debug(`there are no reconstructions in the PendingSearchContents state`);
+            sanitySearchContentsCheckCount = 0;
         }
     }
 }
@@ -136,35 +200,10 @@ async function publishUntransformedTracings() {
  * Create an empty Precomputed entry for where needed for the python precomputed skeleton service to pick up.
  */
 async function notifyPrecomputed() {
-    const options = {
-        where: {
-            "status": {
-                [Op.or]: [
-                    // {[Op.eq]: ReconstructionStatus.InReview},
-                    // {[Op.eq]: ReconstructionStatus.Approved},
-                    {[Op.eq]: ReconstructionStatus.Published}
-                ]
-            },
-            "$Precomputed$": null
-        },
-        include: [
-            {
-                model: Precomputed,
-                as: "Precomputed"
-            }
-        ]
-    };
-
-    const all = await Reconstruction.findAll(options);
-
-    const hasTracings = async(r: Reconstruction) =>  (await r.getAxon()) && (await r.getDendrite())
-
-    const flags = await Promise.all(all.map(hasTracings))
-
-    const ready = all.filter((value, index) => flags[index]);
+    const ready = await Reconstruction.findPrecomputedMissing();
 
     if (ready.length > 0) {
-        console.log(`${ready.length} precomputed entries to be queued`);
+        debug(`${ready.length} precomputed entries to be queued`);
         const precomputed = ready.map(r => {
             return {
                 "reconstructionId": r.id
@@ -172,10 +211,43 @@ async function notifyPrecomputed() {
         });
 
         await Precomputed.bulkCreate(precomputed);
+
+        sanityNotifyPrecomputedCheckCount = 0;
     } else {
-        if (sanityCheckCount >= sanityCheckInterval) {
-            console.log(`All precomputed entries have been queued`);
-            sanityCheckCount = 0;
+        sanityNotifyPrecomputedCheckCount++;
+
+        if (sanityNotifyPrecomputedCheckCount >= sanityCheckInterval) {
+            debug(`there are no reconstructions in the PendingPrecomputed state`);
+            sanityNotifyPrecomputedCheckCount = 0;
+        }
+    }
+}
+
+async function checkPrecomputedComplete() {
+    const pending = await Reconstruction.getPublishPending(ReconstructionStatus.PendingPrecomputed);
+
+    if (pending.length > 0) {
+        debug(`${pending.length} reconstructions have precomputed skeletons pending`);
+
+        const updates: string[] = [];
+
+        for (let reconstruction of pending) {
+            if (reconstruction.Precomputed.version > 0 && reconstruction.Precomputed.generatedAt) {
+                await reconstruction.update({status: ReconstructionStatus.Published, completedAt: Date.now()});
+
+                updates.push(reconstruction.id);
+            }
+        }
+
+        reloadReconstructionCache(updates);
+
+        sanityCompletedPrecomputedCheckCount = 0;
+    } else {
+        sanityCompletedPrecomputedCheckCount++;
+
+        if (sanityCompletedPrecomputedCheckCount >= sanityCheckInterval) {
+            debug(`there are no reconstructions in the PendingPrecomputed state with completed skeletons`);
+            sanityCompletedPrecomputedCheckCount = 0;
         }
     }
 }

@@ -1,8 +1,6 @@
-import * as byline from "byline";
-import * as fs from "fs";
 import {StructureIdentifiers} from "../models/structureIdentifier";
 
-export interface ISwcSample {
+export type ParsedNode = {
     sampleNumber: number;
     parentNumber: number;
     structure: number;
@@ -11,9 +9,10 @@ export interface ISwcSample {
     z: number;
     radius: number;
     lengthToParent: number;
+    brainStructureId: string;
 }
 
-export class SwcData {
+export class ParsedReconstruction {
     public offsetX: number;
     public offsetY: number;
     public offsetZ: number;
@@ -24,7 +23,7 @@ export class SwcData {
     private ends;
     private _comments: string;
 
-    private readonly samples: Map<number, ISwcSample>;
+    private readonly samples: Map<number, ParsedNode>;
     private readonly sampleChildCount: Map<number, number>;
 
     public constructor() {
@@ -34,7 +33,7 @@ export class SwcData {
         this.ends = 0;
         this._comments = "";
 
-        this.samples = new Map<number, ISwcSample>();
+        this.samples = new Map<number, ParsedNode>();
         this.sampleChildCount = new Map<number, number>();
 
         this.offsetX = 0;
@@ -66,7 +65,7 @@ export class SwcData {
         return this._comments;
     }
 
-    public getSamples(): ISwcSample[] {
+    public getSamples(): ParsedNode[] {
         return Array.from(this.samples.values());
     }
 
@@ -74,7 +73,7 @@ export class SwcData {
         this._comments += comment;
     }
 
-    public addSample(sample: ISwcSample): void {
+    public addSample(sample: ParsedNode): void {
         if (sample.parentNumber != -1) {
             let count = 0;
             if (this.sampleChildCount.has(sample.parentNumber)) {
@@ -129,96 +128,4 @@ export class SwcData {
             }
         });
     }
-}
-
-/**
- * Parse a SWC file and calculate branch/end points and lengths between nodes.
- *
- * @param fileStream readable SWC filestream
- */
-export async function swcParse(fileStream: fs.ReadStream): Promise<SwcData> {
-    const stream = byline.createStream(fileStream);
-
-    const swcData = new SwcData();
-
-    return new Promise((resolve) => {
-        stream.on("readable", () => {
-            let line: Buffer;
-            while ((line = stream.read()) !== null) {
-                oneSwcLine(line.toString("utf8"), swcData);
-            }
-        });
-        stream.on("end", () => {
-            oneSwcFileComplete(swcData, resolve);
-        });
-    });
-}
-
-function oneSwcLine(line: string, swcData: SwcData) {
-    let lineContent = line.trim();
-
-    if (lineContent.length == 0) {
-        return;
-    }
-
-    if (lineContent[0] === "#") {
-        swcData.addComment(lineContent + "\n");
-
-        if (lineContent.startsWith("# OFFSET")) {
-            const sub = lineContent.substring(9);
-            const points = sub.split(/\s/);
-            if (points.length === 3) {
-                const x = parseFloat(points[0]);
-                const y = parseFloat(points[1]);
-                const z = parseFloat(points[2]);
-
-                if (!Number.isNaN(x) && !Number.isNaN(y) && !Number.isNaN(z)) {
-                    swcData.offsetX = x;
-                    swcData.offsetY = y;
-                    swcData.offsetZ = z;
-                }
-            }
-        }
-
-        return;
-    }
-
-    const data = lineContent.split(/\s/);
-
-    if (data.length != 7) {
-        return;
-    }
-
-    const sampleNumber = parseInt(data[0]);
-    const parentNumber = parseInt(data[6]);
-
-    if (isNaN(sampleNumber) || isNaN(parentNumber)) {
-        return;
-    }
-
-    let structure = parseInt(data[1]);
-
-    if (parentNumber === -1) {
-        if (structure !== StructureIdentifiers.soma) {
-            swcData.addComment(`# Un-parented (root) sample ${sampleNumber} converted from ${structure} to soma (${StructureIdentifiers.soma})`);
-            structure = StructureIdentifiers.soma;
-        }
-    }
-
-    swcData.addSample({
-        sampleNumber: sampleNumber,
-        parentNumber: parentNumber,
-        structure: structure,
-        x: swcData.offsetX + parseFloat(data[2]),
-        y: swcData.offsetY + parseFloat(data[3]),
-        z: swcData.offsetZ + parseFloat(data[4]),
-        radius: parseFloat(data[5]),
-        lengthToParent: 0
-    });
-}
-
-function oneSwcFileComplete(swcData: SwcData, resolve) {
-    swcData.finalize();
-
-    resolve(swcData);
 }

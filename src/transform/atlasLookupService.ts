@@ -1,4 +1,4 @@
-import {NrrdFile} from "../io/nrrd";
+import {NrrdFile} from "../io/nrrdFile";
 import {ServiceOptions} from "../options/serviceOptions";
 import {BrainArea} from "../models/brainArea";
 
@@ -38,17 +38,9 @@ export function findBrainStructures(locations: AtlasLocation[]): string[] {
             return null;
         }
 
-        // In NRRD z, y, x order after reverse and scaled to correct dimensions.
         const transformedLocation = [Math.ceil(location.x / 10), Math.ceil(location.y / 10), Math.ceil(location.z / 10)].reverse();
 
-        // Allen Atlas structure id.
         const structureId = nrrdContent.findStructureId(transformedLocation[0], transformedLocation[1], transformedLocation[2]);
-
-        if (!structureId) {
-            // console.log(`Failed to find structure for location ${location.x}, ${location.y}, ${location.z}`);
-        } else {
-            console.log(`Found ${structureId} for location ${location.x}, ${location.y}, ${location.z}`);
-        }
 
         return structureId ? BrainArea.getFromStructureId(structureId)?.id ?? null : null;
     });

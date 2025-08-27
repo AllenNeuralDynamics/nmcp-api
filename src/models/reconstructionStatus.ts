@@ -6,6 +6,9 @@ export enum ReconstructionStatus {
     InPeerReview = 4,
     Approved = 5,
     Rejected = 6,
-    Published = 8,
+    PendingStructureAssignment = 10,
+    PendingSearchContents = 11,
+    PendingPrecomputed = 12,
+    Published = 20,
     Invalid = 99
 }

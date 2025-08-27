@@ -3,8 +3,9 @@ import {BelongsToGetAssociationMixin} from "sequelize";
 import {BaseModel} from "./baseModel";
 import {AxonStructureId, DendriteStructureId, TracingStructure} from "./tracingStructure";
 import {Reconstruction} from "./reconstruction";
-import {jsonParse} from "../util/JsonParser";
-import {SwcData, swcParse} from "../util/SwcParser";
+import {jsonParse} from "../io/jsonParser";
+import {swcParse} from "../io/swcParser";
+import {ParsedReconstruction} from "../io/parsedReconstruction";
 
 export interface IUploadIntermediate {
     tracing: TracingBaseModel;
@@ -12,7 +13,7 @@ export interface IUploadIntermediate {
 }
 
 export interface ITracingDataInput {
-    input: SwcData;
+    input: ParsedReconstruction;
     tracingStructureId: string;
 }
 
