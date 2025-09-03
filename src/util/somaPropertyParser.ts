@@ -8,7 +8,7 @@ export type SomaPropertyRecord = {
     xyz: { x: number, y: number, z: number } | null;
     ccfxyz: { x: number, y: number, z: number } | null;
     tag: string | null;
-    somaCompartment: string | null;
+    brainStructureId: string | null;
     brightness: number | null;
     volume: number | null;
 }
@@ -74,7 +74,7 @@ async function parseSomaPropertyRecords(records: any[]): Promise<SomaPropertyRec
             xyz: null,
             ccfxyz: null,
             tag: null,
-            somaCompartment: null,
+            brainStructureId: null,
             brightness: null,
             volume: null
         };
@@ -88,7 +88,7 @@ async function parseSomaPropertyRecords(records: any[]): Promise<SomaPropertyRec
             processed.ccfxyz = parseXyzString(record.xyzCcf);
 
             if (processed.ccfxyz) {
-                processed.somaCompartment = findBrainStructure(processed.ccfxyz);
+                processed.brainStructureId = findBrainStructure(processed.ccfxyz);
             }
         }
 

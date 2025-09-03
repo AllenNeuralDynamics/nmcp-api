@@ -756,6 +756,10 @@ export class Neuron extends BaseModel {
 
             const nextNumber = await Neuron.findNextAvailableIdNumber(sample.id);
 
+            if (options.tag) {
+                records.forEach(r => {r.tag = options.tag});
+            }
+
             const idStrings = await Neuron.insertSomaEntries(records, sample, nextNumber, options.noEmit);
 
             return {
@@ -811,6 +815,7 @@ export class Neuron extends BaseModel {
                 const neuron = await Neuron.create({
                     sampleId: sample.id,
                     idString: idString,
+                    tag: record.tag,
                     x: record.ccfxyz?.x || 0,
                     y: record.ccfxyz?.y || 0,
                     z: record.ccfxyz?.z || 0,
