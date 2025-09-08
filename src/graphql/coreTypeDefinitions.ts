@@ -228,6 +228,10 @@ export const coreTypeDefinitions = gql`
         precomputed: Precomputed
         startedAt: Date
         completedAt: Date
+        qualityCheckStatus: Int
+        qualityCheckVersion: String
+        qualityCheck: String
+        qualityCheckAt: Date
     }
 
     type Precomputed {

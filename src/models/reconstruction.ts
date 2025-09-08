@@ -169,6 +169,10 @@ export class Reconstruction extends BaseModel {
     neuronId: string;
     // startedAt: Date;
     completedAt: Date;
+    qualityCheckStatus: number
+    qualityCheckVersion: string
+    qualityCheck: string
+    qualityCheckAt: Date
 
     public getAnnotator!: BelongsToGetAssociationMixin<User>;
     public getProofreader!: BelongsToGetAssociationMixin<User>;
@@ -1176,6 +1180,10 @@ export const modelInit = (sequelize: Sequelize) => {
         lengthMillimeters: DataTypes.DOUBLE,
         startedAt: DataTypes.DATE,
         completedAt: DataTypes.DATE,
+        qualityCheckStatus: DataTypes.INTEGER,
+        qualityCheckVersion: DataTypes.TEXT,
+        qualityCheck: DataTypes.JSONB,
+        qualityCheckAt: DataTypes.DATE
     }, {
         tableName: ReconstructionTableName,
         timestamps: true,
