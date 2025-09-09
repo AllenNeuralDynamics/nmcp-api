@@ -27,8 +27,9 @@ import {
     PeerReviewPageInput,
     ReviewPageInput
 } from "../graphql/secureResolvers";
+import {QualityCheckService} from "../data-access/qualityCheckService";
 
-const debug = require("debug")("mnb:nmcp-api:reconstruction-model");
+const debug = require("debug")("nmcp:nmcp-api:reconstruction-model");
 
 export type PublishedReconstructionPageInput = {
     offset?: number;
@@ -984,6 +985,25 @@ export class Reconstruction extends BaseModel {
         }
 
         return result;
+    }
+
+    public static async requestQualityCheck(id: string): Promise<boolean> {
+        if (!id) {
+            return false;
+        }
+
+        try {
+            const result = await QualityCheckService.performQualityCheck(id);
+
+            console.log(result);
+
+            console.log(result?.result?.errors);
+        } catch (err) {
+            debug(err);
+            return false;
+        }
+
+        return true;
     }
 
     public static async unpublish(id: string): Promise<boolean> {

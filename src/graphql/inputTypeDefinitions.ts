@@ -178,6 +178,7 @@ export const inputTypeDefinitions = gql`
         limit: Int
         userOnly: Boolean
         sampleIds: [String!]
+        """Maps directory to Reconstruction status property."""
         filters: [Int!]
     }
     

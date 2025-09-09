@@ -26,9 +26,18 @@ const graphQLServices = {
     }
 };
 
+const restServices = {
+    qualityCheck: {
+        host: "quality-api",
+        port: 5000,
+        endpoint: "/performqc"
+    }
+}
+
 const services = {
     database: databaseServices,
-    graphQL: graphQLServices
+    graphQL: graphQLServices,
+    rest: restServices
 };
 
 function loadDatabaseOptions(options): any {
@@ -48,11 +57,20 @@ function loadGraphQLOptions(options): any {
     return options;
 }
 
+function loadRestOptions(options): any {
+    options.qualityCheck.host = process.env.QUALITY_API_HOST || options.qualityCheck.host;
+    options.qualityCheck.port = parseInt(process.env.QUALITY_API_PORT) || options.qualityCheck.port;
+    options.qualityCheck.endpoint = process.env.QUALITY_API_ENDPOINT || options.qualityCheck.endpoint;
+
+    return options;
+}
+
 function loadConfiguration() {
     const c = Object.assign({}, services);
 
     c.database = loadDatabaseOptions(c.database);
     c.graphQL = loadGraphQLOptions(c.graphQL);
+    c.rest = loadRestOptions(c.rest)
 
     return c;
 }

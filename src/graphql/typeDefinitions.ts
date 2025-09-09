@@ -159,6 +159,8 @@ export const typeDefinitions = gql`
         deleteReconstruction(id: String!): Boolean
 
         unpublish(id: String!): Boolean
+        
+        requestQualityCheck(id: String!): Boolean
 
         reload: Boolean
 

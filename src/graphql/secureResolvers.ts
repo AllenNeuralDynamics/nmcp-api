@@ -923,6 +923,19 @@ export const secureResolvers = {
             });
         },
 
+        async requestQualityCheck(_: any, args: IIdOnlyArguments, context: User): Promise<boolean> {
+            if (context.permissions & UserPermissions.FullReview) {
+                return await Reconstruction.requestQualityCheck(args.id);
+            }
+
+            throw new GraphQLError("User is not authenticated", {
+                extensions: {
+                    code: "UNAUTHENTICATED",
+                    http: {status: 401},
+                },
+            });
+        },
+
         async unpublish(_: any, args: IIdOnlyArguments, context: User): Promise<boolean> {
             if (context.permissions & UserPermissions.Admin) {
                 // id can be a reconstruction id or a neuron id.
