@@ -591,12 +591,16 @@ export class Reconstruction extends BaseModel {
         });
     }
 
-    public static async getPublishPending(status: ReconstructionStatus): Promise<Reconstruction[]> {
+    public static async getPublishPending(status: ReconstructionStatus, limit: number = null): Promise<Reconstruction[]> {
         let options = {
             where: {
                 status: status
             }
         };
+
+        if (limit) {
+            options["limit"] = limit;
+        }
 
         if (status == ReconstructionStatus.PendingPrecomputed) {
             options["include"] = [

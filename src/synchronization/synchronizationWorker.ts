@@ -124,7 +124,7 @@ let sanityNotifyPrecomputedCheckCount = sanityCheckInterval - 1;
 let sanityCompletedPrecomputedCheckCount = sanityCheckInterval - 1;
 
 async function calculateStructureAssignments() {
-    const pending = await Reconstruction.getPublishPending(ReconstructionStatus.PendingStructureAssignment);
+    const pending = await Reconstruction.getPublishPending(ReconstructionStatus.PendingStructureAssignment, 10);
 
     if (pending.length > 0) {
         debug(`${pending.length} reconstructions have node brain structure assignment pending`);
@@ -162,7 +162,7 @@ async function calculateStructureAssignments() {
  * Find recently uploaded tracings for published reconstructions that require node brain structure lookup and search content entries.
  */
 async function calculateSearchContents() {
-    const pending = await Reconstruction.getPublishPending(ReconstructionStatus.PendingSearchContents);
+    const pending = await Reconstruction.getPublishPending(ReconstructionStatus.PendingSearchContents, 10);
 
     if (pending.length > 0) {
         debug(`${pending.length} reconstructions have SearchContents pending`);

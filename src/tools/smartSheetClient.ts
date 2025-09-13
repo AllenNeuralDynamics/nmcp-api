@@ -33,7 +33,8 @@ enum ColumnName {
     Checks = "Checks",
     Proofreader = "Proofreader",
     Assigned = "Assigned",
-    Production = "Production"
+    Production = "Production",
+    Test = "Test"
 }
 
 enum Status {
@@ -82,9 +83,24 @@ type NeuronRowContents = {
     assigned: string;
 }
 
+enum ImportQualifier {
+    All = 0,
+    Production = 1,
+    Test = 2
+}
+
 type ParsedNeuronIdWithSample = [string, SampleRowContents];
 
-export const synchronize = async (sheetId: number = 0, pathToReconstructions: string = "", parseFiles: number = 1, onlyProduction: number = 1, accessToken: string = "") => {
+// Some ugly globals while we figure out what we want.
+const reconstructionNotFound = [];
+const ccfMissing = [];
+const ccfCoordParseFailed = [];
+const ccfLookupFailed = [];
+
+// Should be an argument but testing for now.
+const allowMissingCCF = true;
+
+export const synchronize = async (sheetId: number = 0, pathToReconstructions: string = "", parseFiles: number = 1, inQualifier: ImportQualifier = ImportQualifier.Production, accessToken: string = "") => {
     const token = accessToken || process.env.SS_API_TOKEN;
 
     if (!token) {
@@ -92,17 +108,55 @@ export const synchronize = async (sheetId: number = 0, pathToReconstructions: st
         return;
     }
 
+    let qualifier: ImportQualifier;
+
+    if (typeof inQualifier === "string") {
+        qualifier = parseInt(inQualifier) as ImportQualifier;
+    } else {
+        qualifier = inQualifier;
+    }
+
+    debug(`SmartSheet import from ${sheetId}. Import Qualifier: ${ImportQualifier[qualifier]}, Parse files: ${parseFiles != 0}`)
+
     await RemoteDatabaseClient.Start(false, false);
 
     await BrainArea.loadCompartmentCache("smartsheet import");
 
     const s = new SmartSheetClient(token);
 
-    await s.parseSheet(sheetId, onlyProduction != 0);
+    await s.parseSheet(sheetId, qualifier);
 
-    debug(`SmartSheet import from ${sheetId}. Production only: ${onlyProduction != 0}, Parse files: ${parseFiles != 0}`)
+    await s.updateDatabase(pathToReconstructions, parseFiles != 0 && pathToReconstructions.length > 0, true);
 
-    await s.updateDatabase(pathToReconstructions, parseFiles != 0 && pathToReconstructions.length > 0);
+    s.print();
+
+    if (reconstructionNotFound) {
+        debug("Expected reconstruction data not found:")
+        reconstructionNotFound.forEach(r => {
+            debug(`\t${r.subject}-${r.neuron}`);
+        });
+    }
+
+    if (ccfMissing) {
+        debug(`CCF soma coordinates missing ${allowMissingCCF ? "" : "(included due to allowMissingCCF = true)"}:`)
+        ccfCoordParseFailed.forEach(r => {
+            debug(`\t${r.subject}-${r.neuron}`);
+        });
+    }
+
+    if (ccfCoordParseFailed) {
+        debug("Could not parse CCF soma coordinates:")
+        ccfCoordParseFailed.forEach(r => {
+            debug(`\t${r.subject}-${r.neuron}`);
+        });
+    }
+
+    if (ccfLookupFailed) {
+        debug("Failed to look up some brain compartment:")
+        ccfLookupFailed.forEach(r => {
+            debug(`\t${r.subject}-${r.neuron}`);
+        });
+    }
 };
 
 function isReadyToImport(status: Status): boolean {
@@ -160,13 +214,13 @@ function findBrainCompartment(primaryLabel: string, secondaryLabel: string): Bra
     return findBrainCompartmentSimple(primaryLabel) ?? findBrainCompartmentSimple(secondaryLabel);
 }
 
-async function sampleFromRowContents(s: SampleRowContents, reconstructionLocation: string, parseFiles: boolean) {
+async function sampleFromRowContents(s: SampleRowContents, reconstructionLocation: string, parseFiles: boolean, testInsertion: boolean = true) {
     const sample = await Sample.findOrCreateForSubject(s.subjectId);
 
     const collection = await Collection.findByName(s.collectionName);
 
     if (!collection) {
-        console.log(`no matching collection ${s.collectionName} for sample ${s.subjectId}`);
+        debug(`no matching collection ${s.collectionName} for sample ${s.subjectId}`);
         return;
     }
 
@@ -185,6 +239,7 @@ async function sampleFromRowContents(s: SampleRowContents, reconstructionLocatio
         let somaBrainStructure = findBrainCompartment(n.manualBrainStructureAcronym, n.ccfBrainStructureAcronym)?.id
 
         if (!somaBrainStructure) {
+            ccfLookupFailed.push({subject: s.subjectId, neuron: n.idString});
             debug(`failed to look up soma brain structure for ${s.subjectId}-${n.idString}:`);
             debug(`\tmanual estimated: ${n.manualBrainStructureAcronym.replace(new RegExp(",", 'g'), "")}`);
             debug(`\tccf: ${n.ccfBrainStructureAcronym.replace(new RegExp(",", 'g'), "")}`);
@@ -289,7 +344,7 @@ async function sampleFromRowContents(s: SampleRowContents, reconstructionLocatio
                     updates["status"] = updateStatus;
                 }
 
-                debug(`updating reconstruction ${reconstruction.id} (${n.idString}-${s.subjectId})`)
+                // debug(`updating reconstruction ${reconstruction.id} (${n.idString}-${s.subjectId})`)
 
                 await reconstruction.update(updates);
             } else {
@@ -329,15 +384,17 @@ async function sampleFromRowContents(s: SampleRowContents, reconstructionLocatio
                 const jsonPath = await locateReconstructionFile(reconstructionLocation, file_prefix, initials);
 
                 if (jsonPath) {
-                    debug(`\tupdating or adding reconstruction data for ${file_prefix}`)
+                    if (testInsertion) {
+                        debug(`\tupdating or adding reconstruction data for ${file_prefix}`)
+                        const result = await Tracing.createTracingFromJson(reconstruction.id, jsonPath, parseFiles);
 
-                    const result = await Tracing.createTracingFromJson(reconstruction.id, jsonPath, parseFiles);
-
-                    if (result.error) {
-                        debug(`\t---> parsing error for ${jsonPath}`);
-                        debug(`\t---> ${result.error}`);
+                        if (result.error) {
+                            debug(`\t---> parsing error for ${jsonPath}`);
+                            debug(`\t---> ${result.error}`);
+                        }
                     }
                 } else if (reconstruction.status == ReconstructionStatus.Approved) {
+                    reconstructionNotFound.push({subject: s.subjectId, neuron: n.idString});
                     debug(`\t---> expected reconstruction data not found for ${file_prefix}`);
                 }
             } catch (err) {
@@ -375,7 +432,7 @@ export class SmartSheetClient {
         this._client = createClient({logLevel: "warn", accessToken: token});
     }
 
-    public async parseSheet(sheetId: number, onlyProduction: boolean = true) {
+    public async parseSheet(sheetId: number, qualifier: ImportQualifier) {
         try {
             const sheet: Sheet = await this._client.sheets.getSheet({id: sheetId});
 
@@ -390,9 +447,9 @@ export class SmartSheetClient {
                 let cell = this.getCell(row, ColumnName.Level);
 
                 if (cell.value == 1) {
-                    this.parseSample(row, onlyProduction);
+                    this.parseSample(row, qualifier);
                 } else {
-                    this.parseNeuron(row, onlyProduction);
+                    this.parseNeuron(row, qualifier);
                 }
             });
         } catch (error) {
@@ -404,26 +461,39 @@ export class SmartSheetClient {
         }
     }
 
-    public async updateDatabase(reconstructionLocation: string, parseFiles: boolean) {
-        const ordered = Array.from(this.samples.values()).sort((a, b)=> a.subjectId.localeCompare(b.subjectId));
+    public async updateDatabase(reconstructionLocation: string, parseFiles: boolean, testInsertion: boolean = true) {
+        const ordered = Array.from(this.samples.values()).sort((a, b) => a.subjectId.localeCompare(b.subjectId));
 
         const limited = ordered; //.filter(s => s.subjectId == "685222");
 
         for (const s of limited) {
-            await sampleFromRowContents(s, reconstructionLocation, parseFiles);
+            await sampleFromRowContents(s, reconstructionLocation, parseFiles, testInsertion);
         }
     }
 
     public print() {
-        this.samples.forEach(s => {
+        let ordered = Array.from(this.samples.values()).sort((a, b) => a.subjectId.localeCompare(b.subjectId));
+        debug(`subjects with imports:`);
+        ordered.forEach(s => {
             if (s.neurons.length > 0) {
-                console.log(s);
+                debug(`\t${s.subjectId} imported with ${s.neurons.length} neuron(s)`);
             }
-        })
+        });
+        debug(`subjects with expected imports that are missing:`);
+        ordered.forEach(s => {
+            if (s.neurons.length == 0) {
+                debug(`\t${s.subjectId}`);
+            }
+        });
+
+        ordered = Array.from(this.pendingSamples.values()).sort((a, b) => a.subjectId.localeCompare(b.subjectId));
+        debug(`subjects stuck in pending:`);
+        ordered.forEach(s => {
+            debug(`\t${s.subjectId}`);
+        });
     }
 
-    private parseSample(row: Row, onlyProduction: boolean) {
-
+    private parseSample(row: Row, qualifier: ImportQualifier) {
         const subjectId = this.getDisplayValue(row, ColumnName.Id);
         const genotype = this.getStringValue(row, ColumnName.Genotype);
         const notes = this.getStringValue(row, ColumnName.Notes);
@@ -431,7 +501,19 @@ export class SmartSheetClient {
 
         const filename = this.getStringValue(row, ColumnName.DateStarted);
 
-        const cell = this.getCell(row, ColumnName.Production);
+        let cell = null;
+
+        if (qualifier == ImportQualifier.Production) {
+            cell = this.getCell(row, ColumnName.Production);
+            if (!cell) {
+                throw new Error("Failed to find Production column");
+            }
+        } else if (qualifier == ImportQualifier.Test) {
+            cell = this.getCell(row, ColumnName.Test);
+            if (!cell) {
+                throw new Error("Failed to find Test column");
+            }
+        }
 
         let sampleDate: Date = null;
 
@@ -451,32 +533,16 @@ export class SmartSheetClient {
             neurons: []
         };
 
-        if (onlyProduction && cell?.value != true) {
+        if (qualifier != ImportQualifier.All && cell?.value != true) {
+            // debug(`pushing pending sample ${subjectId}`);
             this.pendingSamples.set(subjectId, sampleRow);
         } else {
+            // debug(`pushing sample ${subjectId}`);
             this.samples.set(subjectId, sampleRow);
         }
     }
 
-    private parseNeuron(row: any, onlyProduction: boolean) {
-        const ccf = this.getCell(row, ColumnName.CCFCoordinates).value as string;
-
-        // Only processing rows that have a registered soma location.
-        if (!ccf) {
-            return;
-        }
-
-        // When flagged for production, verify column.
-        if (onlyProduction) {
-            const production = this.getCell(row, ColumnName.Production);
-
-            if (production?.value != true) {
-                // const id = this.getCell(row, ColumnName.Id).value as string;
-                // console.log(`neuron ${id} is not marked for production and being skipped`);
-                return;
-            }
-        }
-
+    private parseNeuron(row: any, qualifier: ImportQualifier) {
         // Ensure we can identify the sample.  This should just be the parent row, but this is a bit of a sanity
         // check that the neuron is named as we expect for other assumptions such as the reconstruction file name.
         const [id, sample] = this.getSampleFromId(row);
@@ -488,6 +554,30 @@ export class SmartSheetClient {
         if (!sample) {
             // debug(`failed to find sample for ${this.getStringValue(row, ColumnName.Id)} (row ${row.rowNumber})`);
             return;
+        }
+
+        let ccf = this.getCell(row, ColumnName.CCFCoordinates).value as string;
+
+        // Only processing rows that have a registered soma location.
+        if (!ccf) {
+            ccfMissing.push({subject: sample.subjectId, neuron: id});
+
+            if (!allowMissingCCF) {
+                return;
+            }
+
+            ccf = "[0.0, 0.0, 0,0]";
+        }
+
+        // When flagged for production, verify column.
+        if (qualifier != ImportQualifier.All) {
+            const cell = qualifier == ImportQualifier.Production ? this.getCell(row, ColumnName.Production) : this.getCell(row, ColumnName.Test);
+
+            if (cell?.value != true) {
+                // const id = this.getCell(row, ColumnName.Id).value as string;
+                // console.log(`neuron ${id} is not marked for production and being skipped`);
+                return;
+            }
         }
 
         const horta = this.getCell(row, ColumnName.HortaCoordinates).value as string;
@@ -511,6 +601,7 @@ export class SmartSheetClient {
         }
 
         if (ccfParts.some(p => isNaN(p))) {
+            ccfCoordParseFailed.push({subject: sample.subjectId, neuron: id});
             debug(`could not parse CCF coordinates ${this.getStringValue(row, ColumnName.Id)} (row ${row.rowNumber})`);
         }
 
@@ -549,7 +640,12 @@ export class SmartSheetClient {
         const id = this.getCell(row, ColumnName.Id).value as string;
 
         if (!id) {
-            console.log(`failed to get id for row ${row.rowNumber}`);
+            // debug(`failed to get id for row ${row.rowNumber}`);
+            return [null, null];
+        }
+
+        if (typeof id != "string") {
+            // debug(`unexpected neuron id type ${row.rowNumber} ${id}`);
             return [null, null];
         }
 
@@ -564,9 +660,12 @@ export class SmartSheetClient {
                 }
                 if (this.pendingSamples.has(subjectId)) {
                     const sample = this.pendingSamples.get(subjectId);
+                    // The sample was in pending b/c it was not marked for publish.  However, at least one child neuron is, so bump it to the "real" map.
                     if (sample) {
                         // Ensure it is generated.
+                        // debug(`promoting ${sample.subjectId} from pending`);
                         this.samples.set(subjectId, sample);
+                        this.pendingSamples.delete(subjectId);
                         return [parts[0], sample];
                     }
                 }
