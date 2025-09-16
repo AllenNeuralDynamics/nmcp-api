@@ -10,6 +10,7 @@ import {Reconstruction} from "../models/reconstruction";
 import {ReconstructionStatus} from "../models/reconstructionStatus";
 import {Tracing} from "../models/tracing";
 import {glob} from "glob";
+import {QualityCheckStatus} from "../models/qualityCheckStatus";
 
 const debug = require("debug")("nmcp:api:smartsheet");
 
@@ -100,7 +101,7 @@ const ccfLookupFailed = [];
 // Should be an argument but testing for now.
 const allowMissingCCF = true;
 
-export const synchronize = async (sheetId: number = 0, pathToReconstructions: string = "", parseFiles: number = 1, inQualifier: ImportQualifier = ImportQualifier.Production, accessToken: string = "") => {
+export const synchronize = async (sheetId: number = 0, pathToReconstructions: string = "", insertReconstructions: number = 1, inQualifier: ImportQualifier = ImportQualifier.Production, accessToken: string = "") => {
     const token = accessToken || process.env.SS_API_TOKEN;
 
     if (!token) {
@@ -116,7 +117,7 @@ export const synchronize = async (sheetId: number = 0, pathToReconstructions: st
         qualifier = inQualifier;
     }
 
-    debug(`SmartSheet import from ${sheetId}. Import Qualifier: ${ImportQualifier[qualifier]}, Parse files: ${parseFiles != 0}`)
+    debug(`SmartSheet import from ${sheetId}. Import Qualifier: ${ImportQualifier[qualifier]}, Parse files: ${insertReconstructions != 0}`)
 
     await RemoteDatabaseClient.Start(false, false);
 
@@ -126,7 +127,11 @@ export const synchronize = async (sheetId: number = 0, pathToReconstructions: st
 
     await s.parseSheet(sheetId, qualifier);
 
-    await s.updateDatabase(pathToReconstructions, parseFiles != 0 && pathToReconstructions.length > 0, true);
+    // If true, but insertReconstructions is false, will perform the transaction to insert to check for errors, but rollback the insert to leave tracing data
+    // untouched.  This generally only changed to false in order to speed testing of other parts of the bulk sheet import process.
+    const testFlightInsertion = true;
+
+    await s.updateDatabase(pathToReconstructions, insertReconstructions != 0 && pathToReconstructions.length > 0, testFlightInsertion);
 
     s.print();
 
@@ -214,7 +219,7 @@ function findBrainCompartment(primaryLabel: string, secondaryLabel: string): Bra
     return findBrainCompartmentSimple(primaryLabel) ?? findBrainCompartmentSimple(secondaryLabel);
 }
 
-async function sampleFromRowContents(s: SampleRowContents, reconstructionLocation: string, parseFiles: boolean, testInsertion: boolean = true) {
+async function sampleFromRowContents(s: SampleRowContents, reconstructionLocation: string, insertReconstructions: boolean, testFlightInsertion: boolean = true) {
     const sample = await Sample.findOrCreateForSubject(s.subjectId);
 
     const collection = await Collection.findByName(s.collectionName);
@@ -384,9 +389,9 @@ async function sampleFromRowContents(s: SampleRowContents, reconstructionLocatio
                 const jsonPath = await locateReconstructionFile(reconstructionLocation, file_prefix, initials);
 
                 if (jsonPath) {
-                    if (testInsertion) {
+                    if (insertReconstructions || testFlightInsertion) {
                         debug(`\tupdating or adding reconstruction data for ${file_prefix}`)
-                        const result = await Tracing.createTracingFromJson(reconstruction.id, jsonPath, parseFiles);
+                        const result = await Tracing.createTracingFromJson(reconstruction.id, jsonPath, insertReconstructions);
 
                         if (result.error) {
                             debug(`\t---> parsing error for ${jsonPath}`);
@@ -461,13 +466,13 @@ export class SmartSheetClient {
         }
     }
 
-    public async updateDatabase(reconstructionLocation: string, parseFiles: boolean, testInsertion: boolean = true) {
+    public async updateDatabase(reconstructionLocation: string, insertReconstructions: boolean, testFlightInsertion: boolean = true) {
         const ordered = Array.from(this.samples.values()).sort((a, b) => a.subjectId.localeCompare(b.subjectId));
 
         const limited = ordered; //.filter(s => s.subjectId == "685222");
 
         for (const s of limited) {
-            await sampleFromRowContents(s, reconstructionLocation, parseFiles, testInsertion);
+            await sampleFromRowContents(s, reconstructionLocation, insertReconstructions, testFlightInsertion);
         }
     }
 

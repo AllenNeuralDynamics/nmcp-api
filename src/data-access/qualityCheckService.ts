@@ -9,13 +9,21 @@ export type StandardMorphError = {
     affectedNodes: number[];
 }
 
+export enum QualityCheckServiceStatus {
+    Unavailable = 0,
+    Error = 1,
+    Success = 2
+}
+
 export type QualityCheckResult = {
     reconstructionId: string;
-    result: {
+    serviceStatus: QualityCheckServiceStatus
+    result?: {
         standardMorphVersion: string;
+        warnings: StandardMorphError[];
         errors: StandardMorphError[];
     }
-    error: string
+    error?: string
 }
 
 export class QualityCheckService {
@@ -37,13 +45,21 @@ export class QualityCheckService {
 
             if (!response.ok) {
                 debug(`response status: ${response.status}`);
+
+                return {
+                    reconstructionId,
+                    serviceStatus: QualityCheckServiceStatus.Error,
+                    error: response.status.toString()
+                };
             }
 
-            return response.json();
+            return {reconstructionId, serviceStatus: QualityCheckServiceStatus.Success, ...await response.json()};
         } catch (error) {
-            debug(error.message);
+            return {
+                reconstructionId,
+                serviceStatus: QualityCheckServiceStatus.Unavailable,
+                error: error.message
+            };
         }
-
-        return null;
     }
 }

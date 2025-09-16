@@ -21,6 +21,7 @@ import {ParsedReconstruction} from "../io/parsedReconstruction";
 import {SearchContentOperation} from "../transform/searchContentOperation";
 import {BrainArea} from "./brainArea";
 import {findBrainStructure} from "../transform/atlasLookupService";
+import {QualityCheckStatus} from "./qualityCheckStatus";
 
 const debug = require("debug")("nmcp:nmcp-api:tracing")
 
@@ -199,8 +200,6 @@ export class Tracing extends TracingBaseModel {
             return {tracings: null, error: `Error parsing JSON file ${source}: ${err.message}`};
         }
 
-        // const [axonData, dendriteData] = await jsonParse(fs.createReadStream(source));
-
         if (axonData) {
             tracingInputs.push({input: axonData, tracingStructureId: AxonStructureId});
         }
@@ -224,6 +223,13 @@ export class Tracing extends TracingBaseModel {
 
     public static async createTracingFromInput(reconstructionId: string, tracingInputs: ITracingDataInput[], source: string, insertOnly: boolean = false): Promise<IUploadOutput> {
         try {
+            // Reconstruction
+            const reconstruction = await Reconstruction.findByPk(reconstructionId);
+
+            if (!reconstruction) {
+                return {tracings: null, error: {name: "CreateTracingError", message: `reconstruction ${reconstructionId} not found`}};
+            }
+
             const promises: Promise<IUploadIntermediate>[] = tracingInputs.map(async (input) => {
                 const swcData = input.input;
                 const tracingStructureId = input.tracingStructureId;
@@ -256,9 +262,6 @@ export class Tracing extends TracingBaseModel {
                 }
 
                 let tracing: Tracing = null;
-
-                // Reconstruction
-                const reconstruction = await Reconstruction.findByPk(reconstructionId);
 
                 // Only allow one axon/dendrite per reconstruction.
                 const existing = await Tracing.findOne({
@@ -332,6 +335,12 @@ export class Tracing extends TracingBaseModel {
 
                 if (soma) {
                     await tracing.update({somaNodeId: soma.id});
+                }
+
+                if (await reconstruction.hasRequiredTracings()) {
+                    await reconstruction.update({qualityCheckStatus: QualityCheckStatus.Pending});
+                    debug(`updated reconstruction ${reconstruction.id} quality check status to pending`);
+                    await Reconstruction.requestQualityCheck(reconstructionId);
                 }
 
                 return {tracing, error: null};

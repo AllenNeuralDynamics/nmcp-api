@@ -5,8 +5,9 @@ export const coreTypeDefinitions = gql`
     scalar Date
 
     type Error {
-        message: String
+        kind: Int
         name: String
+        message: String
     }
 
     type Features {

@@ -39,6 +39,8 @@ async function performSynchronization(repeat: boolean = true, intervalSeconds = 
 
     await checkPrecomputedComplete();
 
+    await qualityCheckPendingWorker();
+
     if (repeat) {
         setTimeout(async () => {
             await performSynchronization(repeat, intervalSeconds);
@@ -118,10 +120,12 @@ async function invalidateUpdatedNeurons() {
 
 // With default settings, this will give a heartbeat message that everything is published once per hour.
 const sanityCheckInterval = 60;
+// sanityCheckInterval - 1 => Will get a status update in the log on service start.
 let sanityStructureCheckCount = sanityCheckInterval - 1;
 let sanitySearchContentsCheckCount = sanityCheckInterval - 1;
 let sanityNotifyPrecomputedCheckCount = sanityCheckInterval - 1;
 let sanityCompletedPrecomputedCheckCount = sanityCheckInterval - 1;
+let sanityQualityCheckPendingCount = sanityCheckInterval - 1;
 
 async function calculateStructureAssignments() {
     const pending = await Reconstruction.getPublishPending(ReconstructionStatus.PendingStructureAssignment, 10);
@@ -248,6 +252,27 @@ async function checkPrecomputedComplete() {
         if (sanityCompletedPrecomputedCheckCount >= sanityCheckInterval) {
             debug(`there are no reconstructions in the PendingPrecomputed state with completed skeletons`);
             sanityCompletedPrecomputedCheckCount = 0;
+        }
+    }
+}
+
+async function qualityCheckPendingWorker() {
+    const pending = await Reconstruction.getQualityCheckPending();
+
+    if (pending.length > 0) {
+        debug(`${pending.length} reconstructions have quality control check pending`);
+
+        for (let id of pending) {
+            await Reconstruction.requestQualityCheck(id);
+        }
+
+        sanityQualityCheckPendingCount = 0;
+    } else {
+        sanityQualityCheckPendingCount++;
+
+        if (sanityQualityCheckPendingCount >= sanityCheckInterval) {
+            debug(`there are no reconstructions with quality control check pending`);
+            sanityQualityCheckPendingCount = 0;
         }
     }
 }

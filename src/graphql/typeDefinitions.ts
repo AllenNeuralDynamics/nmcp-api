@@ -160,7 +160,7 @@ export const typeDefinitions = gql`
 
         unpublish(id: String!): Boolean
         
-        requestQualityCheck(id: String!): Boolean
+        requestQualityCheck(id: String!): QualityCheckOutput
 
         reload: Boolean
 

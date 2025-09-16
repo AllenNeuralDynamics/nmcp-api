@@ -27,7 +27,8 @@ import {
     PeerReviewPageInput,
     ReviewPageInput
 } from "../graphql/secureResolvers";
-import {QualityCheckService} from "../data-access/qualityCheckService";
+import {QualityCheckService, QualityCheckServiceStatus} from "../data-access/qualityCheckService";
+import {QualityCheckStatus} from "./qualityCheckStatus";
 
 const debug = require("debug")("nmcp:nmcp-api:reconstruction-model");
 
@@ -159,6 +160,23 @@ export type ReconstructionDataChunked = {
     allenInformation?: ReconstructionAllenInfo[];
 }
 
+export enum QualityCheckErrorKind {
+    None = 0,
+    InvalidArgument = 1,
+    ServiceUnavailable = 2,
+    ServiceError = 3,
+    UnknownError = 4
+}
+
+export type QualityCheckOutput = {
+    id: string;
+    qualityCheckStatus?: QualityCheckStatus;
+    error: {
+        kind: QualityCheckErrorKind;
+        message: string;
+    }
+}
+
 export class Reconstruction extends BaseModel {
     status: ReconstructionStatus;
     // notes: string;
@@ -187,6 +205,23 @@ export class Reconstruction extends BaseModel {
     public readonly Precomputed: Precomputed;
 
     private static _reconstructionCount: number = 0;
+
+    public async hasRequiredTracings(): Promise<boolean> {
+        const tracings = await this.getTracings({attributes: ["tracingStructureId"]});
+
+        if (tracings.length != 2) {
+            return false;
+        }
+
+        return tracings.some(t => t.tracingStructureId == AxonStructureId) && tracings.some(t => t.tracingStructureId == DendriteStructureId);
+    }
+
+    public async canPublish(qualityCheckStatus: QualityCheckStatus = null): Promise<boolean> {
+        qualityCheckStatus ??= this.qualityCheckStatus;
+
+        return (qualityCheckStatus == QualityCheckStatus.CompleteWithWarnings || qualityCheckStatus == QualityCheckStatus.Complete) &&
+            await this.hasRequiredTracings();
+    }
 
     public static async getAll(queryInput: IReconstructionPageInput, userId: string = null): Promise<IReconstructionPage> {
         let out: IReconstructionPage = {
@@ -280,6 +315,7 @@ export class Reconstruction extends BaseModel {
                     [Op.or]: [
                         // {[Op.eq]: ReconstructionStatus.InReview},
                         // {[Op.eq]: ReconstructionStatus.Approved},
+                        // {[Op.eq]: ReconstructionStatus.ApprovedAndReady},
                         {[Op.eq]: ReconstructionStatus.PendingPrecomputed}
                     ]
                 },
@@ -414,7 +450,8 @@ export class Reconstruction extends BaseModel {
             } else {
                 options.where[Op.or] = [
                     {status: ReconstructionStatus.InReview},
-                    {status: ReconstructionStatus.Approved}
+                    {status: ReconstructionStatus.Approved},
+                    {status: ReconstructionStatus.ApprovedAndReady}
                 ]
             }
 
@@ -510,16 +547,19 @@ export class Reconstruction extends BaseModel {
     }
 
     public static async approveAnnotation(id: string, proofreaderId: string): Promise<IErrorOutput> {
-        const annotation = await Reconstruction.findByPk(id);
+        const reconstruction = await Reconstruction.findByPk(id);
 
-        if (!annotation) {
+        if (!reconstruction) {
             return {
                 message: "The reconstruction could not be found",
                 name: "NotFound"
             }
         }
 
-        await annotation.update({status: ReconstructionStatus.Approved, proofreaderId: proofreaderId});
+        await reconstruction.update({
+            status: await reconstruction.canPublish() ? ReconstructionStatus.ApprovedAndReady : ReconstructionStatus.Approved,
+            proofreaderId: proofreaderId
+        });
 
         return null;
     }
@@ -559,7 +599,7 @@ export class Reconstruction extends BaseModel {
     public static async reopenAnnotationAsApproved(id: string): Promise<void> {
         const reconstruction = await Reconstruction.findByPk(id);
 
-        await reconstruction.update({status: ReconstructionStatus.Approved});
+        await reconstruction.update({status: await reconstruction.canPublish() ? ReconstructionStatus.ApprovedAndReady : ReconstructionStatus.Approved});
     }
 
     public static async cancelAnnotation(id: string): Promise<IErrorOutput> {
@@ -991,23 +1031,104 @@ export class Reconstruction extends BaseModel {
         return result;
     }
 
-    public static async requestQualityCheck(id: string): Promise<boolean> {
+    public static async getQualityCheckPending(): Promise<string[]> {
+        const pending = await Reconstruction.findAll({
+            where: {
+                qualityCheckStatus: QualityCheckStatus.Pending
+            }, attributes: ["id"]
+        });
+
+        return pending.map(p => p.id);
+    }
+
+    public static async requestQualityCheck(id: string): Promise<QualityCheckOutput> {
         if (!id) {
-            return false;
+            return {
+                id, error: {
+                    kind: QualityCheckErrorKind.InvalidArgument,
+                    message: "The id argument is required."
+                }
+            };
+        }
+
+        const reconstruction = await Reconstruction.findByPk(id);
+
+        if (!reconstruction) {
+            return {
+                id, error: {
+                    kind: QualityCheckErrorKind.InvalidArgument,
+                    message: `A reconstruction with the id ${id} could not be found.`
+                }
+            };
         }
 
         try {
-            const result = await QualityCheckService.performQualityCheck(id);
+            let updatedStatus: QualityCheckStatus = reconstruction.qualityCheckStatus;
 
-            console.log(result);
+            await reconstruction.update({qualityCheckStatus: QualityCheckStatus.InProgress});
 
-            console.log(result?.result?.errors);
-        } catch (err) {
-            debug(err);
-            return false;
+            const qualityCheckOutput = await QualityCheckService.performQualityCheck(id);
+
+            let status = reconstruction.status;
+            let qualityCheck = null;
+            let standardMorphVersion = null;
+            let error = null;
+
+            if (qualityCheckOutput == null) {
+                error = {
+                    kind: QualityCheckErrorKind.ServiceError,
+                    message: `An unknown error occurred with the quality check service.`
+                };
+            } else if (qualityCheckOutput.serviceStatus == QualityCheckServiceStatus.Unavailable) {
+                error = {
+                    kind: QualityCheckErrorKind.ServiceUnavailable,
+                    message: qualityCheckOutput.error
+                };
+            } else if (qualityCheckOutput.serviceStatus == QualityCheckServiceStatus.Error) {
+                updatedStatus = QualityCheckStatus.Errored;
+                error = {
+                    kind: QualityCheckErrorKind.ServiceError,
+                    message: qualityCheckOutput.error
+                };
+            } else if (qualityCheckOutput.result == null) {
+                updatedStatus = QualityCheckStatus.Errored;
+                error = {
+                    kind: QualityCheckErrorKind.ServiceError,
+                    message: `An unknown error occurred with the quality check service.`
+                };
+            } else {
+                qualityCheck = qualityCheckOutput.result;
+                standardMorphVersion = qualityCheckOutput.result.standardMorphVersion;
+
+                updatedStatus = qualityCheckOutput.result.warnings.length > 0 ? QualityCheckStatus.CompleteWithWarnings : QualityCheckStatus.Complete;
+
+                updatedStatus = qualityCheckOutput.result.errors.length > 0 ? QualityCheckStatus.Failed : updatedStatus;
+
+                if (status != ReconstructionStatus.Published && (await reconstruction.canPublish(updatedStatus))) {
+                    status = ReconstructionStatus.ApprovedAndReady;
+                }
+            }
+
+            await reconstruction.update({
+                status,
+                qualityCheckStatus: updatedStatus,
+                qualityCheckVersion: standardMorphVersion,
+                qualityCheck,
+                qualityCheckAt: new Date()
+            });
+
+            debug(`reconstruction ${id} quality check status updated to ${updatedStatus}`);
+
+            return {id, qualityCheckStatus: updatedStatus, error: error};
+        } catch (error) {
+            debug(error);
+            return {
+                id, error: {
+                    kind: QualityCheckErrorKind.UnknownError,
+                    message: error.message
+                }
+            };
         }
-
-        return true;
     }
 
     public static async unpublish(id: string): Promise<boolean> {
@@ -1060,7 +1181,7 @@ export class Reconstruction extends BaseModel {
                 await Promise.all(promises);
 
                 if (reconstruction.status == ReconstructionStatus.Published) {
-                    await reconstruction.update({status: ReconstructionStatus.Approved}, {transaction});
+                    await reconstruction.update({status: ReconstructionStatus.ApprovedAndReady}, {transaction});
                 }
 
                 promises = reconstruction.Tracings.map(async (t) => {

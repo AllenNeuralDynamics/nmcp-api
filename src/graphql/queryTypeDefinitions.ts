@@ -66,4 +66,10 @@ export const queryTypeDefinitions = gql`
         node: TracingNode
         error: String
     }
+    
+    type QualityCheckOutput {
+        id: String!
+        qualityCheckStatus: Int
+        error: Error
+    }
 `;

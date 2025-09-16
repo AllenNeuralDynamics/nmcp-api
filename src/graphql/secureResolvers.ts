@@ -12,7 +12,7 @@ import {Injection, InjectionInput, InjectionQueryInput} from "../models/injectio
 import {Fluorophore, FluorophoreInput, FluorophoreQueryInput} from "../models/fluorophore";
 import {InjectionVirus, InjectionVirusInput, InjectionVirusQueryInput} from "../models/injectionVirus";
 import {User, UserPermissions, UserQueryInput} from "../models/user";
-import {Reconstruction} from "../models/reconstruction";
+import {QualityCheckOutput, Reconstruction} from "../models/reconstruction";
 import {ReconstructionStatus} from "../models/reconstructionStatus";
 import {GraphQLError} from "graphql/error";
 import {Collection, CollectionInput} from "../models/collection";
@@ -21,6 +21,7 @@ import {synchronize} from "../tools/smartSheetClient";
 import {Precomputed} from "../models/precomputed";
 import GraphQLUpload = require("graphql-upload/GraphQLUpload.js");
 import {UnregisteredTracing} from "../models/unregisteredTracing";
+import {QualityCheckStatus} from "../models/qualityCheckStatus";
 
 export class UnauthorizedError extends GraphQLError {
     public constructor() {
@@ -134,6 +135,7 @@ export interface ReviewPageInput {
 
 export interface FullReviewPageInput extends ReviewPageInput {
     status: ReconstructionStatus[];
+    qualityCheckStatus: QualityCheckStatus[];
 }
 
 export interface PeerReviewPageInput extends ReviewPageInput {
@@ -923,7 +925,7 @@ export const secureResolvers = {
             });
         },
 
-        async requestQualityCheck(_: any, args: IIdOnlyArguments, context: User): Promise<boolean> {
+        async requestQualityCheck(_: any, args: IIdOnlyArguments, context: User): Promise<QualityCheckOutput> {
             if (context.permissions & UserPermissions.FullReview) {
                 return await Reconstruction.requestQualityCheck(args.id);
             }
