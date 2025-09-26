@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import {DataTypes, Op, Sequelize} from "sequelize";
+import {DataTypes, HasManyGetAssociationsMixin, Op, Sequelize} from "sequelize";
 
 import {DeleteOutput} from "./baseModel";
 import {AxonStructureId, DendriteStructureId, TracingStructure} from "./tracingStructure";
@@ -37,7 +37,7 @@ export class Tracing extends TracingBaseModel {
     public nodeLookupAt: string;
     public searchTransformAt: Date;
 
-    // public getNodes!: HasManyGetAssociationsMixin<TracingNode>
+    public getNodes!: HasManyGetAssociationsMixin<TracingNode>
 
     public Nodes?: TracingNode[];
 
@@ -450,8 +450,6 @@ export class Tracing extends TracingBaseModel {
         if (Tracing._nearestNodeCache.has(this.id)) {
             tree = Tracing._nearestNodeCache.get(this.id);
         } else {
-            // TODO Too slow for 2 million node tracings.
-            /*
             const nodes = await this.getNodes();
             if (!Tracing._nearestNodeCache.has(this.id)) {
                 tree = new KDTree(nodes.map(n => n.toJSON()));
@@ -459,7 +457,6 @@ export class Tracing extends TracingBaseModel {
             } else {
                 tree = Tracing._nearestNodeCache.get(this.id);
             }
-             */
         }
 
         if (tree) {
