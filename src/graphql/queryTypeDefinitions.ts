@@ -70,6 +70,8 @@ export const queryTypeDefinitions = gql`
     type QualityCheckOutput {
         id: String!
         qualityCheckStatus: Int
+        qualityCheck: QualityCheck
+        qualityCheckAt: Date
         error: Error
     }
 `;

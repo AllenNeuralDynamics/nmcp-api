@@ -27,7 +27,7 @@ import {
     PeerReviewPageInput,
     ReviewPageInput
 } from "../graphql/secureResolvers";
-import {QualityCheckService, QualityCheckServiceStatus} from "../data-access/qualityCheckService";
+import {QualityCheck, QualityCheckService, QualityCheckServiceStatus} from "../data-access/qualityCheckService";
 import {QualityCheckStatus} from "./qualityCheckStatus";
 
 const debug = require("debug")("nmcp:nmcp-api:reconstruction-model");
@@ -171,6 +171,8 @@ export enum QualityCheckErrorKind {
 export type QualityCheckOutput = {
     id: string;
     qualityCheckStatus?: QualityCheckStatus;
+    qualityCheck?: QualityCheck;
+    qualityCheckAt?: Date;
     error: {
         kind: QualityCheckErrorKind;
         message: string;
@@ -190,7 +192,7 @@ export class Reconstruction extends BaseModel {
     completedAt: Date;
     qualityCheckStatus: number
     qualityCheckVersion: string
-    qualityCheck: string
+    qualityCheck: QualityCheck
     qualityCheckAt: Date
 
     public getAnnotator!: BelongsToGetAssociationMixin<User>;
@@ -1051,7 +1053,7 @@ export class Reconstruction extends BaseModel {
             };
         }
 
-        const reconstruction = await Reconstruction.findByPk(id);
+        let reconstruction = await Reconstruction.findByPk(id);
 
         if (!reconstruction) {
             return {
@@ -1070,7 +1072,7 @@ export class Reconstruction extends BaseModel {
             const qualityCheckOutput = await QualityCheckService.performQualityCheck(id);
 
             let status = reconstruction.status;
-            let qualityCheck = null;
+            let qualityCheck = reconstruction.qualityCheck;
             let standardMorphVersion = null;
             let error = null;
 
@@ -1109,7 +1111,7 @@ export class Reconstruction extends BaseModel {
                 }
             }
 
-            await reconstruction.update({
+            reconstruction = await reconstruction.update({
                 status,
                 qualityCheckStatus: updatedStatus,
                 qualityCheckVersion: standardMorphVersion,
@@ -1119,7 +1121,7 @@ export class Reconstruction extends BaseModel {
 
             debug(`reconstruction ${id} quality check status updated to ${updatedStatus}`);
 
-            return {id, qualityCheckStatus: updatedStatus, error: error};
+            return {id, qualityCheckStatus: updatedStatus, qualityCheck, qualityCheckAt: reconstruction.qualityCheckAt, error: error};
         } catch (error) {
             debug(error);
             return {

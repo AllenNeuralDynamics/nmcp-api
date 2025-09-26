@@ -9,25 +9,27 @@ export type StandardMorphError = {
     affectedNodes: number[];
 }
 
+export type QualityCheck = {
+    standardMorphVersion: string;
+    warnings: StandardMorphError[];
+    errors: StandardMorphError[];
+}
+
 export enum QualityCheckServiceStatus {
     Unavailable = 0,
     Error = 1,
     Success = 2
 }
 
-export type QualityCheckResult = {
+export type QualityCheckServiceResult = {
     reconstructionId: string;
-    serviceStatus: QualityCheckServiceStatus
-    result?: {
-        standardMorphVersion: string;
-        warnings: StandardMorphError[];
-        errors: StandardMorphError[];
-    }
-    error?: string
+    serviceStatus: QualityCheckServiceStatus;
+    result?: QualityCheck;
+    error?: string;
 }
 
 export class QualityCheckService {
-    public static async performQualityCheck(reconstructionId: string): Promise<QualityCheckResult> {
+    public static async performQualityCheck(reconstructionId: string): Promise<QualityCheckServiceResult> {
         const url = `http://${CoreServiceOptions.rest.qualityCheck.host}:${CoreServiceOptions.rest.qualityCheck.port}${CoreServiceOptions.rest.qualityCheck.endpoint}`;
 
         debug(`calling quality check service ${url} for reconstruction ${reconstructionId}`);

@@ -208,6 +208,18 @@ export const coreTypeDefinitions = gql`
         updatedAt: Date
     }
 
+    type QualityError {
+        testName: String!
+        testDescription: String!
+        affectedNodes: [Int!]!
+    }
+
+    type QualityCheck {
+        warnings:[QualityError!]!
+        errors: [QualityError!]!
+        standardMorphVersion: String!
+    }
+
     type Reconstruction {
         id: String!
         status: Int
@@ -231,7 +243,7 @@ export const coreTypeDefinitions = gql`
         completedAt: Date
         qualityCheckStatus: Int
         qualityCheckVersion: String
-        qualityCheck: String
+        qualityCheck: QualityCheck
         qualityCheckAt: Date
     }
 
@@ -266,7 +278,7 @@ export const coreTypeDefinitions = gql`
         createdAt: Date
         updatedAt: Date
     }
-    
+
     enum ExportFormat {
         SWC
         JSON

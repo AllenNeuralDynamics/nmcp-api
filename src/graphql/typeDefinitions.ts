@@ -86,6 +86,8 @@ export const typeDefinitions = gql`
         candidatesForReview: [Neuron!]!
         reviewableReconstructions(input: ReviewPageInput): ReconstructionPage!
         peerReviewableReconstructions(input: PeerReviewPageInput): ReconstructionPage!
+        
+        qualityCheck(id: String): QualityCheck
 
         issueCount: Int!
 
