@@ -1,10 +1,11 @@
 /**
  * Test fixtures for Reconstruction unit tests
  */
+import {AxonStructureId, DendriteStructureId} from "../../src/models/tracingStructure";
 
 export class ReconstructionTestFixtures {
-    static readonly AXON_STRUCTURE_ID = "68e76074-1777-42b6-bbf9-93a6a5f02fa4";
-    static readonly DENDRITE_STRUCTURE_ID = "dendrite-structure-id";
+    static readonly AXON_STRUCTURE_ID = AxonStructureId;
+    static readonly DENDRITE_STRUCTURE_ID = DendriteStructureId;
 
     static createMockUser(role: string = "user") {
         return {

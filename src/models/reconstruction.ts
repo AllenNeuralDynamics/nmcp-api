@@ -6,11 +6,11 @@ import {BaseModel} from "./baseModel";
 import {Neuron} from "./neuron";
 import {ReconstructionStatus} from "./reconstructionStatus";
 import {Tracing} from "./tracing";
-import {AxonStructureId, DendriteStructureId} from "./tracingStructure";
+import {AxonStructureId, DendriteStructureId, TracingStructure} from "./tracingStructure";
 import {User} from "./user";
 import {Precomputed} from "./precomputed";
 import {TracingNode} from "./tracingNode";
-import {StructureIdentifier} from "./structureIdentifier";
+import {StructureIdentifier, StructureIdentifiers} from "./structureIdentifier";
 import {BrainArea} from "./brainArea";
 import {Sample} from "./sample";
 import {Fluorophore} from "./fluorophore";
@@ -957,7 +957,7 @@ export class Reconstruction extends BaseModel {
                 limit: axonLimit
             });
 
-            result.axon = mapNodes(axonNodes);
+            result.axon = mapNodes(axonNodes, StructureIdentifiers.axon);
             result.axonChunkInfo = {
                 totalCount: totalAxonCount,
                 offset: axonOffset,
@@ -988,7 +988,7 @@ export class Reconstruction extends BaseModel {
                 limit: dendriteLimit
             });
 
-            result.dendrite = mapNodes(dendriteNodes);
+            result.dendrite = mapNodes(dendriteNodes, StructureIdentifiers.basalDendrite);
             result.dendriteChunkInfo = {
                 totalCount: totalDendriteCount,
                 offset: dendriteOffset,
@@ -1033,12 +1033,30 @@ export class Reconstruction extends BaseModel {
         return result;
     }
 
-    public static async getQualityCheckPending(): Promise<string[]> {
+    public static async getQualityCheckPending(explicitPendingOnly: boolean = false): Promise<string[]> {
         const pending = await Reconstruction.findAll({
             where: {
                 qualityCheckStatus: QualityCheckStatus.Pending
             }, attributes: ["id"]
         });
+
+        if (!explicitPendingOnly) {
+            const possible = await Reconstruction.findAll({
+                where: {
+                    qualityCheckStatus: QualityCheckStatus.NotReady,
+                }, attributes: ["id", [Sequelize.fn('COUNT', Sequelize.col('Tracings.id')), 'TracingCount']],
+                include: [{
+                    model: Tracing,
+                    as: 'Tracings',
+                    attributes: [],
+                    required: true,
+                    duplicating: false
+                }],
+                group: ['Reconstruction.id']
+            });
+
+            pending.push(...possible.filter(p => p.getDataValue("TracingCount") == 2));
+        }
 
         return pending.map(p => p.id);
     }
@@ -1350,11 +1368,11 @@ export const modelAssociate = () => {
 };
 
 // Pure transformation functions for testing
-export function mapNodes(nodes: TracingNode[]): ReconstructionDataNode[] {
+export function mapNodes(nodes: TracingNode[], structureIdentifier: StructureIdentifiers = null): ReconstructionDataNode[] {
     return nodes.map(n => {
         return {
             sampleNumber: n.sampleNumber,
-            structureIdentifier: n.StructureIdentifier.value,
+            structureIdentifier: structureIdentifier ?? n.StructureIdentifier.value,
             x: n.x,
             y: n.y,
             z: n.z,
@@ -1365,39 +1383,34 @@ export function mapNodes(nodes: TracingNode[]): ReconstructionDataNode[] {
     });
 }
 
-export function extractTracingData(tracings: any[]): {
+export type TracingJsonData = {
     axon: ReconstructionDataNode[];
     axonId: string | null;
     dendrite: ReconstructionDataNode[];
     dendriteId: string | null;
     soma: ReconstructionDataNode | null;
-} {
-    const AXON_STRUCTURE_ID = "68e76074-1777-42b6-bbf9-93a6a5f02fa4";
+}
 
+export function extractTracingData(tracings: any[]): TracingJsonData {
     let axon: ReconstructionDataNode[] = [];
     let axonId: string | null = null;
     let dendrite: ReconstructionDataNode[] = [];
     let dendriteId: string | null = null;
 
-    let nodes = mapNodes(tracings[0].Nodes).sort((a, b) => a.sampleNumber - b.sampleNumber);
-    if (tracings[0].tracingStructureId === AXON_STRUCTURE_ID) {
-        axon = nodes;
-        axonId = tracings[0].id;
-    } else {
-        dendrite = nodes;
-        dendriteId = tracings[0].id;
+    const axonTracing = tracings.find(t => t.tracingStructureId == AxonStructureId);
+    const dendriteTracing = tracings.find(t => t.tracingStructureId == DendriteStructureId);
+
+    if (axonTracing) {
+        axon = mapNodes(axonTracing.Nodes, StructureIdentifiers.axon).sort((a, b) => a.sampleNumber - b.sampleNumber);
+        axonId = axonTracing.id;
     }
 
-    nodes = mapNodes(tracings[1].Nodes).sort((a, b) => a.sampleNumber - b.sampleNumber);
-    if (tracings[1].tracingStructureId === AXON_STRUCTURE_ID) {
-        axon = nodes;
-        axonId = tracings[1].id;
-    } else {
-        dendrite = nodes;
-        dendriteId = tracings[1].id;
+    if (dendriteTracing) {
+        dendrite = mapNodes(dendriteTracing.Nodes, StructureIdentifiers.basalDendrite).sort((a, b) => a.sampleNumber - b.sampleNumber);
+        dendriteId = dendriteTracing.id;
     }
 
-    const soma = dendrite.find(n => n.sampleNumber === 1) || axon.find(n => n.sampleNumber === 1) || null;
+    const soma = axon.find(n => n.sampleNumber === 1) || dendrite.find(n => n.sampleNumber === 1) || null;
 
     return {axon, axonId, dendrite, dendriteId, soma};
 }
