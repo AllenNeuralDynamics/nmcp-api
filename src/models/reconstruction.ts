@@ -1204,6 +1204,9 @@ export class Reconstruction extends BaseModel {
                     await reconstruction.update({status: ReconstructionStatus.ApprovedAndReady}, {transaction});
                 }
 
+                // TODO Precomputed worker should periodically look for skeletons that are no longer part of the active
+                await Precomputed.destroy({where: {reconstructionId: reconstruction.id}});
+
                 promises = reconstruction.Tracings.map(async (t) => {
                     await SearchContent.destroy({where: {tracingId: t.id}, transaction});
                 });
