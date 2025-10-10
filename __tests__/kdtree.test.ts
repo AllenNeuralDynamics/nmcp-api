@@ -45,7 +45,7 @@ function confirmNearestNeighbor(tree: KDTree, points: Point[], point: Point) {
             minDistance = distance;
             id = p.id;
         }
-    })
+    });
 
     const nearest = tree.nearest(point);
 

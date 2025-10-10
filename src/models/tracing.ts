@@ -460,7 +460,7 @@ export class Tracing extends TracingBaseModel {
         }
 
         if (tree) {
-            const result = tree.nearest({x: location[2], y: location[1], z: location[0]})
+            const result = tree.nearest({x: location[0], y: location[1], z: location[2]})
 
             if (result.length > 0) {
                 return {id: result[0].point.id, distance: result[0].tree_distance};

@@ -38,7 +38,7 @@ export function findBrainStructures(locations: AtlasLocation[]): string[] {
             return null;
         }
 
-        const transformedLocation = [Math.ceil(location.x / 10), Math.ceil(location.y / 10), Math.ceil(location.z / 10)].reverse();
+        const transformedLocation = [Math.ceil(location.x / 10), Math.ceil(location.y / 10), Math.ceil(location.z / 10)];
 
         const structureId = nrrdContent.findStructureId(transformedLocation[0], transformedLocation[1], transformedLocation[2]);
 
