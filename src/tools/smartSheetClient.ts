@@ -10,7 +10,6 @@ import {Reconstruction} from "../models/reconstruction";
 import {ReconstructionStatus} from "../models/reconstructionStatus";
 import {Tracing} from "../models/tracing";
 import {glob} from "glob";
-import {QualityCheckStatus} from "../models/qualityCheckStatus";
 
 const debug = require("debug")("nmcp:api:smartsheet");
 
@@ -43,7 +42,7 @@ enum Status {
     Hold = "Hold",
     PendingReview = "Pending Review",
     Completed = "Completed",
-    Incomplete = "Incomplete",
+    // Incomplete = "Incomplete",
     Untraceable = "Untraceable"
 }
 
@@ -95,7 +94,7 @@ type ParsedNeuronIdWithSample = [string, SampleRowContents];
 // Some ugly globals while we figure out what we want.
 const reconstructionNotFound = [];
 const ccfMissing = [];
-const ccfCoordParseFailed = [];
+const ccfCoordinatesParseFailed = [];
 const ccfLookupFailed = [];
 
 // Should be an argument but testing for now.
@@ -135,28 +134,28 @@ export const synchronize = async (sheetId: number = 0, pathToReconstructions: st
 
     s.print();
 
-    if (reconstructionNotFound) {
+    if (reconstructionNotFound.length > 0) {
         debug("Expected reconstruction data not found:")
         reconstructionNotFound.forEach(r => {
             debug(`\t${r.subject}-${r.neuron}`);
         });
     }
 
-    if (ccfMissing) {
+    if (ccfMissing.length > 0) {
         debug(`CCF soma coordinates missing ${allowMissingCCF ? "" : "(included due to allowMissingCCF = true)"}:`)
-        ccfCoordParseFailed.forEach(r => {
+        ccfCoordinatesParseFailed.forEach(r => {
             debug(`\t${r.subject}-${r.neuron}`);
         });
     }
 
-    if (ccfCoordParseFailed) {
+    if (ccfCoordinatesParseFailed.length > 0) {
         debug("Could not parse CCF soma coordinates:")
-        ccfCoordParseFailed.forEach(r => {
+        ccfCoordinatesParseFailed.forEach(r => {
             debug(`\t${r.subject}-${r.neuron}`);
         });
     }
 
-    if (ccfLookupFailed) {
+    if (ccfLookupFailed.length > 0) {
         debug("Failed to look up some brain compartment:")
         ccfLookupFailed.forEach(r => {
             debug(`\t${r.subject}-${r.neuron}`);
@@ -181,14 +180,13 @@ function reconstructionStatusForSmartSheetStatus(status: Status) {
         case Status.Untraceable:
             return ReconstructionStatus.Invalid;
     }
-
-    return null;
 }
 
 async function ensureUser(name: string, email: string) {
     if (name && email) {
         let names = name.split(" ");
 
+        // Special exception for AIND-specific smartsheet variation - this user dropdown entry does not have email value w/display name.
         if (email == "kevianna.adams@alleninstitute.org") {
             names = ["Kevianna", "Adams"];
         }
@@ -323,8 +321,6 @@ async function sampleFromRowContents(s: SampleRowContents, reconstructionLocatio
             return;
         }
 
-        const proofreader = n.proofreaderEmail ? users.get(n.proofreaderEmail) : null;
-
         try {
             let reconstruction = await Reconstruction.findOne({
                 where: {
@@ -375,18 +371,8 @@ async function sampleFromRowContents(s: SampleRowContents, reconstructionLocatio
 
             const file_prefix = `${n.idString}-${s.subjectId}`;
 
-            const annotatorInitials = (u: User): string => {
-                if (!u) {
-                    return "";
-                }
-
-                return `${u.firstName?.length > 0 ? u.firstName[0] : ""}${u.lastName?.length > 0 ? u.lastName[0] : ""}`.toUpperCase();
-            };
-
             try {
-                let initials = [annotatorInitials(annotator1), annotatorInitials(annotator2), annotatorInitials(proofreader)].filter(i => i.length > 0);
-
-                const jsonPath = await locateReconstructionFile(reconstructionLocation, file_prefix, initials);
+                const jsonPath = await locateReconstructionFile(reconstructionLocation, file_prefix);
 
                 if (jsonPath) {
                     if (insertReconstructions || testFlightInsertion) {
@@ -412,9 +398,7 @@ async function sampleFromRowContents(s: SampleRowContents, reconstructionLocatio
     }
 }
 
-async function locateReconstructionFile(baseLocation: string, file_prefix: string, initials: string[]): Promise<string> {
-    // let jsonFile = `${file_prefix}-consensus.json`;
-
+async function locateReconstructionFile(baseLocation: string, file_prefix: string): Promise<string> {
     const sources = await glob(`${baseLocation}/**/${file_prefix}*.json`)
 
     return sources?.length > 0 ? sources[0] : null;
@@ -469,14 +453,14 @@ export class SmartSheetClient {
     public async updateDatabase(reconstructionLocation: string, insertReconstructions: boolean, testFlightInsertion: boolean = true) {
         const ordered = Array.from(this.samples.values()).sort((a, b) => a.subjectId.localeCompare(b.subjectId));
 
-        const limited = ordered; //.filter(s => s.subjectId == "685222");
-
-        for (const s of limited) {
+        for (const s of ordered) {
             await sampleFromRowContents(s, reconstructionLocation, insertReconstructions, testFlightInsertion);
         }
     }
 
     public print() {
+        const showPending = false;
+
         let ordered = Array.from(this.samples.values()).sort((a, b) => a.subjectId.localeCompare(b.subjectId));
         debug(`subjects with imports:`);
         ordered.forEach(s => {
@@ -484,18 +468,27 @@ export class SmartSheetClient {
                 debug(`\t${s.subjectId} imported with ${s.neurons.length} neuron(s)`);
             }
         });
+
+        let shown = false;
         debug(`subjects with expected imports that are missing:`);
         ordered.forEach(s => {
             if (s.neurons.length == 0) {
                 debug(`\t${s.subjectId}`);
+                shown = true;
             }
         });
 
-        ordered = Array.from(this.pendingSamples.values()).sort((a, b) => a.subjectId.localeCompare(b.subjectId));
-        debug(`subjects stuck in pending:`);
-        ordered.forEach(s => {
-            debug(`\t${s.subjectId}`);
-        });
+        if (!shown) {
+            debug("\tnone");
+        }
+
+        if (showPending) {
+            ordered = Array.from(this.pendingSamples.values()).sort((a, b) => a.subjectId.localeCompare(b.subjectId));
+            debug(`subjects stuck in pending:`);
+            ordered.forEach(s => {
+                debug(`\t${s.subjectId}`);
+            });
+        }
     }
 
     private parseSample(row: Row, qualifier: ImportQualifier) {
@@ -548,6 +541,17 @@ export class SmartSheetClient {
     }
 
     private parseNeuron(row: any, qualifier: ImportQualifier) {
+        // When flagged for production or test instances, verify corresponding column.
+        if (qualifier != ImportQualifier.All) {
+            const cell = qualifier == ImportQualifier.Production ? this.getCell(row, ColumnName.Production) : this.getCell(row, ColumnName.Test);
+
+            if (cell?.value != true) {
+                // const id = this.getCell(row, ColumnName.Id).value as string;
+                // console.log(`neuron ${id} is not marked for production and being skipped`);
+                return;
+            }
+        }
+
         // Ensure we can identify the sample.  This should just be the parent row, but this is a bit of a sanity
         // check that the neuron is named as we expect for other assumptions such as the reconstruction file name.
         const [id, sample] = this.getSampleFromId(row);
@@ -574,17 +578,6 @@ export class SmartSheetClient {
             ccf = "[0.0, 0.0, 0,0]";
         }
 
-        // When flagged for production, verify column.
-        if (qualifier != ImportQualifier.All) {
-            const cell = qualifier == ImportQualifier.Production ? this.getCell(row, ColumnName.Production) : this.getCell(row, ColumnName.Test);
-
-            if (cell?.value != true) {
-                // const id = this.getCell(row, ColumnName.Id).value as string;
-                // console.log(`neuron ${id} is not marked for production and being skipped`);
-                return;
-            }
-        }
-
         const horta = this.getCell(row, ColumnName.HortaCoordinates).value as string;
 
         let hortaParts = [0, 0, 0];
@@ -606,7 +599,7 @@ export class SmartSheetClient {
         }
 
         if (ccfParts.some(p => isNaN(p))) {
-            ccfCoordParseFailed.push({subject: sample.subjectId, neuron: id});
+            ccfCoordinatesParseFailed.push({subject: sample.subjectId, neuron: id});
             debug(`could not parse CCF coordinates ${this.getStringValue(row, ColumnName.Id)} (row ${row.rowNumber})`);
         }
 
