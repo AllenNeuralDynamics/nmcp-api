@@ -6,7 +6,7 @@ import {BaseModel} from "./baseModel";
 import {Neuron} from "./neuron";
 import {ReconstructionStatus} from "./reconstructionStatus";
 import {Tracing} from "./tracing";
-import {AxonStructureId, DendriteStructureId, TracingStructure} from "./tracingStructure";
+import {AxonStructureId, DendriteStructureId} from "./tracingStructure";
 import {User} from "./user";
 import {Precomputed} from "./precomputed";
 import {TracingNode} from "./tracingNode";
@@ -161,7 +161,7 @@ export type ReconstructionDataChunked = {
 }
 
 export enum QualityCheckErrorKind {
-    None = 0,
+    // None = 0,
     InvalidArgument = 1,
     ServiceUnavailable = 2,
     ServiceError = 3,
@@ -181,6 +181,7 @@ export type QualityCheckOutput = {
 
 export class Reconstruction extends BaseModel {
     status: ReconstructionStatus;
+    doi: string;
     // notes: string;
     // checks: string;
     // durationHours: number;
@@ -1341,6 +1342,7 @@ export const modelInit = (sequelize: Sequelize) => {
             type: DataTypes.UUID,
             defaultValue: DataTypes.UUIDV4
         },
+        doi: DataTypes.TEXT,
         status: DataTypes.INTEGER,
         notes: DataTypes.TEXT,
         checks: DataTypes.TEXT,

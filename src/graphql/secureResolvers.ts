@@ -1071,35 +1071,27 @@ export const secureResolvers = {
         sample(neuron: Neuron): Promise<Sample> {
             return neuron.getSample();
         },
+        latest(neuron: Neuron): Promise<Reconstruction> {
+            return neuron.latest();
+        },
         reconstructions(neuron: Neuron): Promise<Reconstruction[]> {
             return neuron.getReconstructions();
-        },
-        async tracings(neuron: Neuron): Promise<Tracing[]> {
-            let reconstructions = await neuron.getReconstructions();
-
-            reconstructions = reconstructions.filter(r => r.status == ReconstructionStatus.Published);
-
-            if (reconstructions.length == 0) {
-                return [];
-            }
-
-            return [await reconstructions[0].getAxon(), await reconstructions[0].getDendrite()];
         }
     },
     Tracing: {
-        async tracingStructure(tracing, _: any, context: User): Promise<TracingStructure> {
+        async tracingStructure(tracing: Tracing, _: any, context: User): Promise<TracingStructure> {
             const result: Tracing = await Tracing.findByPk(tracing.id);
             return result ? result.getTracingStructure() : null;
         },
-        reconstruction(tracing, _: any, context: User): Promise<Reconstruction> {
+        reconstruction(tracing: Tracing, _: any, context: User): Promise<Reconstruction> {
             return Reconstruction.findByPk(tracing.reconstructionId);
         },
-        soma(tracing, _: any, context: User): Promise<TracingNode> {
+        soma(tracing: Tracing, _: any, context: User): Promise<TracingNode> {
             return TracingNode.findByPk(tracing.somaNodeId);
         }
     },
     TracingNode: {
-        brainStructure(node, _: any, context: User): Promise<BrainArea> {
+        brainStructure(node: TracingNode, _: any, context: User): Promise<BrainArea> {
             return BrainArea.findByPk(node.brainStructureId);
         }
     },

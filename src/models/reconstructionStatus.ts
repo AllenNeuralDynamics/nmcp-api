@@ -11,5 +11,6 @@ export enum ReconstructionStatus {
     PendingSearchContents = 11,
     PendingPrecomputed = 12,
     Published = 20,
+    Archived = 30,
     Invalid = 99
 }

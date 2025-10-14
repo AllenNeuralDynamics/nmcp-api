@@ -33,6 +33,7 @@ export interface TransformResult {
 }
 
 export class Tracing extends TracingBaseModel {
+    public filename: string;
     public somaNodeId: string;
     public nodeLookupAt: string;
     public searchTransformAt: Date;

@@ -77,7 +77,7 @@ export const typeDefinitions = gql`
         sample(id: String!): Sample
 
         neurons(input: NeuronQueryInput): QueryNeurons
-        neuron(id: String!): Neuron
+        neuron(id: String!, version: String): Neuron
 
         candidateNeurons(input: NeuronQueryInput, includeInProgress: Boolean): QueryNeurons
 

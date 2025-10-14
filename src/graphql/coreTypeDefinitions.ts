@@ -137,8 +137,8 @@ export const coreTypeDefinitions = gql`
         brainStructureId: String
         brainArea: BrainArea
         sample: Sample
-        reconstructions: [Reconstruction]
-        tracings: [Tracing]
+        latest: Reconstruction
+        reconstructions: [Reconstruction!]
         createdAt: Date
         updatedAt: Date
     }
@@ -235,7 +235,6 @@ export const coreTypeDefinitions = gql`
         peerReviewer: User
         neuronId: String
         neuron: Neuron
-        tracings: [Tracing!]
         axon: Tracing
         dendrite: Tracing
         precomputed: Precomputed

@@ -292,6 +292,7 @@ export class Neuron extends BaseModel {
         }
 
         if (input.brainStructureIds && input.brainStructureIds.length > 0) {
+            // TODO take comprehensive brain structure mapping from queryPredicate.ts 125
             options.where["brainStructureId"] = {[Op.in]: input.brainStructureIds}
         }
 
@@ -757,7 +758,9 @@ export class Neuron extends BaseModel {
             const nextNumber = await Neuron.findNextAvailableIdNumber(sample.id);
 
             if (options.tag) {
-                records.forEach(r => {r.tag = options.tag});
+                records.forEach(r => {
+                    r.tag = options.tag
+                });
             }
 
             const idStrings = await Neuron.insertSomaEntries(records, sample, nextNumber, options.noEmit);
@@ -844,6 +847,17 @@ export class Neuron extends BaseModel {
         }
 
         return idStrings;
+    }
+
+    public async latest(): Promise<Reconstruction> {
+        let reconstructions = await this.getReconstructions({
+            where: {
+                status: ReconstructionStatus.Published
+            },
+            limit: 1
+        });
+
+        return reconstructions.length == 0 ? null : reconstructions[0];
     }
 }
 
