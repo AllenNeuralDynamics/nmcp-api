@@ -17,8 +17,6 @@ type IServiceOptions = {
     fixturePath: string;
     seedUserItems: boolean;
     ccfv30OntologyPath: string;
-    tracingLoadMaxDelay: number;
-    tracingLoadLimit: number;
     allowExperimentalFeatures: boolean;
     version: string;
 }
@@ -37,8 +35,6 @@ const configuration: IServiceOptions = {
     serverAuthenticationKey: process.env.NMCP_AUTHENTICATION_KEY || null,
     seedUserItems: process.env.NMCP_SEED_USER_ITEMS === "true",
     ccfv30OntologyPath: "ccfv30_raw.nrrd",
-    tracingLoadMaxDelay: 10,
-    tracingLoadLimit: 100,
     allowExperimentalFeatures:  process.env.NMCP_EXPERIMENTAL_ENV === "true",
     version: ""
 };
@@ -53,9 +49,6 @@ function loadConfiguration() {
     c.fixturePath = path.normalize(path.join(__dirname, prefix, "..", c.fixturePath));
 
     c.ccfv30OntologyPath = process.env.NMCP_CCF_30_ONTOLOGY_PATH || c.ccfv30OntologyPath;
-
-    c.tracingLoadMaxDelay = parseInt(process.env.NMCP_LOAD_MAX_DELAY) || c.tracingLoadMaxDelay;
-    c.tracingLoadLimit = parseInt(process.env.NMCP_BROWSER_LOAD_LIMIT) || c.tracingLoadLimit;
 
     c.version = readSystemVersion();
 

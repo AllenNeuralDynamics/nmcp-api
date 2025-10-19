@@ -9,7 +9,6 @@ import {BrainArea, CompartmentQueryInput} from "../models/brainArea";
 import {User} from "../models/user";
 import {StructureIdentifier} from "../models/structureIdentifier";
 import {TracingStructure} from "../models/tracingStructure";
-import {staticApiClient} from "../data-access/staticApiService";
 import {IQueryDataPage, Neuron} from "../models/neuron";
 import {ISearchContextInput, SearchContext} from "../models/searchContext";
 import {Collection} from "../models/collection";
@@ -68,19 +67,6 @@ export const openResolvers = {
 
         async brainArea(_: any, args: IIdOnlyArguments): Promise<BrainArea> {
             return BrainArea.findByPk(args.id);
-        },
-
-        async tomographyMetadata(_: any, __: any, ___: User): Promise<[]> {
-            try {
-                const resp = await staticApiClient.querySampleTomography();
-                debug("tomography loaded")
-                return resp.data.tomographyMetadata;
-            } catch (err) {
-                debug("failed tomography query")
-                debug(err);
-            }
-
-            return [];
         },
 
         async collections(): Promise<Collection[]> {

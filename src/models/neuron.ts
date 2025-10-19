@@ -18,7 +18,7 @@ import {Sample} from "./sample";
 import {IAnnotationMetadata} from "./annotationMetadata";
 import {Tracing} from "./tracing";
 import {TracingNode} from "./tracingNode";
-import {ConsensusStatus} from "./ConsensusStatus";
+import {ConsensusStatus} from "./consensusStatus";
 import {SearchContext} from "./searchContext";
 import {SearchContent} from "./searchContent";
 import {PredicateType} from "./queryPredicate";

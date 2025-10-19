@@ -282,32 +282,7 @@ export const coreTypeDefinitions = gql`
         SWC
         JSON
     }
-
-    """
-    The range of valid indices for requesting slices for each plane.  Not required if requesting by actual location.
-    """
-    type SliceLimits {
-        """2-element vector for min/max of range."""
-        sagittal: [Float]
-        """2-element vector for min/max of range."""
-        horizontal: [Float]
-        """2-element vector for min/max of range."""
-        coronal: [Float]
-    }
-
-    """
-    Metadata for available image slices for a given sample.  This information is no required for typical slice
-    requests where a a location is provided, other than the sample id.
-    """
-    type TomographyMetadata {
-        id: String
-        name: String
-        origin: [Float]
-        pixelSize: [Float]
-        threshold: [Float]
-        limits: SliceLimits
-    }
-
+    
     """
     Node structure for reconstruction data
     """

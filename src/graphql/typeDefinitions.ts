@@ -39,10 +39,7 @@ export const typeDefinitions = gql`
 
         """Returns details for all collections."""
         collections: [Collection!]!
-
-        """Returns all tomography metadata for referencing or loading default or sample-based slices."""
-        tomographyMetadata: [TomographyMetadata!]
-
+        
         """Returns the closest node in the reconstruction graph to the given location."""
         nearestNode(id: String!, location: [Float!]!): NearestNodeOutput
 
