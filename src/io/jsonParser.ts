@@ -2,7 +2,7 @@ import * as byline from "byline";
 import * as fs from "fs";
 import JSONStream = require("JSONStream");
 import {ParsedNode, ParsedReconstruction} from "./parsedReconstruction";
-import {BrainArea} from "../models/brainArea";
+import {AtlasStructure} from "../models/atlasStructure";
 
 const debug = require("debug")("nmcp:nmcp-api:json-parser");
 
@@ -108,7 +108,7 @@ function parseSamples(nodes: any[]): ParsedNode[] {
             z: n.z,
             radius: n.radius,
             lengthToParent: 0,
-            brainStructureId: BrainArea.getFromStructureId(n.allenId)?.id
+            brainStructureId: AtlasStructure.getFromStructureId(n.allenId)?.id
         };
     });
 }

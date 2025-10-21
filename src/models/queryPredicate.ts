@@ -1,6 +1,6 @@
 import {FindOptions, Op} from "sequelize";
 
-import {BrainArea} from "./brainArea";
+import {AtlasStructure} from "./atlasStructure";
 import {operatorIdValueMap} from "./queryOperator";
 import {StructureIdentifier} from "./structureIdentifier";
 
@@ -113,7 +113,7 @@ export class QueryPredicate implements IQueryPredicate {
                     findOptions.where["tracingStructureId"] = this.tracingStructureIds[0];
                 }
 
-                const wholeBrainId = BrainArea.wholeBrainId();
+                const wholeBrainId = AtlasStructure.wholeBrainId();
 
                 // Asking for "Whole Brain" should not eliminate nodes (particularly soma) that are outside the ontology
                 // atlas.  It should be interpreted as an "all" request.  This also helps performance in that there isn't
@@ -122,7 +122,7 @@ export class QueryPredicate implements IQueryPredicate {
 
                 if (applicableCompartments?.length > 0) {
                     // Find all brain areas that are these or children of in terms of structure path.
-                    const comprehensiveBrainAreas = applicableCompartments.map(id => BrainArea.getComprehensiveBrainArea(id)).reduce((prev, curr) => {
+                    const comprehensiveBrainAreas = applicableCompartments.map(id => AtlasStructure.getComprehensiveBrainArea(id)).reduce((prev, curr) => {
                         return prev.concat(curr);
                     }, []);
 

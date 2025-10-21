@@ -28,27 +28,28 @@ export const typeDefinitions = gql`
         """Returns the pre-define set of all node structure identifiers (e.g., soma, branch, end, etc)."""
         structureIdentifiers: [StructureIdentifier!]!
 
-        """Returns the pre-defined set of all tracing structures (axon, dendrite)."""
+        """Returns the pre-defined set of all reconstruction elements (axon, dendrite)."""
         tracingStructures: [TracingStructure!]!
 
-        """Returns all brain compartments, subject to any input filtering."""
-        brainAreas(input: BrainAreaQueryInput): [BrainArea!]!
+        """Returns all brain structures, subject to any input filtering."""
+        atlasStructures(input: AtlasStructureQueryInput): [AtlasStructure!]!
 
         """Returns details for a single brain compartment."""
-        brainArea(id: String!): BrainArea
+        atlasStructure(id: String!): AtlasStructure
 
         """Returns details for all collections."""
         collections: [Collection!]!
-        
-        """Returns the closest node in the reconstruction graph to the given location."""
-        nearestNode(id: String!, location: [Float!]!): NearestNodeOutput
-
-        publishedReconstructions(input: PublishedReconstructionPageInput): PublishedReconstructionPage!
-
-        downloadReconstruction(id: String!, format: ExportFormat): String
 
         """Returns a set of reconstructions based on the provided search criteria."""
         searchNeurons(context: SearchContext): SearchOutput
+
+        """Returns the closest node in the reconstruction graph to the given location."""
+        nearestNode(id: String!, location: [Float!]!): NearestNodeOutput
+
+        # The following are not used by any of the services themselves at this time.  They are open/public for use by scripts/tools that may want to access
+        # the data.
+
+        publishedReconstructions(input: PublishedReconstructionPageInput): PublishedReconstructionPage!
 
         #
         # Secure queries that require user-level authentication.
@@ -58,8 +59,8 @@ export const typeDefinitions = gql`
 
         structureIdentifier(id: String): StructureIdentifier!
 
-        mouseStrains(input: MouseStrainQueryInput): [MouseStrain!]!
-        mouseStrain(id: String!): MouseStrain
+        genotypes(input: GenotypeQueryInput): [Genotype!]!
+        genotype(id: String!): Genotype
 
         injectionViruses(input: InjectionVirusQueryInput): [InjectionVirus!]!
         injectionVirus(id: String!): InjectionVirus
@@ -76,14 +77,14 @@ export const typeDefinitions = gql`
         neurons(input: NeuronQueryInput): QueryNeurons
         neuron(id: String!, version: String): Neuron
 
+        reconstructions(pageInput: ReconstructionPageInput): ReconstructionPage!
+        reconstruction(id: String): Reconstruction
+
         candidateNeurons(input: NeuronQueryInput, includeInProgress: Boolean): QueryNeurons
 
-        reconstruction(id: String): Reconstruction
-        reconstructions(pageInput: ReconstructionPageInput): ReconstructionPage!
-        candidatesForReview: [Neuron!]!
         reviewableReconstructions(input: ReviewPageInput): ReconstructionPage!
         peerReviewableReconstructions(input: PeerReviewPageInput): ReconstructionPage!
-        
+
         qualityCheck(id: String): QualityCheck
 
         issueCount: Int!
@@ -108,8 +109,13 @@ export const typeDefinitions = gql`
     }
 
     type Mutation {
-        updateUserPermissions(id: String!, permissions: Int!): User
-        updateUserAnonymity(id: String!, anonymousCandidate: Boolean!, anonymousComplete: Boolean!): User
+        #
+        # There are no open (unauthenticated) mutations.
+        #
+
+        #
+        # Secure mutations that require user-level authentication.
+        #
 
         createMouseStrain(mouseStrain: MouseStrainInput): MutatedMouseStrain!
         updateMouseStrain(mouseStrain: MouseStrainInput): MutatedMouseStrain!
@@ -132,14 +138,14 @@ export const typeDefinitions = gql`
         updateNeuron(neuron: NeuronInput): MutatedNeuron!
         deleteNeuron(id: String!): DeleteOutput!
 
-        importSomas(file: Upload!, options: ImportSomasOptions!): ImportSomasOutput!
-
         createCollection(collection: CollectionInput!): MutatedCollection!
         updateCollection(collection: CollectionInput!): MutatedCollection!
         deleteCollection(id: String!): DeleteOutput!
 
-        updatePrecomputed(id: String!, version: Int!, generatedAt: Date!): Precomputed
-        invalidatePrecomputed(ids: [String!]!): [String!]!
+        updateUserPermissions(id: String!, permissions: Int!): User
+        updateUserAnonymity(id: String!, anonymousCandidate: Boolean!, anonymousComplete: Boolean!): User
+
+        importSomas(file: Upload!, options: ImportSomasOptions!): ImportSomasOutput!
 
         uploadSwc(reconstructionId: String, structureId: String, file: Upload): TracingUploadOutput!
         uploadUnregisteredSwc(reconstructionId: String, structureId: String, file: Upload): UnregisteredTracingUploadOutput!
@@ -158,15 +164,19 @@ export const typeDefinitions = gql`
         deleteReconstruction(id: String!): Boolean
 
         unpublish(id: String!): Boolean
-        
+
         requestQualityCheck(id: String!): QualityCheckOutput
-
-        reload: Boolean
-
-        importSmartSheet(id: String!): Boolean
 
         createIssue(neuronId: String, reconstructionId: String, kind: Int!, description: String!): Issue
         closeIssue(id: String!, reason: String!): Boolean
+
+        #
+        # Internal mutations that require system authentication.
+        #
+
+        updatePrecomputed(id: String!, version: Int!, generatedAt: Date!): Precomputed
+
+        invalidatePrecomputed(ids: [String!]!): [String!]!
     }
 
     schema {

@@ -1,6 +1,6 @@
 import {NrrdFile} from "../io/nrrdFile";
 import {ServiceOptions} from "../options/serviceOptions";
-import {BrainArea} from "../models/brainArea";
+import {AtlasStructure} from "../models/atlasStructure";
 
 const debug = require("debug")("nmcp:api:transform:atlasLookupService");
 
@@ -42,6 +42,6 @@ export function findBrainStructures(locations: AtlasLocation[]): string[] {
 
         const structureId = nrrdContent.findStructureId(transformedLocation[0], transformedLocation[1], transformedLocation[2]);
 
-        return structureId ? BrainArea.getFromStructureId(structureId)?.id ?? null : null;
+        return structureId ? AtlasStructure.getFromStructureId(structureId)?.id ?? null : null;
     });
 }

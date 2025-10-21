@@ -8,7 +8,7 @@ import {
     EntityQueryInput,
     RawEntityCount
 } from "./baseModel";
-import {BrainArea} from "./brainArea";
+import {AtlasStructure} from "./atlasStructure";
 import {Sample} from "./sample";
 import {InjectionVirus} from "./injectionVirus";
 import {Fluorophore} from "./fluorophore";
@@ -47,7 +47,7 @@ export interface InjectionInput {
 
 export class Injection extends BaseModel {
     public getSample!: BelongsToGetAssociationMixin<Sample>;
-    public getBrainArea!: BelongsToGetAssociationMixin<BrainArea>;
+    public getBrainArea!: BelongsToGetAssociationMixin<AtlasStructure>;
     public getInjectionVirus!: BelongsToGetAssociationMixin<InjectionVirus>;
     public getFluorophore!: BelongsToGetAssociationMixin<Fluorophore>;
     public getNeurons!: HasManyGetAssociationsMixin<Neuron>;
@@ -291,7 +291,7 @@ export const modelInit = (sequelize: Sequelize) => {
 
 export const modelAssociate = () => {
     Injection.belongsTo(Sample, {foreignKey: "sampleId"});
-    Injection.belongsTo(BrainArea, {foreignKey: "brainAreaId"});
+    Injection.belongsTo(AtlasStructure, {foreignKey: "brainAreaId"});
     Injection.belongsTo(InjectionVirus, {foreignKey: "injectionVirusId"});
     Injection.belongsTo(Fluorophore, {foreignKey: "fluorophoreId"});
 };

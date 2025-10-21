@@ -1,5 +1,5 @@
 import moment = require("moment");
-import {BrainArea} from "../models/brainArea";
+import {AtlasStructure} from "../models/atlasStructure";
 import {RemoteDatabaseClient} from "../data-access/remoteDatabaseClient";
 import {Neuron, NeuronInput} from "../models/neuron";
 import {Cell, Client, createClient, Row, Sheet} from "smartsheet";
@@ -120,7 +120,7 @@ export const synchronize = async (sheetId: number = 0, pathToReconstructions: st
 
     await RemoteDatabaseClient.Start(false, false);
 
-    await BrainArea.loadCompartmentCache("smartsheet import");
+    await AtlasStructure.loadCompartmentCache("smartsheet import");
 
     const s = new SmartSheetClient(token);
 
@@ -197,23 +197,23 @@ async function ensureUser(name: string, email: string) {
     return null;
 }
 
-function findBrainCompartmentSimple(label: string): BrainArea {
-    let somaBrainStructure = BrainArea.getFromAcronym(label);
+function findBrainCompartmentSimple(label: string): AtlasStructure {
+    let somaBrainStructure = AtlasStructure.getFromAcronym(label);
 
     const simplifiedName = label.replace(new RegExp(",", 'g'), "");
 
     if (!somaBrainStructure) {
-        somaBrainStructure = BrainArea.getFromName(simplifiedName)
+        somaBrainStructure = AtlasStructure.getFromName(simplifiedName)
     }
 
     if (!somaBrainStructure) {
-        somaBrainStructure = BrainArea.getFromSafeName(simplifiedName)
+        somaBrainStructure = AtlasStructure.getFromSafeName(simplifiedName)
     }
 
     return somaBrainStructure;
 }
 
-function findBrainCompartment(primaryLabel: string, secondaryLabel: string): BrainArea {
+function findBrainCompartment(primaryLabel: string, secondaryLabel: string): AtlasStructure {
     return findBrainCompartmentSimple(primaryLabel) ?? findBrainCompartmentSimple(secondaryLabel);
 }
 

@@ -15,7 +15,7 @@ export const queryTypeDefinitions = gql`
 
     type QueryBrainAreas {
         totalCount: Int!
-        items: [BrainArea!]!
+        items: [AtlasStructure!]!
     }
 
     type QuerySamples {
@@ -66,7 +66,7 @@ export const queryTypeDefinitions = gql`
         node: TracingNode
         error: String
     }
-    
+
     type QualityCheckOutput {
         id: String!
         qualityCheckStatus: Int

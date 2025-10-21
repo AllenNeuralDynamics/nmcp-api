@@ -6,7 +6,7 @@ const debug = require("debug")("mnb:nmcp-api:database-connector");
 
 import {SequelizeOptions} from "../options/coreServicesOptions";
 import {ServiceOptions} from "../options/serviceOptions";
-import {BrainArea, IBrainArea} from "../models/brainArea";
+import {AtlasStructure, IAtlasStructure} from "../models/atlasStructure";
 import {MouseStrain} from "../models/mouseStrain";
 import {Sample} from "../models/sample";
 import {Neuron} from "../models/neuron";
@@ -95,14 +95,14 @@ export class RemoteDatabaseClient {
         const when = new Date();
 
         try {
-            let count = await BrainArea.count();
+            let count = await AtlasStructure.count();
 
             if (count < 1327) {
                 this.log("seeding brain structures");
 
                 const chunkSize = 250;
 
-                const allExisting = (await BrainArea.findAll({attributes: ["id"]}));
+                const allExisting = (await AtlasStructure.findAll({attributes: ["id"]}));
                 const allExistingId = allExisting.map(b => b.id);
 
                 const items = loadBrainStructures(when);
@@ -184,7 +184,7 @@ export class RemoteDatabaseClient {
     private async prepareSearchContents() {
         this.log(`preparing search contents`);
 
-        await BrainArea.loadCompartmentCache("search contents preparation");
+        await AtlasStructure.loadCompartmentCache("search contents preparation");
 
         await Neuron.loadNeuronCache();
 
@@ -198,7 +198,7 @@ export class RemoteDatabaseClient {
     }
 }
 
-function loadBrainStructures(when: Date): IBrainArea[] {
+function loadBrainStructures(when: Date): IAtlasStructure[] {
     const fixtureDataPath = path.join(ServiceOptions.fixturePath, "brainStructures.json");
 
     const fileData = fs.readFileSync(fixtureDataPath, {encoding: "UTF-8"});

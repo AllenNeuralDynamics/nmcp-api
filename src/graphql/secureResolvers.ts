@@ -1,7 +1,7 @@
 import {IIdOnlyArguments} from "./openResolvers";
 import {Neuron, NeuronInput, NeuronQueryInput} from "../models/neuron";
 
-import {BrainArea} from "../models/brainArea";
+import {AtlasStructure} from "../models/atlasStructure";
 import {MouseStrain, MouseStrainInput, MouseStrainQueryInput} from "../models/mouseStrain";
 import {Sample, SampleInput, SampleQueryInput} from "../models/sample";
 import {DeleteOutput, EntityMutateOutput, EntityQueryOutput} from "../models/baseModel";
@@ -17,7 +17,6 @@ import {ReconstructionStatus} from "../models/reconstructionStatus";
 import {GraphQLError} from "graphql/error";
 import {Collection, CollectionInput} from "../models/collection";
 import {Issue, IssueKind} from "../models/issue";
-import {synchronize} from "../tools/smartSheetClient";
 import {Precomputed} from "../models/precomputed";
 import GraphQLUpload = require("graphql-upload/GraphQLUpload.js");
 import {UnregisteredTracing} from "../models/unregisteredTracing";
@@ -236,7 +235,7 @@ export const secureResolvers = {
             throw new UnauthorizedError();
         },
 
-        mouseStrains(_: any, args: IMouseStrainQueryArguments, context: User): Promise<MouseStrain[]> {
+        genotypes(_: any, args: IMouseStrainQueryArguments, context: User): Promise<MouseStrain[]> {
             if (context.permissions & UserPermissions.ViewAll) {
                 return MouseStrain.getAll(args.input);
             }
@@ -248,7 +247,7 @@ export const secureResolvers = {
                 },
             });
         },
-        mouseStrain(_: any, args: IIdOnlyArguments, context: User): Promise<MouseStrain> {
+        genotype(_: any, args: IIdOnlyArguments, context: User): Promise<MouseStrain> {
             if (context.permissions & UserPermissions.ViewAll) {
                 return MouseStrain.findByPk(args.id);
             }
@@ -444,19 +443,6 @@ export const secureResolvers = {
         async peerReviewableReconstructions(_: any, args: PeerReviewPageArguments, context: User): Promise<IReconstructionPage> {
             if (context.permissions & UserPermissions.PeerReview) {
                 return Reconstruction.getPeerReviewableReconstructions(args.input);
-            }
-
-            throw new GraphQLError("User is not authenticated", {
-                extensions: {
-                    code: "UNAUTHENTICATED",
-                    http: {status: 401},
-                },
-            });
-        },
-
-        async candidatesForReview(_: any, __: any, context: User): Promise<Neuron[]> {
-            if (context.permissions & UserPermissions.FullReview) {
-                return Neuron.getCandidateNeuronsForReview();
             }
 
             throw new GraphQLError("User is not authenticated", {
@@ -956,34 +942,6 @@ export const secureResolvers = {
             });
         },
 
-        async importSmartSheet(_: any, args: IIdOnlyArguments, context: User): Promise<boolean> {
-            if (context.permissions & UserPermissions.Admin) {
-                await synchronize(3824679856852868, "", 0, 1, args.id);
-                return true;
-            }
-
-            throw new GraphQLError("User is not authenticated", {
-                extensions: {
-                    code: "UNAUTHENTICATED",
-                    http: {status: 401},
-                },
-            });
-        },
-
-        async reload(_: any, args: IIdOnlyArguments, context: User): Promise<boolean> {
-            if (context.permissions & UserPermissions.Admin) {
-                await Reconstruction.loadReconstructionCache();
-                return true;
-            }
-
-            throw new GraphQLError("User is not authenticated", {
-                extensions: {
-                    code: "UNAUTHENTICATED",
-                    http: {status: 401},
-                },
-            });
-        },
-
         async createIssue(_: any, args: CreateIssueArguments, context: User): Promise<Issue> {
             if (context.permissions & UserPermissions.ViewReconstructions) {
                 return Issue.createWith(context.id, args.kind, args.description, args.neuronId);
@@ -1010,12 +968,12 @@ export const secureResolvers = {
             });
         }
     },
-    BrainArea: {
-        neurons(brainArea: BrainArea): Promise<Neuron[]> {
-            return brainArea.getNeurons();
+    AtlasStructure: {
+        neurons(atlasStructure: AtlasStructure): Promise<Neuron[]> {
+            return atlasStructure.getNeurons();
         },
     },
-    MouseStrain: {
+    Genotype: {
         samples(mouseStrain: MouseStrain): Promise<Sample[]> {
             return mouseStrain.getSamples();
         },
@@ -1037,7 +995,7 @@ export const secureResolvers = {
         fluorophore(injection: Injection): Promise<Fluorophore> {
             return injection.getFluorophore();
         },
-        brainArea(injection: Injection): Promise<BrainArea> {
+        brainArea(injection: Injection): Promise<AtlasStructure> {
             return injection.getBrainArea();
         },
         sample(injection: Injection): Promise<Sample> {
@@ -1045,7 +1003,7 @@ export const secureResolvers = {
         },
     },
     Sample: {
-        mouseStrain(sample: Sample, _: any, __: any): Promise<MouseStrain> {
+        genotype(sample: Sample, _: any, __: any): Promise<MouseStrain> {
             return sample.getMouseStrain();
         },
         injections(sample: Sample): Promise<Injection[]> {
@@ -1065,8 +1023,8 @@ export const secureResolvers = {
         }
     },
     Neuron: {
-        brainArea(neuron: Neuron): Promise<BrainArea> {
-            return neuron.getBrainArea();
+        atlasStructure(neuron: Neuron): Promise<AtlasStructure> {
+            return neuron.getAtlasStructure();
         },
         sample(neuron: Neuron): Promise<Sample> {
             return neuron.getSample();
@@ -1091,8 +1049,8 @@ export const secureResolvers = {
         }
     },
     TracingNode: {
-        brainStructure(node: TracingNode, _: any, context: User): Promise<BrainArea> {
-            return BrainArea.findByPk(node.brainStructureId);
+        brainStructure(node: TracingNode, _: any, context: User): Promise<AtlasStructure> {
+            return AtlasStructure.findByPk(node.brainStructureId);
         }
     },
     User: {

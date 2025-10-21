@@ -4,7 +4,7 @@ import {Neuron} from "./neuron";
 import {BaseModel} from "./baseModel";
 import {TracingStructure} from "./tracingStructure";
 import {Tracing} from "./tracing";
-import {BrainArea} from "./brainArea";
+import {AtlasStructure} from "./atlasStructure";
 
 export class SearchContent extends BaseModel {
     public neuronIdString: string;
@@ -20,12 +20,12 @@ export class SearchContent extends BaseModel {
     public endCount: number;
     public neuronId: string;
 
-    public brainArea?: BrainArea;
+    public brainArea?: AtlasStructure;
     public neuron?: Neuron;
     public tracing?: Tracing;
     public tracingStructure?: TracingStructure;
 
-    public getBrainArea!: BelongsToGetAssociationMixin<BrainArea>;
+    public getBrainArea!: BelongsToGetAssociationMixin<AtlasStructure>;
     public getNeuron!: BelongsToGetAssociationMixin<Neuron>;
     public getTracing!: BelongsToGetAssociationMixin<Tracing>;
     public getTracingStructure!: BelongsToGetAssociationMixin<TracingStructure>;
@@ -59,7 +59,7 @@ export const modelInit = (sequelize: Sequelize) => {
 
 export const modelAssociate = () => {
     SearchContent.belongsTo(Tracing, {foreignKey: "tracingId", as: "tracing"});
-    SearchContent.belongsTo(BrainArea, {foreignKey: "brainAreaId", as: "brainArea"});
+    SearchContent.belongsTo(AtlasStructure, {foreignKey: "brainAreaId", as: "brainArea"});
     SearchContent.belongsTo(Neuron, {foreignKey: "neuronId", as: "neuron"});
     SearchContent.belongsTo(TracingStructure, {foreignKey: "tracingStructureId", as: "tracingStructure"});
 };

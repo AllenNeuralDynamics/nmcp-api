@@ -7,7 +7,7 @@ import {Reconstruction} from "../models/reconstruction";
 import {ReconstructionStatus} from "../models/reconstructionStatus";
 import {SynchronizationMarker, SynchronizationMarkerKind} from "../models/synchronizationMarker";
 import {Precomputed} from "../models/precomputed";
-import {BrainArea} from "../models/brainArea";
+import {AtlasStructure} from "../models/atlasStructure";
 
 const debug = require("debug")("nmcp:synchronization:synchronization-worker");
 
@@ -16,7 +16,7 @@ setTimeout(async () => {
 
     await RemoteDatabaseClient.Start();
 
-    await BrainArea.loadCompartmentCache("synchronization process");
+    await AtlasStructure.loadCompartmentCache("synchronization process");
 
     await performSynchronization();
 

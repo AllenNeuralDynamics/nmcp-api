@@ -5,16 +5,15 @@ import {IQueryOperator, operators} from "../models/queryOperator";
 import {NearestNodeOutput, PublishedReconstructionPage, PublishedReconstructionPageInput, Reconstruction} from "../models/reconstruction";
 import {ServiceOptions} from "../options/serviceOptions";
 import {PredicateType} from "../models/queryPredicate";
-import {BrainArea, CompartmentQueryInput} from "../models/brainArea";
+import {AtlasStructure, CompartmentQueryInput} from "../models/atlasStructure";
 import {User} from "../models/user";
 import {StructureIdentifier} from "../models/structureIdentifier";
 import {TracingStructure} from "../models/tracingStructure";
 import {IQueryDataPage, Neuron} from "../models/neuron";
 import {ISearchContextInput, SearchContext} from "../models/searchContext";
 import {Collection} from "../models/collection";
-import {GraphQLError} from "graphql/error";
 
-const debug = require("debug")("mnb:api:resolvers");
+// const debug = require("debug")("nmcp:api:open-resolvers");
 
 export interface IIdOnlyArguments {
     id: string;
@@ -59,14 +58,14 @@ export const openResolvers = {
             return TracingStructure.findAll({});
         },
 
-        async brainAreas(_: any, args: IBrainAreaQueryArguments): Promise<BrainArea[]> {
-            const output = await BrainArea.getAll(args.input);
+        async atlasStructures(_: any, args: IBrainAreaQueryArguments): Promise<AtlasStructure[]> {
+            const output = await AtlasStructure.getAll(args.input);
 
             return output.items;
         },
 
-        async brainArea(_: any, args: IIdOnlyArguments): Promise<BrainArea> {
-            return BrainArea.findByPk(args.id);
+        async atlasStructure(_: any, args: IIdOnlyArguments): Promise<AtlasStructure> {
+            return AtlasStructure.findByPk(args.id);
         },
 
         async collections(): Promise<Collection[]> {

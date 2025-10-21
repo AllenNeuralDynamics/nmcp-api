@@ -19,7 +19,7 @@ import {ITracingDataInput, IUploadIntermediate, TracingBaseModel} from "./tracin
 
 import {ParsedReconstruction} from "../io/parsedReconstruction";
 import {SearchContentOperation} from "../transform/searchContentOperation";
-import {BrainArea} from "./brainArea";
+import {AtlasStructure} from "./atlasStructure";
 import {findBrainStructure} from "../transform/atlasLookupService";
 import {QualityCheckStatus} from "./qualityCheckStatus";
 
@@ -405,7 +405,7 @@ export class Tracing extends TracingBaseModel {
 
                 if (!brainStructureId) {
                     failedLookup++;
-                    brainStructureId = BrainArea.wholeBrainId();
+                    brainStructureId = AtlasStructure.wholeBrainId();
                 }
 
                 await node.update({brainStructureId: brainStructureId});

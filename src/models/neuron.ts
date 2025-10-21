@@ -13,7 +13,7 @@ import {
     WithReconstructionStatusQueryInput,
     WithSamplesQueryInput
 } from "./findOptions";
-import {BrainArea} from "./brainArea";
+import {AtlasStructure} from "./atlasStructure";
 import {Sample} from "./sample";
 import {IAnnotationMetadata} from "./annotationMetadata";
 import {Tracing} from "./tracing";
@@ -128,12 +128,12 @@ export class Neuron extends BaseModel {
     public annotationMetadata?: IAnnotationMetadata;
 
     public getSample!: BelongsToGetAssociationMixin<Sample>;
-    public getBrainArea!: BelongsToGetAssociationMixin<BrainArea>;
+    public getAtlasStructure!: BelongsToGetAssociationMixin<AtlasStructure>;
     public getTracings!: HasManyGetAssociationsMixin<Tracing>;
     public getReconstructions!: HasManyGetAssociationsMixin<Reconstruction>;
 
     public tracings?: Tracing[];
-    public brainStructure: BrainArea;
+    public atlasStructure: AtlasStructure;
     public Reconstructions?: Reconstruction[];
     public Sample?: Sample;
 
@@ -148,8 +148,8 @@ export class Neuron extends BaseModel {
             const neuron = await Neuron.findByPk(id, {
                 include: [
                     {
-                        model: BrainArea,
-                        as: "BrainArea"
+                        model: AtlasStructure,
+                        as: "AtlasStructure"
                     },
                     {
                         model: Tracing,
@@ -178,8 +178,8 @@ export class Neuron extends BaseModel {
             const neurons: Neuron[] = await Neuron.findAll({
                 include: [
                     {
-                        model: BrainArea,
-                        as: "BrainArea"
+                        model: AtlasStructure,
+                        as: "AtlasStructure"
                     }
                 ]
             });
@@ -259,18 +259,6 @@ export class Neuron extends BaseModel {
         return await Promise.all(neuronPromises);
     }
 
-    public static async getCandidateNeuronsForReview(): Promise<Neuron[]> {
-        const annotations = await Reconstruction.findAll({
-            where: {status: ReconstructionStatus.Approved}
-        });
-
-        const neuronPromises = annotations.map(async (t) => {
-            return await t.getNeuron();
-        })
-
-        return await Promise.all(neuronPromises);
-    }
-
     public static async getCandidateNeurons(input: NeuronQueryInput, includeInProgress: boolean = false): Promise<EntityQueryOutput<Neuron>> {
         const neuronIds = (await Neuron.findAll({attributes: ["id"]})).map(n => n.id);
 
@@ -292,7 +280,7 @@ export class Neuron extends BaseModel {
         }
 
         if (input.brainStructureIds && input.brainStructureIds.length > 0) {
-            const comprehensiveBrainAreas = input.brainStructureIds.map(id => BrainArea.getComprehensiveBrainArea(id)).reduce((prev, curr) => {
+            const comprehensiveBrainAreas = input.brainStructureIds.map(id => AtlasStructure.getComprehensiveBrainArea(id)).reduce((prev, curr) => {
                 return prev.concat(curr);
             }, []);
 
@@ -382,7 +370,7 @@ export class Neuron extends BaseModel {
             }
 
             if (neuronInput.brainStructureId) {
-                const brainArea = await BrainArea.findByPk(neuronInput.brainStructureId);
+                const brainArea = await AtlasStructure.findByPk(neuronInput.brainStructureId);
                 if (!brainArea) {
                     return {source: null, error: "The brain area can not be found"};
                 }
@@ -452,7 +440,7 @@ export class Neuron extends BaseModel {
             // Null is ok (inherited),  Undefined is ok (no change).  Id of length zero treated as null.  Otherwise, must
             // find brain area.
             if (neuronInput.brainStructureId) {
-                const brainArea = await BrainArea.findByPk(neuronInput.brainStructureId);
+                const brainArea = await AtlasStructure.findByPk(neuronInput.brainStructureId);
 
                 if (!brainArea) {
                     return {source: null, error: "The brain area can not be found"};
@@ -946,6 +934,6 @@ export const modelInit = (sequelize: Sequelize) => {
 // noinspection JSUnusedGlobalSymbols
 export const modelAssociate = () => {
     Neuron.belongsTo(Sample, {foreignKey: "sampleId", as: "Sample"});
-    Neuron.belongsTo(BrainArea, {foreignKey: {name: "brainStructureId", allowNull: true}});
+    Neuron.belongsTo(AtlasStructure, {foreignKey: {name: "brainStructureId", allowNull: true}});
     Neuron.hasMany(Reconstruction, {foreignKey: "neuronId", as: "Reconstructions"});
 };

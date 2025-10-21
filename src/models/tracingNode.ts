@@ -3,7 +3,7 @@ import {Sequelize, DataTypes, BelongsToGetAssociationMixin} from "sequelize";
 import {BaseModel} from "./baseModel";
 import {StructureIdentifier} from "./structureIdentifier";
 import {Tracing} from "./tracing";
-import {BrainArea} from "./brainArea";
+import {AtlasStructure} from "./atlasStructure";
 
 export type TracingNodeMutationData = {
     id?: string;
@@ -32,10 +32,10 @@ export class TracingNode extends BaseModel {
 
     public getStructureIdentifier!: BelongsToGetAssociationMixin<StructureIdentifier>;
     public getTracing!: BelongsToGetAssociationMixin<Tracing>;
-    public getBrainArea!: BelongsToGetAssociationMixin<BrainArea>;
+    public getBrainArea!: BelongsToGetAssociationMixin<AtlasStructure>;
 
     public readonly StructureIdentifier?: StructureIdentifier;
-    public readonly BrainArea?: BrainArea;
+    public readonly BrainArea?: AtlasStructure;
 }
 
 export const modelInit = (sequelize: Sequelize) => {
@@ -62,6 +62,6 @@ export const modelInit = (sequelize: Sequelize) => {
 
 export const modelAssociate = () => {
     TracingNode.belongsTo(StructureIdentifier, {foreignKey: "structureIdentifierId", as: "StructureIdentifier"});
-    TracingNode.belongsTo(BrainArea, {foreignKey: "brainStructureId", as: "BrainArea"});
+    TracingNode.belongsTo(AtlasStructure, {foreignKey: "brainStructureId", as: "BrainArea"});
     TracingNode.belongsTo(Tracing, {foreignKey: "tracingId", as: "Tracing"});
 };

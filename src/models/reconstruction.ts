@@ -11,7 +11,7 @@ import {User} from "./user";
 import {Precomputed} from "./precomputed";
 import {TracingNode} from "./tracingNode";
 import {StructureIdentifier, StructureIdentifiers} from "./structureIdentifier";
-import {BrainArea} from "./brainArea";
+import {AtlasStructure} from "./atlasStructure";
 import {Sample} from "./sample";
 import {Fluorophore} from "./fluorophore";
 import {InjectionVirus} from "./injectionVirus";
@@ -751,7 +751,7 @@ export class Reconstruction extends BaseModel {
                         model: StructureIdentifier,
                         as: "StructureIdentifier"
                     }, {
-                        model: BrainArea,
+                        model: AtlasStructure,
                         as: "BrainArea"
                     }]
                 }]
@@ -883,7 +883,7 @@ export class Reconstruction extends BaseModel {
                     model: StructureIdentifier,
                     as: "StructureIdentifier"
                 }, {
-                    model: BrainArea,
+                    model: AtlasStructure,
                     as: "BrainArea"
                 }]
             });
@@ -950,7 +950,7 @@ export class Reconstruction extends BaseModel {
                     model: StructureIdentifier,
                     as: "StructureIdentifier"
                 }, {
-                    model: BrainArea,
+                    model: AtlasStructure,
                     as: "BrainArea"
                 }],
                 order: [["sampleNumber", "ASC"]],
@@ -981,7 +981,7 @@ export class Reconstruction extends BaseModel {
                     model: StructureIdentifier,
                     as: "StructureIdentifier"
                 }, {
-                    model: BrainArea,
+                    model: AtlasStructure,
                     as: "BrainArea"
                 }],
                 order: [["sampleNumber", "ASC"]],
@@ -1010,7 +1010,7 @@ export class Reconstruction extends BaseModel {
                 },
                 attributes: [],
                 include: [{
-                    model: BrainArea,
+                    model: AtlasStructure,
                     as: "BrainArea",
                     attributes: ["id", "structureId", "name", "safeName", "acronym", "graphOrder", "structureIdPath", "geometryColor"]
                 }],
@@ -1168,7 +1168,7 @@ export class Reconstruction extends BaseModel {
                         model: StructureIdentifier,
                         as: "StructureIdentifier"
                     }, {
-                        model: BrainArea,
+                        model: AtlasStructure,
                         as: "BrainArea"
                     }]
                 }]

@@ -2,12 +2,12 @@ import {gql} from "graphql-tag";
 
 export const mutationTypeDefinitions = gql`
     type MutatedBrainArea {
-        source: BrainArea
+        source: AtlasStructure
         error: String
     }
 
     type MutatedMouseStrain {
-        source: MouseStrain
+        source: Genotype
         error: String
     }
 

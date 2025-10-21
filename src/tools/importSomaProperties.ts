@@ -5,7 +5,7 @@ import {parseSomaPropertyFile} from "../util/somaPropertyParser";
 import {RemoteDatabaseClient} from "../data-access/remoteDatabaseClient";
 import {Sample} from "../models/sample";
 import {Neuron} from "../models/neuron";
-import {BrainArea} from "../models/brainArea";
+import {AtlasStructure} from "../models/atlasStructure";
 
 const debug = require("debug")("nmcp:api:tools:importSomaProperties");
 
@@ -27,7 +27,7 @@ export async function importSomaProperties(filename: string, subjectId: string =
         }
     }
 
-    await BrainArea.loadCompartmentCache("soma candidate import");
+    await AtlasStructure.loadCompartmentCache("soma candidate import");
 
     const sample = await Sample.findOne({ where: { animalId: subjectId } });
 

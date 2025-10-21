@@ -9,7 +9,7 @@ export const inputTypeDefinitions = gql`
         includeImported: Boolean
     }
 
-    input BrainAreaQueryInput {
+    input AtlasStructureQueryInput {
         ids: [String!]
         injectionIds: [String!]
         neuronIds: [String!]
@@ -19,7 +19,7 @@ export const inputTypeDefinitions = gql`
         limit: Int
     }
 
-    input MouseStrainQueryInput {
+    input GenotypeQueryInput {
         ids: [String!]
         sampleIds: [String!]
         sortField: String
@@ -69,7 +69,7 @@ export const inputTypeDefinitions = gql`
         offset: Int
         limit: Int
     }
-    
+
     input SomaPropertyInput {
         brightnessOperator: Int
         brightness: Float
@@ -158,14 +158,14 @@ export const inputTypeDefinitions = gql`
         neuronId: String
         tracingStructureId: String
     }
-    
+
     input ImportSomasOptions {
         sampleId: String
         tag: String
         shouldLookupSoma: Boolean
         noEmit: Boolean
     }
-    
+
     input TracingPageInput {
         offset: Int
         limit: Int
@@ -181,7 +181,7 @@ export const inputTypeDefinitions = gql`
         """Maps directory to Reconstruction status property."""
         filters: [Int!]
     }
-    
+
     input ReviewPageInput {
         offset: Int
         limit: Int

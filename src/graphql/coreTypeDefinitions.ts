@@ -45,7 +45,7 @@ export const coreTypeDefinitions = gql`
         operator: String
     }
 
-    type BrainArea {
+    type AtlasStructure {
         id: String!
         name: String
         structureId: Int
@@ -67,7 +67,7 @@ export const coreTypeDefinitions = gql`
         updatedAt: Date
     }
 
-    type MouseStrain {
+    type Genotype {
         id: String!
         name: String
         samples: [Sample!]
@@ -94,7 +94,7 @@ export const coreTypeDefinitions = gql`
     type Injection {
         id: String!
         sample: Sample
-        brainArea: BrainArea
+        brainArea: AtlasStructure
         injectionVirus: InjectionVirus
         fluorophore: Fluorophore
         neurons: [Neuron!]
@@ -110,7 +110,7 @@ export const coreTypeDefinitions = gql`
         comment: String
         sampleDate: Date
         tomography: String
-        mouseStrain: MouseStrain
+        genotype: Genotype
         injections: [Injection!]!
         collectionId: String
         neurons: [Neuron!]!
@@ -135,7 +135,7 @@ export const coreTypeDefinitions = gql`
         consensus: Int
         metadata: String
         brainStructureId: String
-        brainArea: BrainArea
+        atlasStructure: AtlasStructure
         sample: Sample
         latest: Reconstruction
         reconstructions: [Reconstruction!]
@@ -189,7 +189,7 @@ export const coreTypeDefinitions = gql`
         structureIdentifier: StructureIdentifier
         structureIdValue: Int
         brainStructureId: String
-        brainStructure: BrainArea
+        brainStructure: AtlasStructure
         tracing: Tracing
         createdAt: Date
         updatedAt: Date
@@ -282,7 +282,7 @@ export const coreTypeDefinitions = gql`
         SWC
         JSON
     }
-    
+
     """
     Node structure for reconstruction data
     """

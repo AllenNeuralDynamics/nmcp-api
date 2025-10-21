@@ -15,7 +15,7 @@ const WHOLE_BRAIN_STRUCTURE_ID = 997;
 
 export type CompartmentQueryInput = EntityQueryInput & WithNeuronsQueryInput;
 
-export interface IBrainArea {
+export interface IAtlasStructure {
     id: string;
     structureId: number;
     depth: number;
@@ -35,7 +35,7 @@ export interface IBrainArea {
     updatedAt: Date;
 }
 
-export class BrainArea extends BaseModel {
+export class AtlasStructure extends BaseModel {
     public structureId: number;
     public depth: number;
     public name: string;
@@ -59,35 +59,35 @@ export class BrainArea extends BaseModel {
     // The area and all subareas, so that searching the parent is same as searching in all the children.
     private static _comprehensiveCompartmentLookup = new Map<string, string[]>();
 
-    private static _compartmentCache = new Map<string, BrainArea>();
+    private static _compartmentCache = new Map<string, AtlasStructure>();
 
-    private static _compartmentAcronymCache = new Map<string, BrainArea>();
+    private static _compartmentAcronymCache = new Map<string, AtlasStructure>();
 
-    private static _compartmentNameCache = new Map<string, BrainArea>();
+    private static _compartmentNameCache = new Map<string, AtlasStructure>();
 
-    private static _compartmentSafeNameCache = new Map<string, BrainArea>();
+    private static _compartmentSafeNameCache = new Map<string, AtlasStructure>();
 
-    private static _compartmentAtlasStructureIdCache = new Map<number, BrainArea>();
+    private static _compartmentAtlasStructureIdCache = new Map<number, AtlasStructure>();
 
     private static _wholeBrainId: string;
 
-    public static getOne(id: string): BrainArea {
+    public static getOne(id: string): AtlasStructure {
         return this._compartmentCache.get(id) ?? null;
     }
 
-    public static getFromAcronym(acronym: string): BrainArea {
+    public static getFromAcronym(acronym: string): AtlasStructure {
         return this._compartmentAcronymCache.get(acronym.toLowerCase()) ?? null;
     }
 
-    public static getFromName(name: string): BrainArea {
+    public static getFromName(name: string): AtlasStructure {
         return this._compartmentNameCache.get(name.toLowerCase()) ?? null;
     }
 
-    public static getFromSafeName(name: string): BrainArea {
+    public static getFromSafeName(name: string): AtlasStructure {
         return this._compartmentSafeNameCache.get(name.toLowerCase()) ?? null;
     }
 
-    public static getFromStructureId(id: number): BrainArea {
+    public static getFromStructureId(id: number): AtlasStructure {
         return this._compartmentAtlasStructureIdCache.get(id) ?? null;
     }
 
@@ -104,7 +104,7 @@ export class BrainArea extends BaseModel {
             return
         }
 
-        const brainAreas = await BrainArea.findAll({});
+        const brainAreas = await AtlasStructure.findAll({});
 
         debug(`caching ${brainAreas.length} brain areas (${reason})`);
 
@@ -121,7 +121,7 @@ export class BrainArea extends BaseModel {
 
             this._compartmentAtlasStructureIdCache.set(b.structureId, b);
 
-            const result = await BrainArea.findAll({
+            const result = await AtlasStructure.findAll({
                 attributes: ["id", "structureIdPath"],
                 where: {structureIdPath: {[Op.like]: b.structureIdPath + "%"}}
             });
@@ -129,29 +129,29 @@ export class BrainArea extends BaseModel {
             this._comprehensiveCompartmentLookup.set(b.id, result.map(r => r.id));
         }
 
-        const wholeBrain = await BrainArea.findOne({where: {structureId: WHOLE_BRAIN_STRUCTURE_ID}});
+        const wholeBrain = await AtlasStructure.findOne({where: {structureId: WHOLE_BRAIN_STRUCTURE_ID}});
 
         this._wholeBrainId = wholeBrain.id;
     }
 
-    public static async getAll(input: CompartmentQueryInput): Promise<EntityQueryOutput<BrainArea>> {
+    public static async getAll(input: CompartmentQueryInput): Promise<EntityQueryOutput<AtlasStructure>> {
         let options: FindOptions = optionsWhereIds(input);
 
         options = optionsIncludeNeuronIds(input, options);
 
         const count = await this.setSortAndLimiting(options, input);
 
-        const areas = await BrainArea.findAll(options);
+        const areas = await AtlasStructure.findAll(options);
 
         return {totalCount: count, items: areas};
     }
 
     public static async findId(id: string): Promise<string> {
-        return BrainArea.findIdWithValidationInternal(BrainArea, id);
+        return AtlasStructure.findIdWithValidationInternal(AtlasStructure, id);
     }
 
     public static async findIdWithAnyNameOrAcronym(name: string): Promise<string> {
-        return (await BrainArea.findOne({
+        return (await AtlasStructure.findOne({
             where: {
                 [Op.or]: {
                     name: name,
@@ -168,7 +168,7 @@ export class BrainArea extends BaseModel {
 }
 
 export const modelInit = (sequelize: Sequelize) => {
-    BrainArea.init({
+    AtlasStructure.init({
         id: {
             primaryKey: true,
             type: DataTypes.UUID,
@@ -211,5 +211,5 @@ export const modelInit = (sequelize: Sequelize) => {
 };
 
 export const modelAssociate = () => {
-    BrainArea.hasMany(Neuron, {foreignKey: "brainStructureId"});
+    AtlasStructure.hasMany(Neuron, {foreignKey: "brainStructureId"});
 };

@@ -3,13 +3,13 @@
 import { Reconstruction, ReconstructionDataChunked } from "../src/models/reconstruction";
 import { Tracing } from "../src/models/tracing";
 import { TracingNode } from "../src/models/tracingNode";
-import { BrainArea } from "../src/models/brainArea";
+import { AtlasStructure } from "../src/models/atlasStructure";
 import { ReconstructionTestFixtures } from "./fixtures/reconstructionFixtures";
 
 // Mock database models
 jest.mock("../src/models/tracing");
 jest.mock("../src/models/tracingNode");
-jest.mock("../src/models/brainArea");
+jest.mock("../src/models/atlasStructure");
 
 describe("Reconstruction.getAsDataChunked", () => {
     beforeEach(() => {
