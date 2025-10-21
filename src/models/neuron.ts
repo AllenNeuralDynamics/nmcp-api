@@ -292,8 +292,13 @@ export class Neuron extends BaseModel {
         }
 
         if (input.brainStructureIds && input.brainStructureIds.length > 0) {
-            // TODO take comprehensive brain structure mapping from queryPredicate.ts 125
-            options.where["brainStructureId"] = {[Op.in]: input.brainStructureIds}
+            const comprehensiveBrainAreas = input.brainStructureIds.map(id => BrainArea.getComprehensiveBrainArea(id)).reduce((prev, curr) => {
+                return prev.concat(curr);
+            }, []);
+
+            options.where["brainStructureId"] = {
+                [Op.in]: comprehensiveBrainAreas
+            };
         }
 
         if (input.somaProperties) {
