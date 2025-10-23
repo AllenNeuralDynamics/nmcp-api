@@ -75,7 +75,7 @@ export const typeDefinitions = gql`
         sample(id: String!): Sample
 
         neurons(input: NeuronQueryInput): QueryNeurons
-        neuron(id: String!, version: String): Neuron
+        neuron(id: String!): Neuron
 
         reconstructions(pageInput: ReconstructionPageInput): ReconstructionPage!
         reconstruction(id: String): Reconstruction

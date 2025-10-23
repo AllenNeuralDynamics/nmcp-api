@@ -274,6 +274,7 @@ export class Injection extends BaseModel {
     }
 }
 
+// noinspection JSUnusedGlobalSymbols
 export const modelInit = (sequelize: Sequelize) => {
     Injection.init({
         id: {
@@ -289,9 +290,10 @@ export const modelInit = (sequelize: Sequelize) => {
     });
 };
 
+// noinspection JSUnusedGlobalSymbols
 export const modelAssociate = () => {
     Injection.belongsTo(Sample, {foreignKey: "sampleId"});
-    Injection.belongsTo(AtlasStructure, {foreignKey: "brainAreaId"});
+    Injection.belongsTo(AtlasStructure, {foreignKey: "brainAreaId", as: "BrainArea"});
     Injection.belongsTo(InjectionVirus, {foreignKey: "injectionVirusId"});
     Injection.belongsTo(Fluorophore, {foreignKey: "fluorophoreId"});
 };

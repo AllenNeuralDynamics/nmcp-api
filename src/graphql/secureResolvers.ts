@@ -1046,6 +1046,9 @@ export const secureResolvers = {
         },
         soma(tracing: Tracing, _: any, context: User): Promise<TracingNode> {
             return TracingNode.findByPk(tracing.somaNodeId);
+        },
+        nodes(tracing: Tracing, _: any, context: User): Promise<TracingNode[]> {
+            return tracing.getNodes();
         }
     },
     TracingNode: {

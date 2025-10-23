@@ -172,6 +172,7 @@ export const coreTypeDefinitions = gql`
         searchTransformAt: Date
         reconstruction: Reconstruction
         soma: TracingNode
+        nodes: [TracingNode!]
         createdAt: Date
         updatedAt: Date
     }
