@@ -76,11 +76,6 @@ interface INeuronQueryArguments {
     input: NeuronQueryInput;
 }
 
-interface ICandidateNeuronQueryArguments {
-    input: NeuronQueryInput;
-    includeInProgress: boolean;
-}
-
 interface ITracingUploadArguments {
     reconstructionId: string;
     structureId: string;
@@ -375,19 +370,6 @@ export const secureResolvers = {
         neuron(_: any, args: IIdOnlyArguments, context: User): Promise<Neuron> {
             if (context.permissions & UserPermissions.ViewAll) {
                 return Neuron.findByPk(args.id);
-            }
-
-            throw new GraphQLError("User is not authenticated", {
-                extensions: {
-                    code: "UNAUTHENTICATED",
-                    http: {status: 401},
-                },
-            });
-        },
-
-        candidateNeurons(_: any, args: ICandidateNeuronQueryArguments, context: User): Promise<EntityQueryOutput<Neuron>> {
-            if (context.permissions & UserPermissions.ViewReconstructions) {
-                return Neuron.getCandidateNeurons(args.input, args.includeInProgress);
             }
 
             throw new GraphQLError("User is not authenticated", {

@@ -6,12 +6,14 @@ import {NearestNodeOutput, PublishedReconstructionPage, PublishedReconstructionP
 import {ServiceOptions} from "../options/serviceOptions";
 import {PredicateType} from "../models/queryPredicate";
 import {AtlasStructure, CompartmentQueryInput} from "../models/atlasStructure";
-import {User} from "../models/user";
+import {User, UserPermissions} from "../models/user";
 import {StructureIdentifier} from "../models/structureIdentifier";
 import {TracingStructure} from "../models/tracingStructure";
-import {IQueryDataPage, Neuron} from "../models/neuron";
+import {IQueryDataPage, Neuron, NeuronQueryInput} from "../models/neuron";
 import {ISearchContextInput, SearchContext} from "../models/searchContext";
 import {Collection} from "../models/collection";
+import {GraphQLError} from "graphql/error";
+import {EntityQueryOutput} from "../models/baseModel";
 
 // const debug = require("debug")("nmcp:api:open-resolvers");
 
@@ -21,6 +23,11 @@ export interface IIdOnlyArguments {
 
 interface IBrainAreaQueryArguments {
     input: CompartmentQueryInput;
+}
+
+interface ICandidateNeuronQueryArguments {
+    input: NeuronQueryInput;
+    includeInProgress: boolean;
 }
 
 type NearestNodeArguments = {
@@ -72,9 +79,14 @@ export const openResolvers = {
             return Collection.findAll();
         },
 
+        candidateNeurons(_: any, args: ICandidateNeuronQueryArguments, context: User): Promise<EntityQueryOutput<Neuron>> {
+            return Neuron.getCandidateNeurons(args.input, args.includeInProgress);
+        },
+
         async nearestNode(_: any, args: NearestNodeArguments, __: User): Promise<NearestNodeOutput> {
             return Reconstruction.nearestNode(args.id, args.location);
         },
+
 
         async publishedReconstructions(_: any, args: { input: PublishedReconstructionPageInput }, __: User): Promise<PublishedReconstructionPage> {
             return Reconstruction.getPublishedReconstructions(args.input);
