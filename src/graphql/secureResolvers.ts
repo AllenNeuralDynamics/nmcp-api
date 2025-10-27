@@ -914,6 +914,8 @@ export const secureResolvers = {
                 if (!wasValidReconstruction) {
                     return await Neuron.unpublish(args.id);
                 }
+
+                return wasValidReconstruction;
             }
 
             throw new GraphQLError("User is not authenticated", {

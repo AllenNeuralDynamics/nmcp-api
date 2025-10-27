@@ -273,7 +273,7 @@ export class Neuron extends BaseModel {
 
         const candidateNeuronIds = _.difference(neuronIds, neuronsWithCompletedReconstruction);
 
-        const options = {where: {id: {[Op.in]: candidateNeuronIds}}, include: []};
+        const options = {where: {id: {[Op.in]: candidateNeuronIds}}, include: [], offset: 0};
 
         if (input.tag) {
             options.where["tag"] = {[Op.iLike]: `%${input.tag}%`};
@@ -315,9 +315,8 @@ export class Neuron extends BaseModel {
         options["order"] = [["Sample", "animalId", "ASC"], ["idString", "ASC"]];
 
         if (input) {
-
             if (input.offset) {
-                options["offset"] = input.offset;
+                options["offset"] = Math.max(0, Math.min(input.offset, totalCount - (input.limit ? (totalCount % input.limit) : 0)));
             }
 
             if (input.limit) {
@@ -328,13 +327,13 @@ export class Neuron extends BaseModel {
         try {
             const candidateNeurons = await Neuron.findAll(options);
 
-            return {totalCount, items: candidateNeurons};
+            return {totalCount, offset: options.offset, items: candidateNeurons};
         } catch (e) {
-            return {totalCount: 0, items: []}
+            return {totalCount: 0, offset: 0, items: []}
         }
     }
 
-    public static async isDuplicate(idString: string, sampleId: string, id: string = null): Promise<boolean> {
+        public static async isDuplicate(idString: string, sampleId: string, id: string = null): Promise<boolean> {
         if (!sampleId || !idString) {
             return false;
         }

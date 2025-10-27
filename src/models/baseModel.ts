@@ -16,6 +16,7 @@ export type EntityQueryInput = SortAndLimit & {
 
 export type EntityQueryOutput<T> = {
     totalCount: number;
+    offset?: number;
     items: T[];
 }
 

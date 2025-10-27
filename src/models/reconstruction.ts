@@ -424,13 +424,13 @@ export class Reconstruction extends BaseModel {
 
         if (input) {
             if (input.offset) {
-                options["offset"] = input.offset;
-                out.offset = input.offset;
+                options["offset"] = Math.max(0, Math.min(input.offset, out.totalCount - (input.limit ? (out.totalCount % input.limit) : 0)));
+                out.offset = options.offset;
             }
 
             if (input.limit) {
                 options["limit"] = input.limit;
-                out.limit = input.limit;
+                out.limit = options.limit;
             }
         }
     }
@@ -901,8 +901,8 @@ export class Reconstruction extends BaseModel {
         // Build header if requested
         if (needsHeader && reconstruction.Neuron) {
             const label = reconstruction.Neuron.Sample.Injections.map(i => ({
-                virus: i.injectionVirus.name,
-                fluorophore: i.fluorophore.name
+                virus: i.injectionVirus?.name || null,
+                fluorophore: i.fluorophore?.name || null
             }));
 
             const sample = {

@@ -25,6 +25,7 @@ export const queryTypeDefinitions = gql`
 
     type QueryNeurons {
         totalCount: Int!
+        offset: Int!
         items: [Neuron!]!
     }
 
