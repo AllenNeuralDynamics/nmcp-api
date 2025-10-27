@@ -24,7 +24,7 @@ import {MouseStrain} from "./mouseStrain";
 import {Neuron} from "./neuron";
 import {Injection} from "./injection";
 import {Collection} from "./collection";
-import {SampleTableName} from "./tableNames";
+import {SpecimenTableName} from "./tableNames";
 import {ReconstructionStatus} from "./reconstructionStatus";
 import {Reconstruction} from "./reconstruction";
 
@@ -322,7 +322,7 @@ export const modelInit = (sequelize: Sequelize) => {
             defaultValue: ""
         }
     }, {
-        tableName: SampleTableName,
+        tableName: SpecimenTableName,
         timestamps: true,
         paranoid: true,
         sequelize

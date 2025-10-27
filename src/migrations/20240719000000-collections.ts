@@ -1,6 +1,6 @@
 import {QueryInterface} from "sequelize";
 
-import {CollectionTableName, SampleTableName} from "../models/tableNames";
+import {CollectionTableName, SpecimenTableName} from "../models/tableNames";
 
 export = {
     up: async (queryInterface: QueryInterface, Sequelize: any) => {
@@ -20,7 +20,7 @@ export = {
                 deletedAt: Sequelize.DATE
             });
 
-        await queryInterface.addColumn(SampleTableName, "collectionId", {
+        await queryInterface.addColumn(SpecimenTableName, "collectionId", {
             type: Sequelize.UUID,
             references: {
                 model: CollectionTableName,
@@ -30,7 +30,7 @@ export = {
     },
 
     down: async (queryInterface: QueryInterface, Sequelize: any) => {
-        await queryInterface.removeColumn(SampleTableName, "collectionId");
+        await queryInterface.removeColumn(SpecimenTableName, "collectionId");
         await queryInterface.dropTable(CollectionTableName);
     }
 }

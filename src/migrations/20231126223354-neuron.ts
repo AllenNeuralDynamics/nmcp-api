@@ -7,7 +7,7 @@ import {
     InjectionTableName,
     InjectionVirusTableName,
     NeuronTableName,
-    SampleTableName,
+    SpecimenTableName,
     StructureIdentifierTableName,
     TracingStructureTableName,
     UserTableName
@@ -98,7 +98,7 @@ export = {
             });
 
         await queryInterface.createTable(
-            SampleTableName,
+            SpecimenTableName,
             {
                 id: {
                     primaryKey: true,
@@ -138,8 +138,8 @@ export = {
                 deletedAt: Sequelize.DATE
             });
 
-        await queryInterface.addIndex(SampleTableName, ["visibility"]);
-        await queryInterface.addIndex(SampleTableName, ["mouseStrainId"]);
+        await queryInterface.addIndex(SpecimenTableName, ["visibility"]);
+        await queryInterface.addIndex(SpecimenTableName, ["mouseStrainId"]);
 
         await queryInterface.createTable(
             InjectionTableName,
@@ -173,7 +173,7 @@ export = {
                 sampleId: {
                     type: Sequelize.UUID,
                     references: {
-                        model: SampleTableName,
+                        model: SpecimenTableName,
                         key: "id"
                     }
                 },
@@ -248,7 +248,7 @@ export = {
                 sampleId: {
                     type: Sequelize.UUID,
                     references: {
-                        model: SampleTableName,
+                        model: SpecimenTableName,
                         key: "id"
                     }
                 },
@@ -327,7 +327,7 @@ export = {
         await queryInterface.dropTable(TracingStructureTableName);
 
         await queryInterface.dropTable(NeuronTableName);
-        await queryInterface.dropTable(SampleTableName);
+        await queryInterface.dropTable(SpecimenTableName);
         await queryInterface.dropTable(GenotypeTableName);
         await queryInterface.dropTable(BrainStructureTableName);
     }

@@ -13,7 +13,7 @@ import {Neuron} from "../models/neuron";
 import {StructureIdentifier} from "../models/structureIdentifier";
 import {TracingStructure} from "../models/tracingStructure";
 import {Reconstruction} from "../models/reconstruction";
-import {NeuronTableName, SampleTableName} from "../models/tableNames";
+import {NeuronTableName, SpecimenTableName} from "../models/tableNames";
 
 export class RemoteDatabaseClient {
     public static async Start(prepareSearchContents = false, enableLog: boolean = false, options: Options = SequelizeOptions): Promise<RemoteDatabaseClient> {
@@ -160,7 +160,7 @@ export class RemoteDatabaseClient {
 
                 if (count == 0) {
                     this.log("seeding samples");
-                    await queryInterface.bulkInsert(SampleTableName, loadSamples(when), {});
+                    await queryInterface.bulkInsert(SpecimenTableName, loadSamples(when), {});
                 } else {
                     this.log("skipping sample seed");
                 }

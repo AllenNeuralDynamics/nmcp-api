@@ -1,7 +1,7 @@
 import {QueryInterface} from "sequelize";
 
 import {
-    SampleTableName,
+    SpecimenTableName,
     NeuronTableName,
     SearchContentTable,
     PrecomputedTableName,
@@ -11,7 +11,7 @@ import {
 export = {
     up: async (queryInterface: QueryInterface, Sequelize: any) => {
         try {
-            await queryInterface.removeColumn(SampleTableName, "visibility");
+            await queryInterface.removeColumn(SpecimenTableName, "visibility");
             await queryInterface.removeColumn(NeuronTableName, "visibility");
             await queryInterface.removeColumn(SearchContentTable, "visibility");
         } catch (err){
@@ -48,11 +48,11 @@ export = {
     },
 
     down: async (queryInterface: QueryInterface, Sequelize: any) => {
-        await queryInterface.addColumn(SampleTableName, "visibility", {
+        await queryInterface.addColumn(SpecimenTableName, "visibility", {
             type: Sequelize.INTEGER,
             defaultValue: 0
         });
-        await queryInterface.addColumn(SampleTableName, "visibility", {
+        await queryInterface.addColumn(SpecimenTableName, "visibility", {
             type: Sequelize.INTEGER,
             defaultValue: 0
         });
