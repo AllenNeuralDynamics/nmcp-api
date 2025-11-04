@@ -66,13 +66,13 @@ export const mutationTypeDefinitions = gql`
         error: Error
     }
 
-    type TracingUploadOutput {
+    type ReconstructionUploadOutput {
         tracings: [Tracing]
         error: Error
     }
 
-    type UnregisteredTracingUploadOutput {
-        tracings: [UnregisteredTracing]
+    type UnregisteredReconstructionUploadOutput {
+        reconstruction: UnregisteredReconstruction
         error: Error
     }
 

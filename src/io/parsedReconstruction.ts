@@ -1,6 +1,9 @@
+import {AxonStructureId, DendriteStructureId} from "../models/tracingStructure";
 import {StructureIdentifiers} from "../models/structureIdentifier";
+import {jsonParse} from "./jsonParser";
+import {swcParse} from "./swcParser";
 
-export type ParsedNode = {
+export type SimpleNode = {
     sampleNumber: number;
     parentNumber: number;
     structure: number;
@@ -12,7 +15,9 @@ export type ParsedNode = {
     brainStructureId: string;
 }
 
-export class ParsedReconstruction {
+export class SimpleNeuronStructure {
+    private readonly _neuronStructureId: string;
+
     public offsetX: number;
     public offsetY: number;
     public offsetZ: number;
@@ -23,26 +28,32 @@ export class ParsedReconstruction {
     private ends;
     private _comments: string;
 
-    private readonly samples: Map<number, ParsedNode>;
-    private readonly sampleChildCount: Map<number, number>;
+    private readonly nodes: Map<number, SimpleNode>;
+    private readonly nodeChildCount: Map<number, number>;
 
-    public constructor() {
+    public constructor(neuronStructureId: string) {
+        this._neuronStructureId = neuronStructureId;
+
         this.somas = 0;
         this.paths = 0;
         this.branches = 0;
         this.ends = 0;
         this._comments = "";
 
-        this.samples = new Map<number, ParsedNode>();
-        this.sampleChildCount = new Map<number, number>();
+        this.nodes = new Map<number, SimpleNode>();
+        this.nodeChildCount = new Map<number, number>();
 
         this.offsetX = 0;
         this.offsetY = 0;
         this.offsetZ = 0;
     }
 
-    public get sampleCount(): number {
-        return this.samples.size;
+    public get NeuronStructureId(): string {
+        return this._neuronStructureId;
+    }
+
+    public get nodeCount(): number {
+        return this.nodes.size;
     }
 
     public get somaCount(): number {
@@ -65,24 +76,24 @@ export class ParsedReconstruction {
         return this._comments;
     }
 
-    public getSamples(): ParsedNode[] {
-        return Array.from(this.samples.values());
+    public getNodes(): SimpleNode[] {
+        return Array.from(this.nodes.values());
     }
 
     public addComment(comment: string): void {
         this._comments += comment;
     }
 
-    public addSample(sample: ParsedNode): void {
+    public addSample(sample: SimpleNode): void {
         if (sample.parentNumber != -1) {
             let count = 0;
-            if (this.sampleChildCount.has(sample.parentNumber)) {
-                count = this.sampleChildCount.get(sample.parentNumber);
+            if (this.nodeChildCount.has(sample.parentNumber)) {
+                count = this.nodeChildCount.get(sample.parentNumber);
             }
-            this.sampleChildCount.set(sample.parentNumber, ++count);
+            this.nodeChildCount.set(sample.parentNumber, ++count);
         }
 
-        this.samples.set(sample.sampleNumber, sample);
+        this.nodes.set(sample.sampleNumber, sample);
     }
 
     public finalize(): void {
@@ -90,19 +101,19 @@ export class ParsedReconstruction {
     }
 
     private countNodeTypes() {
-        this.samples.forEach(s => {
+        this.nodes.forEach(s => {
             if (s.structure != StructureIdentifiers.soma) {
                 // Relabel anything with <> 1 child as a branch or end point.
-                if (this.sampleChildCount.has(s.sampleNumber)) {
-                    if (this.sampleChildCount.get(s.sampleNumber) > 1) {
+                if (this.nodeChildCount.has(s.sampleNumber)) {
+                    if (this.nodeChildCount.get(s.sampleNumber) > 1) {
                         s.structure = StructureIdentifiers.forkPoint;
                     }
                 } else {
                     s.structure = StructureIdentifiers.endPoint;
                 }
                 // Calculate length to parent.
-                if (this.samples.has(s.parentNumber)) {
-                    const parent = this.samples.get(s.parentNumber);
+                if (this.nodes.has(s.parentNumber)) {
+                    const parent = this.nodes.get(s.parentNumber);
 
                     // Length to parent in millimeters
                     s.lengthToParent = Math.sqrt(
@@ -128,4 +139,41 @@ export class ParsedReconstruction {
             }
         });
     }
+}
+
+export type ParsedReconstruction = {
+    source: string;
+    comments: string;
+    axon: SimpleNeuronStructure
+    dendrite: SimpleNeuronStructure;
+}
+
+export async function parseSwcFile(file: any, structureId: string): Promise<SimpleNeuronStructure> {
+    return await swcParse(structureId, file.createReadStream());
+}
+
+export async function parseJsonFile(file: any): Promise<ParsedReconstruction> {
+
+    const [axonData, dendriteData] = await jsonParse(file.createReadStream());
+
+    return {
+        source: file.filename,
+        comments: axonData.comments,
+        axon: axonData,
+        dendrite: dendriteData
+    };
+}
+
+export async function parseSwcFiles(axonFile: any, dendriteFile: any): Promise<ParsedReconstruction> {
+    const [axonData, dendriteData] = await Promise.all([
+        parseSwcFile(axonFile, AxonStructureId),
+        parseSwcFile(dendriteFile, DendriteStructureId)
+    ]);
+
+    return {
+        source: `${axonFile.filename};${dendriteFile.filename}`,
+        comments: [axonData.comments, dendriteData.comments].filter(s => s).join("\n"),
+        axon: axonData,
+        dendrite: dendriteData
+    };
 }

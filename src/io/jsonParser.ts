@@ -1,12 +1,13 @@
 import * as byline from "byline";
 import * as fs from "fs";
 import JSONStream = require("JSONStream");
-import {ParsedNode, ParsedReconstruction} from "./parsedReconstruction";
+import {SimpleNode, SimpleNeuronStructure} from "./parsedReconstruction";
 import {AtlasStructure} from "../models/atlasStructure";
+import {AxonStructureId, DendriteStructureId} from "../models/tracingStructure";
 
 const debug = require("debug")("nmcp:nmcp-api:json-parser");
 
-export async function jsonChunkParse(fileStream: fs.ReadStream): Promise<[ParsedReconstruction, ParsedReconstruction]> {
+export async function jsonChunkParse(fileStream: fs.ReadStream): Promise<[SimpleNeuronStructure, SimpleNeuronStructure]> {
     const parser = JSONStream.parse('neurons.*'); // Parses each element in an array or root object
 
     fileStream.pipe(parser);
@@ -34,12 +35,12 @@ export async function jsonChunkParse(fileStream: fs.ReadStream): Promise<[Parsed
     });
 }
 
-export async function jsonParse(fileStream: fs.ReadStream): Promise<[ParsedReconstruction, ParsedReconstruction]> {
+export async function jsonParse(fileStream: fs.ReadStream): Promise<[SimpleNeuronStructure, SimpleNeuronStructure]> {
     const stream = byline.createStream(fileStream);
 
     let data: string = "";
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
         stream.on("readable", () => {
             let line: Buffer;
             while ((line = stream.read()) !== null) {
@@ -53,27 +54,36 @@ export async function jsonParse(fileStream: fs.ReadStream): Promise<[ParsedRecon
             }
         });
         stream.on("end", () => {
-            oneFileComplete(data, resolve);
+            oneFileComplete(data, resolve, reject);
         });
     });
 }
 
-function oneFileComplete(data: string, resolve) {
-    const obj = JSON.parse(data);
+function oneFileComplete(data: string, resolve, reject) {
+    try {
+        const obj = JSON.parse(data);
 
-    const [axonData, dendriteData] = parseObj(obj.neurons[0]);
+        const [axonData, dendriteData] = parseObj(obj.neurons[0]);
 
-    resolve([axonData, dendriteData]);
+        if (obj["comment"]) {
+            axonData.addComment(obj["comment"]);
+            dendriteData.addComment(obj["comment"]);
+        }
+
+        resolve([axonData, dendriteData]);
+    } catch (err) {
+        reject(err);
+    }
 }
 
-function parseObj(obj: any): [ParsedReconstruction, ParsedReconstruction] {
-    const axonData = createSwcData(obj.axon);
+function parseObj(obj: any): [SimpleNeuronStructure, SimpleNeuronStructure] {
+    const axonData = createNeuronStructure(AxonStructureId, obj.axon);
 
     if (axonData) {
         axonData.finalize();
     }
 
-    const dendriteData = createSwcData(obj.dendrite)
+    const dendriteData = createNeuronStructure(DendriteStructureId, obj.dendrite)
 
     if (dendriteData) {
         dendriteData.finalize();
@@ -82,22 +92,22 @@ function parseObj(obj: any): [ParsedReconstruction, ParsedReconstruction] {
     return [axonData, dendriteData];
 }
 
-function createSwcData(nodes: any[]): ParsedReconstruction {
+function createNeuronStructure(neuronStructureId: string, nodes: any[]): SimpleNeuronStructure {
     if (!nodes) {
         return null;
     }
-    const axonData = new ParsedReconstruction();
+    const data = new SimpleNeuronStructure(neuronStructureId);
 
     const samples = parseSamples(nodes);
 
     samples.forEach(n => {
-        axonData.addSample(n);
+        data.addSample(n);
     });
 
-    return axonData;
+    return data;
 }
 
-function parseSamples(nodes: any[]): ParsedNode[] {
+function parseSamples(nodes: any[]): SimpleNode[] {
     return nodes.map((n: any) => {
         return {
             sampleNumber: n.sampleNumber,

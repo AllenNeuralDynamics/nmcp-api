@@ -1,11 +1,11 @@
 import * as fs from "fs";
 import * as path from "path";
-import {DataTypes, HasManyGetAssociationsMixin, Op, Sequelize} from "sequelize";
+import {BelongsToGetAssociationMixin, DataTypes, HasManyGetAssociationsMixin, Op, Sequelize} from "sequelize";
 
-import {DeleteOutput} from "./baseModel";
+import {BaseModel, DeleteOutput} from "./baseModel";
 import {AxonStructureId, DendriteStructureId, TracingStructure} from "./tracingStructure";
 import {TracingNode, TracingNodeMutationData} from "./tracingNode";
-import {IUploadOutput} from "../graphql/secureResolvers";
+import {ReconstructionUploadOutput} from "../graphql/secureResolvers";
 import {StructureIdentifier, StructureIdentifiers} from "./structureIdentifier";
 import {ServiceOptions} from "../options/serviceOptions";
 import {SearchContent} from "./searchContent";
@@ -15,9 +15,8 @@ import {ReconstructionStatus} from "./reconstructionStatus";
 import {Neuron} from "./neuron";
 import {FiniteMap} from "../util/finiteMap";
 import {KDTree} from "../util/kdtree";
-import {ITracingDataInput, IUploadIntermediate, TracingBaseModel} from "./tracingBaseModel";
 
-import {ParsedReconstruction} from "../io/parsedReconstruction";
+import {SimpleNeuronStructure, ParsedReconstruction, parseJsonFile, parseSwcFile} from "../io/parsedReconstruction";
 import {SearchContentOperation} from "../transform/searchContentOperation";
 import {AtlasStructure} from "./atlasStructure";
 import {findBrainStructure} from "../transform/atlasLookupService";
@@ -32,14 +31,30 @@ export interface TransformResult {
     error: string;
 }
 
-export class Tracing extends TracingBaseModel {
+export interface IUploadIntermediate {
+    tracing: Tracing;
+    error: Error;
+}
+export class Tracing extends BaseModel {
+    public id: string;
     public filename: string;
+    // public fileComments: string;
+    public nodeCount?: number;
+    public pathCount?: number;
+    public branchCount?: number;
+    public endCount?: number;
+    public reconstructionId: string;
+    public tracingStructureId?: string;
+
     public somaNodeId: string;
     public nodeLookupAt: string;
     public searchTransformAt: Date;
 
+    public getTracingStructure!: BelongsToGetAssociationMixin<TracingStructure>;
+    public getReconstruction!: BelongsToGetAssociationMixin<Reconstruction>;
     public getNodes!: HasManyGetAssociationsMixin<TracingNode>
 
+    public Reconstruction: Reconstruction;
     public Nodes?: TracingNode[];
 
     private static _nearestNodeCache: FiniteMap<string, KDTree> = new FiniteMap<string, KDTree>(10);
@@ -170,7 +185,7 @@ export class Tracing extends TracingBaseModel {
         return {id, error: null};
     }
 
-    public static async createTracingFromUpload(reconstructionId: string, tStructureId: string, uploadFile: Promise<any>): Promise<IUploadOutput> {
+    public static async createTracingFromUpload(reconstructionId: string, structureId: string, uploadFile: Promise<any>): Promise<ReconstructionUploadOutput> {
         if (!uploadFile) {
             return {
                 tracings: null,
@@ -181,18 +196,29 @@ export class Tracing extends TracingBaseModel {
         const file = await uploadFile;
 
         try {
-            const tracingInputs = await TracingBaseModel.parseUploadedFile(file, tStructureId);
+            let parsedReconstruction: ParsedReconstruction;
 
-            return Tracing.createTracingFromInput(reconstructionId, tracingInputs, file.filename);
+            if (file.filename.toLowerCase().endsWith(".json")) {
+                parsedReconstruction = await parseJsonFile(file);
+            } else {
+                const parsedStructure = await parseSwcFile(file, structureId);
+
+                parsedReconstruction = {
+                    source: file.filename,
+                    comments: parsedStructure.comments,
+                    axon: structureId == AxonStructureId ? parsedStructure : null,
+                    dendrite: structureId == DendriteStructureId ? parsedStructure : null,
+                }
+            }
+
+            return Tracing.createTracingFromInput(reconstructionId, parsedReconstruction, file.filename);
         } catch (err) {
             return {tracings: null, error: err};
         }
     }
 
     public static async createTracingFromJson(reconstructionId: string, source: string, performInsert: boolean = true) {
-        let tracingInputs: ITracingDataInput[] = [];
-
-        let axonData: ParsedReconstruction, dendriteData: ParsedReconstruction;
+        let axonData: SimpleNeuronStructure, dendriteData: SimpleNeuronStructure;
 
         try {
             [axonData, dendriteData] = await jsonChunkParse(fs.createReadStream(source));
@@ -201,28 +227,25 @@ export class Tracing extends TracingBaseModel {
             return {tracings: null, error: `Error parsing JSON file ${source}: ${err.message}`};
         }
 
-        if (axonData) {
-            tracingInputs.push({input: axonData, tracingStructureId: AxonStructureId});
-        }
-
-        if (dendriteData) {
-            tracingInputs.push({input: dendriteData, tracingStructureId: DendriteStructureId});
-        }
-
-        if (tracingInputs.length < 2) {
+        if (axonData == null || dendriteData == null) {
             return {tracings: null, error: `${axonData ? "" : "Axon data is missing.  "}${dendriteData ? "" : "Dendrite data is missing."}`};
-        } else {
-            debug(`Found ${tracingInputs.length} tracing inputs in JSON file ${source}`);
         }
 
         if (performInsert) {
-            return await Tracing.createTracingFromInput(reconstructionId, tracingInputs, path.basename(source), true);
+            const parsedReconstruction: ParsedReconstruction = {
+                source: source,
+                comments: axonData.comments,
+                axon: axonData,
+                dendrite: dendriteData
+            };
+
+            return await Tracing.createTracingFromInput(reconstructionId, parsedReconstruction, path.basename(source), true);
         } else {
             return {tracings: null, error: null};
         }
     }
 
-    public static async createTracingFromInput(reconstructionId: string, tracingInputs: ITracingDataInput[], source: string, insertOnly: boolean = false): Promise<IUploadOutput> {
+    public static async createTracingFromInput(reconstructionId: string, parsedReconstruction: ParsedReconstruction, source: string, insertOnly: boolean = false): Promise<ReconstructionUploadOutput> {
         try {
             // Reconstruction
             const reconstruction = await Reconstruction.findByPk(reconstructionId);
@@ -231,11 +254,8 @@ export class Tracing extends TracingBaseModel {
                 return {tracings: null, error: {name: "CreateTracingError", message: `reconstruction ${reconstructionId} not found`}};
             }
 
-            const promises: Promise<IUploadIntermediate>[] = tracingInputs.map(async (input) => {
-                const swcData = input.input;
-                const tracingStructureId = input.tracingStructureId;
-
-                if (swcData.sampleCount === 0) {
+            const promises: Promise<IUploadIntermediate>[] = [parsedReconstruction.axon, parsedReconstruction.dendrite].filter(s => s).map(async (swcData) => {
+                if (swcData.nodeCount === 0) {
                     return {
                         tracing: null,
                         error: {name: "UploadSwcError", message: "Could not find any identifiable node rows"}
@@ -268,7 +288,7 @@ export class Tracing extends TracingBaseModel {
                 const existing = await Tracing.findOne({
                     where: {
                         reconstructionId: reconstruction.id,
-                        tracingStructureId: tracingStructureId
+                        tracingStructureId: swcData.NeuronStructureId
                     }
                 });
 
@@ -283,15 +303,15 @@ export class Tracing extends TracingBaseModel {
                 const tracingData = {
                     filename: source,
                     fileComments: swcData.comments,
-                    nodeCount: swcData.sampleCount,
+                    nodeCount: swcData.nodeCount,
                     pathCount: swcData.pathCount,
                     branchCount: swcData.branchCount,
                     endCount: swcData.endCount,
                     reconstructionId: reconstruction.id,
-                    tracingStructureId
+                    tracingStructureId: swcData.NeuronStructureId
                 };
 
-                let nodeData: TracingNodeMutationData[] = swcData.getSamples().map(sample => {
+                let nodeData: TracingNodeMutationData[] = swcData.getNodes().map(sample => {
                     return {
                         tracingId: null,
                         sampleNumber: sample.sampleNumber,
@@ -446,7 +466,7 @@ export class Tracing extends TracingBaseModel {
     }
 
     public async nearestNode(location: number[]): Promise<any> {
-        let tree: KDTree = null;
+        let tree: KDTree;
 
         if (Tracing._nearestNodeCache.has(this.id)) {
             tree = Tracing._nearestNodeCache.get(this.id);

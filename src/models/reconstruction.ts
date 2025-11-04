@@ -1456,8 +1456,8 @@ export function buildLabelData(injections: any[]): ReconstructionLabel[] | null 
     }
 
     const labels = injections.map(i => ({
-        virus: i.injectionVirus.name,
-        fluorophore: i.fluorophore.name
+        virus: i.injectionVirus?.name ?? "",
+        fluorophore: i.fluorophore?.name ?? ""
     }));
 
     return labels.length > 0 ? labels : null;

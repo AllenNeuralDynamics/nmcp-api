@@ -19,7 +19,7 @@ import {Collection, CollectionInput} from "../models/collection";
 import {Issue, IssueKind} from "../models/issue";
 import {Precomputed} from "../models/precomputed";
 import GraphQLUpload = require("graphql-upload/GraphQLUpload.js");
-import {UnregisteredTracing} from "../models/unregisteredTracing";
+import {UnregisteredReconstruction} from "../models/unregisteredReconstruction";
 import {QualityCheckStatus} from "../models/qualityCheckStatus";
 
 export class UnauthorizedError extends GraphQLError {
@@ -80,6 +80,19 @@ interface ITracingUploadArguments {
     reconstructionId: string;
     structureId: string;
     file: Promise<IUploadFile>;
+}
+
+type UnregisteredJsonUploadArguments = {
+    neuronId: string;
+    file: Promise<IUploadFile>;
+    reconstructionId?: string;   // For overwrite
+}
+
+type UnregisteredSwcUploadArguments = {
+    neuronId: string;
+    axonFile: Promise<IUploadFile>;
+    dendriteFile: Promise<IUploadFile>;
+    reconstructionId?: string;   // For overwrite
 }
 
 export type SomaImportOptions = {
@@ -144,8 +157,13 @@ export interface PeerReviewPageArguments {
     input: PeerReviewPageInput;
 }
 
-export interface IUploadOutput {
-    tracings: Tracing[] | UnregisteredTracing[];
+export type ReconstructionUploadOutput = {
+    tracings: Tracing[];
+    error: Error;
+}
+
+export type UnregisteredReconstructionUploadOutput = {
+    reconstruction: UnregisteredReconstruction;
     error: Error;
 }
 
@@ -370,6 +388,25 @@ export const secureResolvers = {
         neuron(_: any, args: IIdOnlyArguments, context: User): Promise<Neuron> {
             if (context.permissions & UserPermissions.ViewAll) {
                 return Neuron.findByPk(args.id);
+            }
+
+            throw new GraphQLError("User is not authenticated", {
+                extensions: {
+                    code: "UNAUTHENTICATED",
+                    http: {status: 401},
+                },
+            });
+        },
+
+        async unregisteredReconstructions(_: any, args: { neuronId: string }, context: User): Promise<UnregisteredReconstruction[]> {
+            if (context.permissions & UserPermissions.Edit) {
+                const neuron = await Neuron.findByPk(args.neuronId);
+
+                if (neuron) {
+                    return await neuron.getUnregisteredReconstructions();
+                }
+
+                return [];
             }
 
             throw new GraphQLError("User is not authenticated", {
@@ -711,7 +748,7 @@ export const secureResolvers = {
             });
         },
 
-        uploadSwc(_: any, args: ITracingUploadArguments, context: User): Promise<IUploadOutput> {
+        uploadReconstructionData(_: any, args: ITracingUploadArguments, context: User): Promise<ReconstructionUploadOutput> {
             if (context.permissions & UserPermissions.FullReview) {
                 return Tracing.createTracingFromUpload(args.reconstructionId, args.structureId, args.file);
             }
@@ -724,9 +761,22 @@ export const secureResolvers = {
             });
         },
 
-        uploadUnregisteredSwc(_: any, args: ITracingUploadArguments, context: User): Promise<IUploadOutput> {
+        uploadUnregisteredJsonData(_: any, args: UnregisteredJsonUploadArguments, context: User): Promise<UnregisteredReconstructionUploadOutput> {
             if (context.permissions & UserPermissions.PeerReview) {
-                return UnregisteredTracing.createFromUpload(args.reconstructionId, args.structureId, args.file);
+                return UnregisteredReconstruction.fromJsonUpload(args.neuronId, args.file, args.reconstructionId);
+            }
+
+            throw new GraphQLError("User is not authenticated", {
+                extensions: {
+                    code: "UNAUTHENTICATED",
+                    http: {status: 401},
+                },
+            });
+        },
+
+        uploadUnregisteredSwcData(_: any, args: UnregisteredSwcUploadArguments, context: User): Promise<UnregisteredReconstructionUploadOutput> {
+            if (context.permissions & UserPermissions.PeerReview) {
+                return UnregisteredReconstruction.fromSwcUpload(args.neuronId, args.axonFile, args.dendriteFile, args.reconstructionId);
             }
 
             throw new GraphQLError("User is not authenticated", {
@@ -1016,8 +1066,17 @@ export const secureResolvers = {
         latest(neuron: Neuron): Promise<Reconstruction> {
             return neuron.latest();
         },
+        reconstructionCount(neuron: any): Promise<number> {
+            return Reconstruction.count({where: {neuronId: neuron.id}})
+        },
         reconstructions(neuron: Neuron): Promise<Reconstruction[]> {
             return neuron.getReconstructions();
+        },
+        unregisteredReconstructionCount(neuron: any): Promise<number> {
+            return UnregisteredReconstruction.count({where: {neuronId: neuron.id}})
+        },
+        unregisteredReconstructions(neuron: Neuron): Promise<UnregisteredReconstruction[]> {
+            return neuron.getUnregisteredReconstructions();
         }
     },
     Tracing: {

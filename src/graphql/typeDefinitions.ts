@@ -77,6 +77,8 @@ export const typeDefinitions = gql`
         neurons(input: NeuronQueryInput): QueryNeurons
         neuron(id: String!): Neuron
 
+        unregisteredReconstructions(neuronId: String!): [UnregisteredReconstruction!]!
+
         reconstructions(pageInput: ReconstructionPageInput): ReconstructionPage!
         reconstruction(id: String): Reconstruction
 
@@ -147,8 +149,9 @@ export const typeDefinitions = gql`
 
         importSomas(file: Upload!, options: ImportSomasOptions!): ImportSomasOutput!
 
-        uploadSwc(reconstructionId: String, structureId: String, file: Upload): TracingUploadOutput!
-        uploadUnregisteredSwc(reconstructionId: String, structureId: String, file: Upload): UnregisteredTracingUploadOutput!
+        uploadReconstructionData(reconstructionId: String, structureId: String, file: Upload): ReconstructionUploadOutput!
+        uploadUnregisteredJsonData(neuronId: String!, file: Upload!, reconstructionId: String): UnregisteredReconstructionUploadOutput!
+        uploadUnregisteredSwcData(neuronId: String!, axonFile: Upload!, dendriteFile: Upload!, reconstructionId: String): UnregisteredReconstructionUploadOutput!
 
         requestReconstruction(id: String!): Tracing
         requestReconstructionHold(id: String!): Error

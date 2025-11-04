@@ -139,6 +139,9 @@ export const coreTypeDefinitions = gql`
         sample: Sample
         latest: Reconstruction
         reconstructions: [Reconstruction!]
+        reconstructionCount: Int
+        unregisteredReconstructions: [UnregisteredReconstruction]
+        unregisteredReconstructionCount: Int
         createdAt: Date
         updatedAt: Date
     }
@@ -196,19 +199,6 @@ export const coreTypeDefinitions = gql`
         updatedAt: Date
     }
 
-    type UnregisteredTracing {
-        id: String!
-        filename: String
-        fileComments: String
-        nodeCount: Int
-        pathCount: Int
-        branchCount: Int
-        endCount: Int
-        tracingStructure: TracingStructure
-        createdAt: Date
-        updatedAt: Date
-    }
-
     type QualityError {
         testName: String!
         testDescription: String!
@@ -245,6 +235,32 @@ export const coreTypeDefinitions = gql`
         qualityCheckVersion: String
         qualityCheck: QualityCheck
         qualityCheckAt: Date
+        createdAt: Date
+        updatedAt: Date
+    }
+
+    type UnregisteredReconstruction {
+        id: String!
+        sourceUrl: String
+        sourceComments: String
+        status: Int
+        notes: String
+        checks: String
+        durationHours: Float
+        lengthMillimeters: Float
+        annotatorId: String
+        annotator: User
+        neuronId: String
+        neuron: Neuron
+        nodeCount: Int
+        pathCount: Int
+        branchCount: Int
+        endCount: Int
+        precomputed: Precomputed
+        startedAt: Date
+        completedAt: Date
+        createdAt: Date
+        updatedAt: Date
     }
 
     type Precomputed {

@@ -6,13 +6,18 @@ import {
     ReconstructionTableName,
     UnregisteredTracingTableName,
     UnregisteredNodeTableName,
-    UnregisteredReconstructionTableName, NeuronTableName, UserTableName
+    UnregisteredReconstructionTableName, NeuronTableName, UserTableName, BrainStructureTableName
 } from "../models/tableNames";
 
 export = {
     up: async (queryInterface: QueryInterface, Sequelize: any) => {
-        await queryInterface.dropTable(UnregisteredNodeTableName);
-        await queryInterface.dropTable(UnregisteredTracingTableName);
+        if (await queryInterface.tableExists(UnregisteredNodeTableName)) {
+            await queryInterface.dropTable(UnregisteredNodeTableName);
+        }
+
+        if (await queryInterface.tableExists(UnregisteredTracingTableName)) {
+            await queryInterface.dropTable(UnregisteredTracingTableName);
+        }
 
         await queryInterface.createTable(
             UnregisteredReconstructionTableName,
@@ -31,15 +36,6 @@ export = {
                     defaultValue: ""
                 },
                 status: Sequelize.INTEGER,
-                annotatorId: {
-                    type: Sequelize.UUID,
-                    references: {
-                        model: UserTableName,
-                        key: "id"
-                    }
-                },
-                startedAt: Sequelize.DATE,
-                completedAt: Sequelize.DATE,
                 notes: {
                     type: Sequelize.TEXT,
                     defaultValue: ""
@@ -48,7 +44,7 @@ export = {
                     type: Sequelize.TEXT,
                     defaultValue: ""
                 },
-                durationHours:  {
+                durationHours: {
                     type: Sequelize.INTEGER,
                     defaultValue: 0
                 },
@@ -71,6 +67,15 @@ export = {
                 endCount: {
                     type: Sequelize.INTEGER,
                     defaultValue: 0
+                },
+                startedAt: Sequelize.DATE,
+                completedAt: Sequelize.DATE,
+                annotatorId: {
+                    type: Sequelize.UUID,
+                    references: {
+                        model: UserTableName,
+                        key: "id"
+                    }
                 },
                 neuronId: {
                     type: Sequelize.UUID,
@@ -112,6 +117,13 @@ export = {
                     type: Sequelize.UUID,
                     references: {
                         model: TracingStructureTableName,
+                        key: "id"
+                    }
+                },
+                atlasStructureId: {
+                    type: Sequelize.UUID,
+                    references: {
+                        model: BrainStructureTableName,
                         key: "id"
                     }
                 },

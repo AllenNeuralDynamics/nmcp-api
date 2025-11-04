@@ -29,6 +29,7 @@ import {User} from "./user";
 import {ImportSomasOutput, SomaImportOptions} from "../graphql/secureResolvers";
 import {parseSomaPropertySteam} from "../util/somaPropertyParser";
 import {isNotNullOrUndefined} from "../util/objectUtil";
+import {UnregisteredReconstruction} from "./unregisteredReconstruction";
 
 const debug = require("debug")("nmcp:nmcp-api:neuron-model");
 
@@ -130,7 +131,8 @@ export class Neuron extends BaseModel {
     public getSample!: BelongsToGetAssociationMixin<Sample>;
     public getAtlasStructure!: BelongsToGetAssociationMixin<AtlasStructure>;
     public getTracings!: HasManyGetAssociationsMixin<Tracing>;
-    public getReconstructions!: HasManyGetAssociationsMixin<Reconstruction>;
+    public getReconstructions!: HasManyGetAssociationsMixin<Reconstruction>
+    public getUnregisteredReconstructions!: HasManyGetAssociationsMixin<UnregisteredReconstruction>;
 
     public tracings?: Tracing[];
     public atlasStructure: AtlasStructure;
@@ -934,5 +936,6 @@ export const modelInit = (sequelize: Sequelize) => {
 export const modelAssociate = () => {
     Neuron.belongsTo(Sample, {foreignKey: "sampleId", as: "Sample"});
     Neuron.belongsTo(AtlasStructure, {foreignKey: {name: "brainStructureId", allowNull: true}});
+    Neuron.hasMany(UnregisteredReconstruction, {foreignKey: "neuronId", as: "UnregisteredReconstructions"});
     Neuron.hasMany(Reconstruction, {foreignKey: "neuronId", as: "Reconstructions"});
 };

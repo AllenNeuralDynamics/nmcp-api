@@ -1,17 +1,18 @@
 import * as byline from "byline";
 import * as fs from "fs";
 import {StructureIdentifiers} from "../models/structureIdentifier";
-import {ParsedReconstruction} from "./parsedReconstruction";
+import {SimpleNeuronStructure} from "./parsedReconstruction";
 
 /**
  * Parse a SWC file and calculate branch/end points and lengths between nodes.
  *
+ * @param neuronStructureId axon or dendrite structure id
  * @param fileStream readable SWC filestream
  */
-export async function swcParse(fileStream: fs.ReadStream): Promise<ParsedReconstruction> {
+export async function swcParse(neuronStructureId: string, fileStream: fs.ReadStream): Promise<SimpleNeuronStructure> {
     const stream = byline.createStream(fileStream);
 
-    const swcData = new ParsedReconstruction();
+    const swcData = new SimpleNeuronStructure(neuronStructureId);
 
     return new Promise((resolve) => {
         stream.on("readable", () => {
@@ -26,7 +27,7 @@ export async function swcParse(fileStream: fs.ReadStream): Promise<ParsedReconst
     });
 }
 
-function oneSwcLine(line: string, swcData: ParsedReconstruction) {
+function oneSwcLine(line: string, swcData: SimpleNeuronStructure) {
     let lineContent = line.trim();
 
     if (lineContent.length == 0) {
@@ -90,7 +91,7 @@ function oneSwcLine(line: string, swcData: ParsedReconstruction) {
     });
 }
 
-function oneSwcFileComplete(swcData: ParsedReconstruction, resolve) {
+function oneSwcFileComplete(swcData: SimpleNeuronStructure, resolve) {
     swcData.finalize();
 
     resolve(swcData);
