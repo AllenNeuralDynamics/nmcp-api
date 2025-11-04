@@ -1,42 +1,51 @@
 import {Kind} from "graphql/language";
-
 import {GraphQLScalarType} from "graphql/type";
+
+import {ServiceOptions} from "../options/serviceOptions";
 import {IQueryOperator, operators} from "../models/queryOperator";
 import {NearestNodeOutput, PublishedReconstructionPage, PublishedReconstructionPageInput, Reconstruction} from "../models/reconstruction";
-import {ServiceOptions} from "../options/serviceOptions";
 import {PredicateType} from "../models/queryPredicate";
 import {AtlasStructure, CompartmentQueryInput} from "../models/atlasStructure";
-import {User, UserPermissions} from "../models/user";
+import {User} from "../models/user";
 import {StructureIdentifier} from "../models/structureIdentifier";
 import {TracingStructure} from "../models/tracingStructure";
 import {IQueryDataPage, Neuron, NeuronQueryInput} from "../models/neuron";
-import {ISearchContextInput, SearchContext} from "../models/searchContext";
+import {SearchContextInput, SearchContext} from "../models/searchContext";
 import {Collection} from "../models/collection";
-import {GraphQLError} from "graphql/error";
 import {EntityQueryOutput} from "../models/baseModel";
+import {Sample, SampleQueryInput} from "../models/sample";
+import {MouseStrain, GenotypeQueryInput} from "../models/mouseStrain";
 
 // const debug = require("debug")("nmcp:api:open-resolvers");
 
-export interface IIdOnlyArguments {
+export type IdArgs = {
     id: string;
 }
 
-interface IBrainAreaQueryArguments {
+type AtlasQueryArgs = {
     input: CompartmentQueryInput;
 }
 
-interface ICandidateNeuronQueryArguments {
+type GenotypeQueryArgs = {
+    input: GenotypeQueryInput;
+}
+
+type SampleQueryArgs = {
+    input: SampleQueryInput;
+}
+
+type CandidateQueryArgs = {
     input: NeuronQueryInput;
     includeInProgress: boolean;
 }
 
-type NearestNodeArguments = {
+type NearestNodeArgs = {
     id: string; // reconstruction id
     location: number[]; // expected length 3 (x, y, z)
 }
 
 type SearchNeuronsArguments = {
-    context: ISearchContextInput;
+    context: SearchContextInput;
 }
 
 // noinspection JSUnusedGlobalSymbols
@@ -65,13 +74,13 @@ export const openResolvers = {
             return TracingStructure.findAll({});
         },
 
-        async atlasStructures(_: any, args: IBrainAreaQueryArguments): Promise<AtlasStructure[]> {
+        async atlasStructures(_: any, args: AtlasQueryArgs): Promise<AtlasStructure[]> {
             const output = await AtlasStructure.getAll(args.input);
 
             return output.items;
         },
 
-        async atlasStructure(_: any, args: IIdOnlyArguments): Promise<AtlasStructure> {
+        async atlasStructure(_: any, args: IdArgs): Promise<AtlasStructure> {
             return AtlasStructure.findByPk(args.id);
         },
 
@@ -79,11 +88,19 @@ export const openResolvers = {
             return Collection.findAll();
         },
 
-        candidateNeurons(_: any, args: ICandidateNeuronQueryArguments, context: User): Promise<EntityQueryOutput<Neuron>> {
+        genotypes(_: any, args: GenotypeQueryArgs): Promise<MouseStrain[]> {
+            return MouseStrain.getAll(args.input);
+        },
+
+        samples(_: any, args: SampleQueryArgs): Promise<EntityQueryOutput<Sample>> {
+            return Sample.getAll(args.input);
+        },
+
+        candidateNeurons(_: any, args: CandidateQueryArgs): Promise<EntityQueryOutput<Neuron>> {
             return Neuron.getCandidateNeurons(args.input, args.includeInProgress);
         },
 
-        async nearestNode(_: any, args: NearestNodeArguments, __: User): Promise<NearestNodeOutput> {
+        async nearestNode(_: any, args: NearestNodeArgs, __: User): Promise<NearestNodeOutput> {
             return Reconstruction.nearestNode(args.id, args.location);
         },
 

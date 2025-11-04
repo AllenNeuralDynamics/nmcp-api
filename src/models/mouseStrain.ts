@@ -4,9 +4,9 @@ import {BaseModel, EntityMutateOutput, EntityQueryInput} from "./baseModel";
 import {optionsIncludeSampleIds, optionsWhereIds, WithSamplesQueryInput} from "./findOptions";
 import {Sample} from "./sample";
 
-export type MouseStrainQueryInput = EntityQueryInput & WithSamplesQueryInput;
+export type GenotypeQueryInput = EntityQueryInput & WithSamplesQueryInput;
 
-export type MouseStrainInput = {
+export type GenotypeInput = {
     id?: string;
     name?: string;
 }
@@ -16,7 +16,7 @@ export class MouseStrain extends BaseModel {
 
     public getSamples!: HasManyGetAssociationsMixin<Sample>;
 
-    public static async getAll(input: MouseStrainQueryInput): Promise<MouseStrain[]> {
+    public static async getAll(input: GenotypeQueryInput): Promise<MouseStrain[]> {
         let options: FindOptions = optionsWhereIds(input, {where: null, include: []});
 
         options = optionsIncludeSampleIds(input, options);
@@ -37,9 +37,9 @@ export class MouseStrain extends BaseModel {
     /**
      * Complex where clause to allow for case insensitive requires defaults property.  Wrapping for consistency as
      * a result.
-     * @param {MouseStrainInput} mouseStrainInput define name property
+     * @param {GenotypeInput} mouseStrainInput define name property
      **/
-    public static async findOrCreateFromInput(mouseStrainInput: MouseStrainInput): Promise<MouseStrain> {
+    public static async findOrCreateFromInput(mouseStrainInput: GenotypeInput): Promise<MouseStrain> {
         const options: FindOrCreateOptions = {
             where: this.duplicateWhereClause(mouseStrainInput.name).where,
             defaults: {name: mouseStrainInput.name}
@@ -50,7 +50,7 @@ export class MouseStrain extends BaseModel {
         return model;
     }
 
-    public static async createWith(mouseStrainInput: MouseStrainInput): Promise<EntityMutateOutput<MouseStrain>> {
+    public static async createWith(mouseStrainInput: GenotypeInput): Promise<EntityMutateOutput<MouseStrain>> {
         try {
             if (!mouseStrainInput) {
                 return {source: null, error: "Mouse strain properties are a required input"};
@@ -74,7 +74,7 @@ export class MouseStrain extends BaseModel {
         }
     };
 
-    public static async updateWith(mouseStrainInput: MouseStrainInput): Promise<EntityMutateOutput<MouseStrain>> {
+    public static async updateWith(mouseStrainInput: GenotypeInput): Promise<EntityMutateOutput<MouseStrain>> {
         try {
             if (!mouseStrainInput) {
                 return {source: null, error: "Mouse strain properties are a required input"};

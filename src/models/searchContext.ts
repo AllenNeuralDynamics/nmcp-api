@@ -2,13 +2,13 @@ import * as uuid from "uuid"
 
 import {IPredicateAttributes, IQueryPredicate, QueryPredicate} from "./queryPredicate";
 
-export interface ISearchContextInput {
+export type SearchContextInput = {
     nonce: string;
     predicates: IPredicateAttributes[];
 }
 
 export class SearchContext {
-    private static createDefault(): ISearchContextInput {
+    private static createDefault(): SearchContextInput {
         return {
             nonce: uuid.v4(),
             predicates: [QueryPredicate.createDefault()]
@@ -19,7 +19,7 @@ export class SearchContext {
 
     private readonly _predicates: IQueryPredicate[];
 
-    public constructor(input: ISearchContextInput) {
+    public constructor(input: SearchContextInput) {
         input = input || SearchContext.createDefault();
 
         this._nonce = input.nonce;

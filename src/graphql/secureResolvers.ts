@@ -1,9 +1,9 @@
-import {IIdOnlyArguments} from "./openResolvers";
+import {IdArgs} from "./openResolvers";
 import {Neuron, NeuronInput, NeuronQueryInput} from "../models/neuron";
 
 import {AtlasStructure} from "../models/atlasStructure";
-import {MouseStrain, MouseStrainInput, MouseStrainQueryInput} from "../models/mouseStrain";
-import {Sample, SampleInput, SampleQueryInput} from "../models/sample";
+import {MouseStrain, GenotypeInput} from "../models/mouseStrain";
+import {Sample, SampleInput} from "../models/sample";
 import {DeleteOutput, EntityMutateOutput, EntityQueryOutput} from "../models/baseModel";
 import {TracingStructure} from "../models/tracingStructure";
 import {Tracing} from "../models/tracing";
@@ -52,10 +52,6 @@ interface IUsersQueryArguments {
     input: UserQueryInput;
 }
 
-interface IMouseStrainQueryArguments {
-    input: MouseStrainQueryInput;
-}
-
 interface IInjectionVirusQueryArguments {
     input: InjectionVirusQueryInput;
 }
@@ -66,10 +62,6 @@ interface IFluorophoreQueryArguments {
 
 interface IInjectionQueryArguments {
     input: InjectionQueryInput;
-}
-
-interface ISampleQueryArguments {
-    input: SampleQueryInput;
 }
 
 interface INeuronQueryArguments {
@@ -184,7 +176,7 @@ interface IUserMutateArguments {
 }
 
 interface IMouseStrainMutateArguments {
-    mouseStrain: MouseStrainInput;
+    mouseStrain: GenotypeInput;
 }
 
 interface IInjectionVirusMutateArguments {
@@ -248,19 +240,7 @@ export const secureResolvers = {
             throw new UnauthorizedError();
         },
 
-        genotypes(_: any, args: IMouseStrainQueryArguments, context: User): Promise<MouseStrain[]> {
-            if (context.permissions & UserPermissions.ViewAll) {
-                return MouseStrain.getAll(args.input);
-            }
-
-            throw new GraphQLError("User is not authenticated", {
-                extensions: {
-                    code: "UNAUTHENTICATED",
-                    http: {status: 401},
-                },
-            });
-        },
-        genotype(_: any, args: IIdOnlyArguments, context: User): Promise<MouseStrain> {
+        genotype(_: any, args: IdArgs, context: User): Promise<MouseStrain> {
             if (context.permissions & UserPermissions.ViewAll) {
                 return MouseStrain.findByPk(args.id);
             }
@@ -285,7 +265,7 @@ export const secureResolvers = {
                 },
             });
         },
-        injectionVirus(_: any, args: IIdOnlyArguments, context: User): Promise<InjectionVirus> {
+        injectionVirus(_: any, args: IdArgs, context: User): Promise<InjectionVirus> {
             if (context.permissions & UserPermissions.ViewAll) {
                 return InjectionVirus.findByPk(args.id);
             }
@@ -310,7 +290,7 @@ export const secureResolvers = {
                 },
             });
         },
-        fluorophore(_: any, args: IIdOnlyArguments, context: User): Promise<Fluorophore> {
+        fluorophore(_: any, args: IdArgs, context: User): Promise<Fluorophore> {
             if (context.permissions & UserPermissions.ViewAll) {
                 return Fluorophore.findByPk(args.id);
             }
@@ -335,7 +315,7 @@ export const secureResolvers = {
                 },
             });
         },
-        injection(_: any, args: IIdOnlyArguments, context: User): Promise<Injection> {
+        injection(_: any, args: IdArgs, context: User): Promise<Injection> {
             if (context.permissions & UserPermissions.ViewAll) {
                 return Injection.findByPk(args.id);
             }
@@ -347,20 +327,7 @@ export const secureResolvers = {
                 },
             });
         },
-
-        samples(_: any, args: ISampleQueryArguments, context: User): Promise<EntityQueryOutput<Sample>> {
-            if (context.permissions & UserPermissions.ViewAll) {
-                return Sample.getAll(args.input);
-            }
-
-            throw new GraphQLError("User is not authenticated", {
-                extensions: {
-                    code: "UNAUTHENTICATED",
-                    http: {status: 401},
-                },
-            });
-        },
-        sample(_: any, args: IIdOnlyArguments, context: User): Promise<Sample> {
+        sample(_: any, args: IdArgs, context: User): Promise<Sample> {
             if (context.permissions & UserPermissions.ViewAll) {
                 return Sample.findByPk(args.id);
             }
@@ -385,7 +352,7 @@ export const secureResolvers = {
                 },
             });
         },
-        neuron(_: any, args: IIdOnlyArguments, context: User): Promise<Neuron> {
+        neuron(_: any, args: IdArgs, context: User): Promise<Neuron> {
             if (context.permissions & UserPermissions.ViewAll) {
                 return Neuron.findByPk(args.id);
             }
@@ -417,7 +384,7 @@ export const secureResolvers = {
             });
         },
 
-        reconstruction(_: any, args: IIdOnlyArguments, context: User): Promise<Reconstruction> {
+        reconstruction(_: any, args: IdArgs, context: User): Promise<Reconstruction> {
             if (context.permissions & UserPermissions.Edit) {
                 return Reconstruction.findByPk(args.id);
             }
@@ -624,7 +591,7 @@ export const secureResolvers = {
                 },
             });
         },
-        deleteInjection(_: any, args: IIdOnlyArguments, context: User): Promise<DeleteOutput> {
+        deleteInjection(_: any, args: IdArgs, context: User): Promise<DeleteOutput> {
             if (context.permissions & UserPermissions.Edit) {
                 return Injection.deleteFor(args.id);
             }
@@ -661,7 +628,7 @@ export const secureResolvers = {
                 },
             });
         },
-        deleteSample(_: any, args: IIdOnlyArguments, context: User): Promise<DeleteOutput> {
+        deleteSample(_: any, args: IdArgs, context: User): Promise<DeleteOutput> {
             if (context.permissions & UserPermissions.Edit) {
                 return Sample.deleteFor(args.id);
             }
@@ -698,7 +665,7 @@ export const secureResolvers = {
                 },
             });
         },
-        deleteNeuron(_: any, args: IIdOnlyArguments, context: User): Promise<DeleteOutput> {
+        deleteNeuron(_: any, args: IdArgs, context: User): Promise<DeleteOutput> {
             if (context.permissions & UserPermissions.Edit) {
                 return Neuron.deleteFor(args.id);
             }
@@ -735,7 +702,7 @@ export const secureResolvers = {
                 },
             });
         },
-        deleteCollection(_: any, args: IIdOnlyArguments, context: User): Promise<DeleteOutput> {
+        deleteCollection(_: any, args: IdArgs, context: User): Promise<DeleteOutput> {
             if (context.permissions & UserPermissions.Admin) {
                 return Collection.deleteFor(args.id);
             }
@@ -800,7 +767,7 @@ export const secureResolvers = {
             });
         },
 
-        requestReconstruction(_: any, args: IIdOnlyArguments, context: User): Promise<Neuron> {
+        requestReconstruction(_: any, args: IdArgs, context: User): Promise<Neuron> {
             if (context.permissions & UserPermissions.ViewReconstructions) {
                 return Neuron.requestAnnotation(args.id, context);
             }
@@ -813,7 +780,7 @@ export const secureResolvers = {
             });
         },
 
-        async requestReconstructionHold(_: any, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
+        async requestReconstructionHold(_: any, args: IdArgs, context: User): Promise<IErrorOutput> {
             if (await Reconstruction.isUserAnnotator(args.id, context.id)) {
                 return Reconstruction.markAnnotationOnHold(args.id);
             }
@@ -826,7 +793,7 @@ export const secureResolvers = {
             });
         },
 
-        async cancelReconstruction(_: any, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
+        async cancelReconstruction(_: any, args: IdArgs, context: User): Promise<IErrorOutput> {
             if (await Reconstruction.isUserAnnotator(args.id, context.id)) {
                 return Reconstruction.cancelAnnotation(args.id);
             }
@@ -878,7 +845,7 @@ export const secureResolvers = {
             });
         },
 
-        approveReconstructionPeerReview(_: any, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
+        approveReconstructionPeerReview(_: any, args: IdArgs, context: User): Promise<IErrorOutput> {
             if (context.permissions & UserPermissions.PeerReview) {
                 return Reconstruction.approveReconstructionPeerReview(args.id, context.id);
             }
@@ -891,7 +858,7 @@ export const secureResolvers = {
             });
         },
 
-        approveReconstruction(_: any, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
+        approveReconstruction(_: any, args: IdArgs, context: User): Promise<IErrorOutput> {
             if (context.permissions & UserPermissions.FullReview) {
                 return Reconstruction.approveAnnotation(args.id, context.id);
             }
@@ -904,7 +871,7 @@ export const secureResolvers = {
             });
         },
 
-        declineReconstruction(_: any, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
+        declineReconstruction(_: any, args: IdArgs, context: User): Promise<IErrorOutput> {
             if (context.permissions & UserPermissions.FullReview) {
                 return Reconstruction.declineAnnotation(args.id, context.id);
             }
@@ -917,7 +884,7 @@ export const secureResolvers = {
             });
         },
 
-        publishReconstruction(_: any, args: IIdOnlyArguments, context: User): Promise<IErrorOutput> {
+        publishReconstruction(_: any, args: IdArgs, context: User): Promise<IErrorOutput> {
             if (context.permissions & UserPermissions.FullReview) {
                 return Reconstruction.publishAnnotation(args.id);
             }
@@ -930,7 +897,7 @@ export const secureResolvers = {
             });
         },
 
-        async deleteReconstruction(_: any, args: IIdOnlyArguments, context: User): Promise<boolean> {
+        async deleteReconstruction(_: any, args: IdArgs, context: User): Promise<boolean> {
             if (context.permissions & UserPermissions.Admin) {
                 return await Reconstruction.deleteEntry(args.id);
             }
@@ -943,7 +910,7 @@ export const secureResolvers = {
             });
         },
 
-        async requestQualityCheck(_: any, args: IIdOnlyArguments, context: User): Promise<QualityCheckOutput> {
+        async requestQualityCheck(_: any, args: IdArgs, context: User): Promise<QualityCheckOutput> {
             if (context.permissions & UserPermissions.FullReview) {
                 return await Reconstruction.requestQualityCheck(args.id);
             }
@@ -956,7 +923,7 @@ export const secureResolvers = {
             });
         },
 
-        async unpublish(_: any, args: IIdOnlyArguments, context: User): Promise<boolean> {
+        async unpublish(_: any, args: IdArgs, context: User): Promise<boolean> {
             if (context.permissions & UserPermissions.Admin) {
                 // id can be a reconstruction id or a neuron id.
                 const wasValidReconstruction = await Reconstruction.unpublish(args.id);

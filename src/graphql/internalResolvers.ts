@@ -1,6 +1,6 @@
 import {User, UserPermissions} from "../models/user";
 import {Precomputed} from "../models/precomputed";
-import {IIdOnlyArguments} from "./openResolvers";
+import {IdArgs} from "./openResolvers";
 import {Reconstruction, ReconstructionDataJSON, ReconstructionDataChunked} from "../models/reconstruction";
 import {GraphQLError} from "graphql/error";
 import {Neuron} from "../models/neuron";
@@ -29,7 +29,7 @@ interface IReconstructionDataChunkedArguments {
  */
 export const internalResolvers = {
     Query: {
-        reconstructionData(_: any, args: IIdOnlyArguments, context: User): Promise<string> {
+        reconstructionData(_: any, args: IdArgs, context: User): Promise<string> {
             if (context.permissions == InternalPermission) {
                 return Reconstruction.getAsData(args.id);
             }
@@ -41,7 +41,7 @@ export const internalResolvers = {
                 },
             });
         },
-        reconstructionDataJSON(_: any, args: IIdOnlyArguments, context: User): Promise<ReconstructionDataJSON | null> {
+        reconstructionDataJSON(_: any, args: IdArgs, context: User): Promise<ReconstructionDataJSON | null> {
             if (context.permissions == InternalPermission) {
                 return Reconstruction.getAsJSON(args.id);
             }
@@ -65,7 +65,7 @@ export const internalResolvers = {
                 },
             });
         },
-        neuronReconstructionData(_: any, args: IIdOnlyArguments, context: User): Promise<string> {
+        neuronReconstructionData(_: any, args: IdArgs, context: User): Promise<string> {
             if (context.permissions == InternalPermission) {
                 return Neuron.getReconstructionData(args.id);
             }
