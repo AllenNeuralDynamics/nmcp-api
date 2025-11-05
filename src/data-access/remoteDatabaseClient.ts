@@ -2,22 +2,21 @@ import * as path from "path";
 import * as fs from "fs";
 import {Sequelize, QueryInterface, Options} from "sequelize";
 
-const debug = require("debug")("mnb:nmcp-api:database-connector");
+const debug = require("debug")("nmcp:nmcp-api:database-connector");
 
 import {SequelizeOptions} from "../options/coreServicesOptions";
 import {ServiceOptions} from "../options/serviceOptions";
-import {AtlasStructure, IAtlasStructure} from "../models/atlasStructure";
-import {MouseStrain} from "../models/mouseStrain";
-import {Sample} from "../models/sample";
-import {Neuron} from "../models/neuron";
-import {StructureIdentifier} from "../models/structureIdentifier";
-import {TracingStructure} from "../models/tracingStructure";
-import {Reconstruction} from "../models/reconstruction";
-import {NeuronTableName, SpecimenTableName} from "../models/tableNames";
+import {AtlasStructure, AtlasStructureShape} from "../models/atlasStructure";
+import {NodeStructure} from "../models/nodeStructure";
+import {NeuronStructure} from "../models/neuronStructure";
+import {AtlasReconstruction} from "../models/atlasReconstruction";
+import {AtlasKind, AtlasKindShape} from "../models/atlasKind";
+import {Atlas, AtlasShape} from "../models/atlas";
+import {User} from "../models/user";
 
 export class RemoteDatabaseClient {
-    public static async Start(prepareSearchContents = false, enableLog: boolean = false, options: Options = SequelizeOptions): Promise<RemoteDatabaseClient> {
-        const client = new RemoteDatabaseClient(options);
+    public static async Start(prepareSearchContents = false, enableLog: boolean = false): Promise<RemoteDatabaseClient> {
+        const client = new RemoteDatabaseClient(SequelizeOptions);
         await client.start(prepareSearchContents, enableLog);
         return client;
     }
@@ -35,19 +34,24 @@ export class RemoteDatabaseClient {
 
         this.createConnection(this._options);
 
+        const models = this.loadModels();
+
         await this.authenticate("nmcp");
 
-        if (prepareSearchContents) {
-            await this.seedIfRequired();
+        // Special case due to some portions of seeding wanting to attribute creation to the system internal user.
+        await User.loadCache();
 
+        await this.seedIfRequired();
+
+        await this.prepareRequiredConstants(models);
+
+        if (prepareSearchContents) {
             await this.prepareSearchContents();
         }
     }
 
-    private createConnection(options: Options) {
+    private createConnection(options: Options): void {
         this._connection = new Sequelize(options.database, options.username, options.password, options);
-
-        this.loadModels(path.normalize(path.join(__dirname, "..", "models")));
     }
 
     private async authenticate(name: string) {
@@ -68,25 +72,32 @@ export class RemoteDatabaseClient {
         }
     }
 
-    private loadModels(modelLocation: string) {
-        const modules = [];
+    private loadModels(): any[] {
+        const location = path.normalize(path.join(__dirname, "..", "models"))
 
-        fs.readdirSync(modelLocation).filter(file => {
-            return (file.indexOf(".") !== 0) && (file.slice(-3) === ".js");
-        }).forEach(file => {
-            let modelModule = require(path.join(modelLocation, file.slice(0, -3)));
+        const modules: any[] = fs.readdirSync(location).filter(f => f.endsWith(".js")).map(f => require(path.join(location, f.slice(0, -3))));
 
-            if (modelModule.modelInit != null) {
-                modelModule.modelInit(this._connection);
-                modules.push(modelModule);
+        const models = modules.filter(m => m.modelInit).map(m => m.modelInit(this._connection));
+
+        for (const model of modules) {
+            if (model.modelAssociate != null) {
+                model.modelAssociate();
             }
-        });
+        }
 
-        modules.forEach(modelModule => {
-            if (modelModule.modelAssociate != null) {
-                modelModule.modelAssociate();
-            }
-        });
+        return models;
+    }
+
+    private async prepareRequiredConstants(models: any[]): Promise<void> {
+        this.log("preparing required constants");
+
+        for (const model of models) {
+            await model.loadCache();
+        }
+    }
+
+    private async prepareSearchContents() {
+        this.log("preparing search contents");
     }
 
     private async seedIfRequired() {
@@ -97,98 +108,50 @@ export class RemoteDatabaseClient {
         try {
             let count = await AtlasStructure.count();
 
-            if (count < 1327) {
-                this.log("seeding brain structures");
+            if (count == 0) {
+                this.log("seeding atlas");
 
-                const chunkSize = 250;
+                const [atlasKindInfo, atlasInfo, structures] = loadAtlasStructures(when);
 
-                const allExisting = (await AtlasStructure.findAll({attributes: ["id"]}));
-                const allExistingId = allExisting.map(b => b.id);
+                await AtlasStructure.sequelize.transaction(async (t) => {
+                    const atlasKind = await AtlasKind.createForShape(atlasKindInfo, User.SystemInternalUser, t);
 
-                const items = loadBrainStructures(when);
+                    const atlas = await Atlas.createForShape({...atlasInfo, atlasKindId: atlasKind.id}, User.SystemInternalUser, t);
 
-                const existing = items.filter(i => allExistingId.includes(i.id));
-                const newItems = items.filter(i => !allExistingId.includes(i.id));
+                    const atlasStructures = structures.map(s => ({...s, atlasId: atlas.id}));
 
-                const updates = existing.map(item => {
-                    const o = allExisting.find(e => e.id == item.id);
-                    return o.update(item);
+                    const chunkSize = 500;
+
+                    for (let idx = 0; idx < atlasStructures.length; idx += chunkSize) {
+                        await AtlasStructure.bulkCreate(atlasStructures.slice(idx, idx + chunkSize), {transaction: t});
+                    }
                 });
-
-                await Promise.all(updates);
-
-                while (newItems.length > chunkSize) {
-                    const chunk = newItems.splice(0, chunkSize);
-                    await queryInterface.bulkInsert("BrainStructure", chunk, {});
-                }
-
-                if (newItems.length > 0) {
-                    await queryInterface.bulkInsert("BrainStructure", newItems, {});
-                }
             } else {
-                this.log("skipping brain structure seed");
+                this.log("skipping atlas seed");
             }
 
-            count = await MouseStrain.count();
+            count = await NodeStructure.count();
+
             if (count == 0) {
-                this.log("seeding mouse strains");
-                await queryInterface.bulkInsert("Genotype", loadMouseStrains(when), {});
+                this.log("seeding node structures");
+                await NodeStructure.bulkCreate(loadNodeStructures(when), {});
             } else {
-                this.log("skipping mouse strain seed");
+                this.log("skipping node structures seed");
             }
 
-            count = await StructureIdentifier.count();
+            count = await NeuronStructure.count();
+
             if (count == 0) {
-                this.log("seeding structure identifiers");
-                await queryInterface.bulkInsert("StructureIdentifier", loadStructureIdentifiers(when), {});
+                this.log("seeding neuron structures");
+                await NeuronStructure.bulkCreate(loadNeuronStructures(when), {});
             } else {
-                this.log("skipping structure identifier seed");
-            }
-
-            count = await TracingStructure.count();
-            if (count == 0) {
-                this.log("seeding tracing structures");
-                await queryInterface.bulkInsert("TracingStructure", loadTracingStructures(when), {});
-            } else {
-                this.log("skipping structure seed");
-            }
-
-            if (ServiceOptions.seedUserItems) {
-                this.log("seeding user-defined items");
-
-                count = await Sample.count();
-
-                if (count == 0) {
-                    this.log("seeding samples");
-                    await queryInterface.bulkInsert(SpecimenTableName, loadSamples(when), {});
-                } else {
-                    this.log("skipping sample seed");
-                }
-
-                count = await Neuron.count();
-
-                if (count == 0) {
-                    this.log("seeding neurons");
-                    await queryInterface.bulkInsert(NeuronTableName, loadNeurons(when), {});
-                } else {
-                    this.log("skipping neuron seed");
-                }
+                this.log("skipping neuron seed");
             }
         } catch (err) {
             this.log(err);
         }
 
         this.log("seed complete");
-    }
-
-    private async prepareSearchContents() {
-        this.log(`preparing search contents`);
-
-        await AtlasStructure.loadCompartmentCache("search contents preparation");
-
-        await Neuron.loadNeuronCache();
-
-        await Reconstruction.loadReconstructionCache();
     }
 
     private log(message: any) {
@@ -198,91 +161,67 @@ export class RemoteDatabaseClient {
     }
 }
 
-function loadBrainStructures(when: Date): IAtlasStructure[] {
-    const fixtureDataPath = path.join(ServiceOptions.fixturePath, "brainStructures.json");
+function loadAtlasStructures(when: Date): [AtlasKindShape, AtlasShape, AtlasStructureShape[]] {
+    const fixtureDataPath = path.join(ServiceOptions.fixturePath, "ccfv3Atlas.json");
+
+    const fileData = fs.readFileSync(fixtureDataPath, {encoding: "UTF-8"});
+
+    const atlasInfo = JSON.parse(fileData);
+
+    const atlasKind: AtlasKindShape = {
+        kind: atlasInfo.atlasKind.kind,
+        family: atlasInfo.atlasKind.family,
+        name: atlasInfo.atlasKind.name,
+        description: atlasInfo.atlasKind.description
+    }
+
+    const atlas: AtlasShape = {
+        name: atlasInfo.atlas.name,
+        description: atlasInfo.atlas.description,
+        reference: atlasInfo.atlas.reference,
+        geometryUrl: atlasInfo.atlas.geometryUrl,
+        rootStructureId: atlasInfo.atlas.rootStructureId,
+        spatialUrl: ServiceOptions.ccfv30OntologyPath
+    }
+
+    const structures = atlasInfo.atlas.structures.map((n: any) => {
+        const s = {...n};
+
+        delete s.id;
+        s.updatedAt = null;
+        s.createdAt = when;
+
+        return s;
+    });
+
+    return [atlasKind, atlas, structures];
+}
+
+function loadNodeStructures(when: Date) {
+    const fixtureDataPath = path.join(ServiceOptions.fixturePath, "nodeStructures.json");
 
     const fileData = fs.readFileSync(fixtureDataPath, {encoding: "UTF-8"});
 
     const areas = JSON.parse(fileData);
 
-    return areas.map(a => {
-        a.updatedAt = when;
-        a.createdAt = a.createdAt ?? when;
+    return areas.map((a: any) => {
+        a.updatedAt = null;
+        a.createdAt = when;
 
         return a;
     });
 }
 
-function loadMouseStrains(when: Date) {
-    const fixtureDataPath = path.join(ServiceOptions.fixturePath, "genotypes.json");
+function loadNeuronStructures(when: Date) {
+    const fixtureDataPath = path.join(ServiceOptions.fixturePath, "neuronStructures.json");
 
     const fileData = fs.readFileSync(fixtureDataPath, {encoding: "UTF-8"});
 
     const areas = JSON.parse(fileData);
 
-    return areas.map(a => {
-        a.updatedAt = when;
-        a.createdAt = a.createdAt ?? when;
-
-        return a;
-    });
-}
-
-function loadStructureIdentifiers(when: Date) {
-    const fixtureDataPath = path.join(ServiceOptions.fixturePath, "structureIdentifiers.json");
-
-    const fileData = fs.readFileSync(fixtureDataPath, {encoding: "UTF-8"});
-
-    const areas = JSON.parse(fileData);
-
-    return areas.map(a => {
-        a.updatedAt = when;
-        a.createdAt = a.createdAt ?? when;
-
-        return a;
-    });
-}
-
-function loadTracingStructures(when: Date) {
-    const fixtureDataPath = path.join(ServiceOptions.fixturePath, "tracingStructures.json");
-
-    const fileData = fs.readFileSync(fixtureDataPath, {encoding: "UTF-8"});
-
-    const areas = JSON.parse(fileData);
-
-    return areas.map(a => {
-        a.updatedAt = when;
-        a.createdAt = a.createdAt ?? when;
-
-        return a;
-    });
-}
-
-function loadSamples(when: Date) {
-    const fixtureDataPath = path.join(ServiceOptions.fixturePath, "samples.json");
-
-    const fileData = fs.readFileSync(fixtureDataPath, {encoding: "UTF-8"});
-
-    const areas = JSON.parse(fileData);
-
-    return areas.map(a => {
-        a.updatedAt = when;
-        a.createdAt = a.createdAt ?? when;
-
-        return a;
-    });
-}
-
-function loadNeurons(when: Date) {
-    const fixtureDataPath = path.join(ServiceOptions.fixturePath, "neurons.json");
-
-    const fileData = fs.readFileSync(fixtureDataPath, {encoding: "UTF-8"});
-
-    const areas = JSON.parse(fileData);
-
-    return areas.map(a => {
-        a.updatedAt = when;
-        a.createdAt = a.createdAt ?? when;
+    return areas.map((a: any) => {
+        a.updatedAt = null;
+        a.createdAt = when;
 
         return a;
     });

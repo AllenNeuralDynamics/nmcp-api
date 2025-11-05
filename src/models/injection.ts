@@ -1,289 +1,205 @@
-import {BelongsToGetAssociationMixin, DataTypes, FindOptions, HasManyGetAssociationsMixin, Sequelize} from "sequelize";
+import {BelongsToGetAssociationMixin, DataTypes, Sequelize} from "sequelize";
 
-import {
-    BaseModel,
-    DeleteOutput,
-    EntityCount,
-    EntityCountOutput, EntityMutateOutput,
-    EntityQueryInput,
-    RawEntityCount
-} from "./baseModel";
+import {InjectionTableName} from "./tableNames";
+import {BaseModel} from "./baseModel";
+import {optionsWhereSpecimenIds, WithSpecimensQueryInput} from "./findOptions";
+import {Specimen} from "./specimen";
 import {AtlasStructure} from "./atlasStructure";
-import {Sample} from "./sample";
 import {InjectionVirus} from "./injectionVirus";
 import {Fluorophore} from "./fluorophore";
-import {Neuron} from "./neuron";
-import {
-    optionsIncludeNeuronIds,
-    optionsWhereCompartmentIds,
-    optionsWhereFluorophoreIds,
-    optionsWhereIds, optionsWhereInjectionIds,
-    optionsWhereInjectionVirusIds,
-    optionsWhereSampleIds,
-    WithCompartmentQueryInput,
-    WithFluorophoreQueryInput,
-    WithInjectionVirusQueryInput,
-    WithNeuronsQueryInput,
-    WithSamplesQueryInput
-} from "./findOptions";
+import {User} from "./user";
+import {UnauthorizedError} from "../graphql/secureResolvers";
+import {EventLogItemKind, recordEvent} from "./eventLogItem";
+import {isNullOrEmpty} from "../util/objectUtil";
 
-export type InjectionQueryInput =
-    EntityQueryInput
-    & WithNeuronsQueryInput
-    & WithSamplesQueryInput
-    & WithFluorophoreQueryInput
-    & WithInjectionVirusQueryInput
-    & WithCompartmentQueryInput;
+export type InjectionQueryInput = WithSpecimensQueryInput;
 
-export interface InjectionInput {
+export type InjectionShape = {
     id?: string;
-    brainAreaId?: string;
+    specimenId?: string;
+    atlasStructureId?: string;
     injectionVirusId?: string;
     injectionVirusName?: string;
     fluorophoreId?: string;
     fluorophoreName?: string;
-    sampleId?: string;
 }
 
 export class Injection extends BaseModel {
-    public getSample!: BelongsToGetAssociationMixin<Sample>;
-    public getBrainArea!: BelongsToGetAssociationMixin<AtlasStructure>;
+    public specimenId: string;
+    public atlasStructureId: string;
+
+    public getSpecimen!: BelongsToGetAssociationMixin<Specimen>;
+    public getAtlasStructure!: BelongsToGetAssociationMixin<AtlasStructure>;
     public getInjectionVirus!: BelongsToGetAssociationMixin<InjectionVirus>;
     public getFluorophore!: BelongsToGetAssociationMixin<Fluorophore>;
-    public getNeurons!: HasManyGetAssociationsMixin<Neuron>;
 
-    public readonly sample?: Sample;
-    public readonly injectionVirus?: InjectionVirus;
-    public readonly fluorophore?: Fluorophore;
-
-    public static async findId(id: string): Promise<string> {
-        return Injection.findIdWithValidationInternal(Injection, id);
-    }
+    public readonly Specimen?: Specimen;
+    public readonly InjectionVirus?: InjectionVirus;
+    public readonly Fluorophore?: Fluorophore;
 
     public static async getAll(input: InjectionQueryInput): Promise<Injection[]> {
-        let options: FindOptions = optionsWhereIds(input, {where: null, include: []});
-
-        options = optionsIncludeNeuronIds(input, options);
-        options = optionsWhereSampleIds(input, options);
-        options = optionsWhereInjectionVirusIds(input, options);
-        options = optionsWhereFluorophoreIds(input, options);
-        options = optionsWhereCompartmentIds(input, options);
-
-        await this.setSortAndLimiting(options, input);
+        const options = optionsWhereSpecimenIds(input, {where: null, include: []});
 
         return Injection.findAll(options);
     }
 
     /**
-     * A given sample can have one injection per brain area/compartment.
-     * @param injectionInput
-     * @returns {Promise<Injection>}
+     * A given specimen can have one injection per atlas structure.
      */
-    public static async findDuplicate(injectionInput: InjectionInput): Promise<Injection> {
-        if (!injectionInput || !injectionInput.sampleId || !injectionInput.brainAreaId) {
+    private static async findDuplicate(specimenId: string, atlasStructureId: string): Promise<Injection> {
+        return Injection.findOne({
+            where: {
+                specimenId: specimenId,
+                atlasStructureId: atlasStructureId
+            }
+        });
+    }
+
+    private async findInstanceDuplicate(specimenId: string, atlasStructureId: string): Promise<Injection> {
+        return Injection.findDuplicate(specimenId ?? this.specimenId, atlasStructureId ?? this.atlasStructureId);
+    }
+
+    public static async createForShape(user: User, shape: InjectionShape): Promise<Injection> {
+        const duplicate = await this.findDuplicate(shape.specimenId, shape.atlasStructureId);
+
+        if (duplicate) {
+            throw new Error("This specimen already contains an injection in this atlas structure.");
+        }
+
+        return await this.sequelize.transaction(async (t) => {
+            if (shape.injectionVirusName) {
+                const out = await InjectionVirus.findOrCreateFromName(user, shape.injectionVirusName, shape.specimenId, t);
+                shape.injectionVirusId = out.id;
+            } else {
+                throw new Error("Injection virus is a required input.");
+            }
+
+            if (shape.fluorophoreName) {
+                const out = await Fluorophore.findOrCreateFromName(user, shape.fluorophoreName, shape.specimenId, t);
+                shape.fluorophoreId = out.id;
+            } else {
+                throw new Error("Fluorophore virus is a required input.");
+            }
+
+            const injection = await Injection.create(shape, {transaction: t});
+
+            await recordEvent({
+                kind: EventLogItemKind.InjectionCreate,
+                targetId: injection.id,
+                parentId: shape.specimenId,
+                details: shape,
+                userId: user.id
+            }, t);
+
+            return injection;
+        });
+    }
+
+    public async updateForShape(user: User, shape: InjectionShape): Promise<Injection> {
+        const duplicate = await this.findInstanceDuplicate(shape.specimenId, shape.atlasStructureId);
+
+        if (duplicate && duplicate.id !== shape.id) {
+            throw new Error("This specimen already contains an injection in this atlas structure.");
+        }
+
+        return await this.sequelize.transaction(async (t) => {
+            if (shape.injectionVirusName) {
+                const out = await InjectionVirus.findOrCreateFromName(user, shape.injectionVirusName, this.specimenId, t);
+                shape.injectionVirusId = out.id;
+            }
+
+            if (shape.fluorophoreName) {
+                const out = await Fluorophore.findOrCreateFromName(user, shape.fluorophoreName, this.specimenId, t);
+                shape.fluorophoreId = out.id;
+            }
+
+            const injection = await this.update(shape, {transaction: t});
+
+            await recordEvent({
+                kind: EventLogItemKind.InjectionUpdate,
+                targetId: injection.id,
+                parentId: injection.specimenId,
+                details: shape,
+                userId: user.id
+            }, t);
+
+            return injection;
+        });
+    }
+
+    public static async createOrUpdateForShape(user: User, shape: InjectionShape, allowCreate: boolean): Promise<Injection> {
+        if (!user?.canEditSpecimens()) {
+            throw new UnauthorizedError();
+        }
+
+        // Undefined is ok (i.e., no update), null/empty is not allowed
+        if (isNullOrEmpty(shape.specimenId)) {
+            throw new Error("Specimen id must be a valid specimen.");
+        }
+
+        // Undefined is ok (i.e., no update), null/empty is not allowed
+        if (isNullOrEmpty(shape.atlasStructureId)) {
+            throw new Error("Atlas structure id must be a valid structure.");
+        }
+
+        let injection: Injection;
+
+        if (shape.id) {
+            injection = await Injection.findByPk(shape.id);
+        }
+
+        if (!injection) {
+            if (allowCreate) {
+                return this.createForShape(user, shape);
+            }
             return null;
         }
 
-        return Injection.findOne({
-            where: {
-                sampleId: injectionInput.sampleId,
-                brainAreaId: injectionInput.brainAreaId
-            }
-        });
+        return injection.updateForShape(user, shape);
+
     }
 
-    public static async createWith(injectionInput: InjectionInput): Promise<EntityMutateOutput<Injection>> {
-        try {
-            if (!injectionInput) {
-                return {source: null, error: "Injection properties are a required input"};
-            }
-
-            if (!injectionInput.sampleId) {
-                return {source: null, error: "Sample is a required input"};
-            }
-
-            if (!injectionInput.brainAreaId) {
-                return {source: null, error: "Brain area is a required input"};
-            }
-
-            let injectionVirusId = null;
-
-            if (injectionInput.injectionVirusName) {
-                const out = await InjectionVirus.findOrCreateFromInput({
-                    name: injectionInput.injectionVirusName
-                });
-
-                injectionVirusId = out.id;
-            } else {
-                injectionVirusId = injectionInput.injectionVirusId;
-            }
-
-            if (!injectionVirusId) {
-                return {source: null, error: "Injection virus is a required input"};
-            }
-
-            let fluorophoreId = null;
-
-            if (injectionInput.fluorophoreName) {
-                const out = await Fluorophore.findOrCreateFromInput({
-                    name: injectionInput.fluorophoreName
-                });
-
-                fluorophoreId = out.id;
-            } else {
-                fluorophoreId = injectionInput.fluorophoreId;
-            }
-
-            if (!fluorophoreId) {
-                return {source: null, error: "Fluorophore is a required input"};
-            }
-
-            const injection = await Injection.create({
-                sampleId: injectionInput.sampleId,
-                brainAreaId: injectionInput.brainAreaId,
-                injectionVirusId: injectionVirusId,
-                fluorophoreId: fluorophoreId
-            });
-
-            return {source: injection, error: null};
-        } catch (error) {
-            return {source: null, error: error.message};
+    public static async deleteByPk(user: User, id: string): Promise<string> {
+        if (!user?.canEditSpecimens()) {
+            throw new UnauthorizedError();
         }
-    }
 
-    public static async updateWith(injectionInput: InjectionInput): Promise<EntityMutateOutput<Injection>> {
-        try {
-            if (!injectionInput) {
-                return {source: null, error: "Injection properties are a required input"};
-            }
-
-            if (!injectionInput.id) {
-                return {source: null, error: "Injection input must contain the id of the object to update"};
-            }
-
-            let row = await Injection.findByPk(injectionInput.id);
-
-            if (!row) {
-                return {source: null, error: "The injection could not be found"};
-            }
-
-            // Undefined is ok (i.e., no update), null/empty is not allowed
-            if (this.isNullOrEmpty(injectionInput.sampleId)) {
-                return {source: null, error: "Sample id must be a valid sample"};
-            }
-
-            if (this.isNullOrEmpty(injectionInput.brainAreaId)) {
-                return {source: null, error: "Brain compartment id must be a valid sample"};
-            }
-
-            if (this.isNullOrEmpty(injectionInput.injectionVirusId)) {
-                return {source: null, error: "Injection virus id must be a valid sample"};
-            }
-
-            if (this.isNullOrEmpty(injectionInput.fluorophoreId)) {
-                return {source: null, error: "Fluorophore id must be a valid sample"};
-            }
-
-            const merged = Object.assign(row, injectionInput);
-
-            const duplicate = await Injection.findDuplicate(merged);
-
-            if (duplicate && duplicate.id !== injectionInput.id) {
-                return {source: null, error: `This sample already contains an injection in this brain compartment`};
-            }
-
-            if (injectionInput.injectionVirusName) {
-                const out = await InjectionVirus.findOrCreateFromInput({
-                    name: injectionInput.injectionVirusName
-                });
-
-                injectionInput.injectionVirusId = out.id;
-            }
-
-            if (injectionInput.fluorophoreName) {
-                const out = await Fluorophore.findOrCreateFromInput({
-                    name: injectionInput.fluorophoreName
-                });
-
-                injectionInput.fluorophoreId = out.id;
-            }
-
-            const injection = await row.update(injectionInput);
-
-            return {source: injection, error: null};
-        } catch (error) {
-            return {source: null, error: error.message};
+        if (!id || id.length === 0) {
+            throw new Error("Injection id is a required argument");
         }
-    }
 
-    public static async deleteFor(id: string): Promise<DeleteOutput> {
-        try {
-            if (!id || id.length === 0) {
-                return {id, error: "id is a required input"};
-            }
-
+        return await Injection.sequelize.transaction(async (t) => {
+            const injection = await Injection.findByPk(id, {attributes: ["id", "specimenId"]});
             const count = await Injection.destroy({where: {id}});
 
             if (count > 0) {
-                return {id, error: null}
+                await recordEvent({
+                    kind: EventLogItemKind.InjectionDelete,
+                    targetId: id,
+                    parentId: injection?.specimenId ?? null,
+                    userId: user.id
+                }, t);
+
+                return id;
             }
 
-            return {id, error: "The injection could not be found."};
-        } catch (error) {
-            return {id, error: error.message};
-        }
-    }
+            await t.rollback();
 
-    public static async rawNeuronCountsPerInjection(injectionIds: string[]): Promise<[RawEntityCount, EntityCount[]]> {
-        let options: FindOptions = {
-            attributes: ["injectionId", [Sequelize.fn("COUNT", "injectionId"), "injectionCount"]],
-            group: ["injectionId"]
-        };
-
-        if (injectionIds && injectionIds.length > 0) {
-            options = optionsWhereInjectionIds({injectionIds}, options);
-        }
-
-        const neurons = await Neuron.findAll(options);
-
-        const rawCounts = new Map<string, number>();
-        const entityCounts: EntityCount[] = [];
-
-        neurons.map((n: any) => {
-            rawCounts.set(n.injectionId, parseInt(n.dataValues.injectionCount));
-            entityCounts.push({id: n.injectionId, count: n.dataValues.injectionCount});
+            throw new Error(`The injection could not be removed.  Verify ${id} is a valid injection id.`);
         });
-
-        return [rawCounts, entityCounts];
-    }
-
-    public static async neuronCountPerInjection(ids: string[]): Promise<EntityCountOutput> {
-        try {
-            const [, counts] = await this.rawNeuronCountsPerInjection(ids);
-
-            return {
-                counts,
-                error: null
-            };
-        } catch (err) {
-            return {
-                counts: [],
-                error: err
-            }
-        }
     }
 }
 
 // noinspection JSUnusedGlobalSymbols
 export const modelInit = (sequelize: Sequelize) => {
-    Injection.init({
+    return Injection.init({
         id: {
             primaryKey: true,
             type: DataTypes.UUID,
-            defaultValue: DataTypes.UUIDV4
+            defaultValue: Sequelize.literal("uuidv7()")
         }
     }, {
-        tableName: "Injection",
+        tableName: InjectionTableName,
         timestamps: true,
         paranoid: true,
         sequelize
@@ -292,8 +208,8 @@ export const modelInit = (sequelize: Sequelize) => {
 
 // noinspection JSUnusedGlobalSymbols
 export const modelAssociate = () => {
-    Injection.belongsTo(Sample, {foreignKey: "sampleId"});
-    Injection.belongsTo(AtlasStructure, {foreignKey: "brainAreaId", as: "BrainArea"});
+    Injection.belongsTo(Specimen, {foreignKey: "specimenId"});
+    Injection.belongsTo(AtlasStructure, {foreignKey: "atlasStructureId", as: "AtlasStructure"});
     Injection.belongsTo(InjectionVirus, {foreignKey: "injectionVirusId"});
     Injection.belongsTo(Fluorophore, {foreignKey: "fluorophoreId"});
 };

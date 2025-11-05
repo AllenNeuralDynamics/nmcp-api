@@ -1,16 +1,15 @@
 export enum ReconstructionStatus {
-    Unknown = 0,
-    InProgress = 1,
-    OnHold = 2,
-    InReview = 3,
-    InPeerReview = 4,
-    Approved = 5,
-    ApprovedAndReady = 6,
-    Rejected = 7,
-    PendingStructureAssignment = 10,
-    PendingSearchContents = 11,
-    PendingPrecomputed = 12,
-    Published = 20,
-    Archived = 30,
-    Invalid = 99
+    Initialized = 0,
+    InProgress = 100,
+    OnHold = 200,
+    PeerReview = 300,
+    PublishReview = 400,
+    Approved = 500,                         // Approved, but can not run quality checks, node assignment, etc. for some reason
+    WaitingForAtlasReconstruction = 600,    // In the process of running quality checks, node assignment, etc.
+    ReadyToPublish = 700,                   // Completed running quality checks, node assignment, etc.  Ready to publish.
+    Rejected = 800,
+    Publishing = 900,                       // In the process of search indexing, etc.
+    Published = 1000,
+    Archived = 5000,
+    Discarded = 10000
 }

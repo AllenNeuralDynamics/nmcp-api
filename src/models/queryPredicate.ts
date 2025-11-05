@@ -2,7 +2,8 @@ import {FindOptions, Op} from "sequelize";
 
 import {AtlasStructure} from "./atlasStructure";
 import {operatorIdValueMap} from "./queryOperator";
-import {StructureIdentifier} from "./structureIdentifier";
+import {NodeStructure} from "./nodeStructure";
+import {Atlas} from "./atlas";
 
 const debug = require("debug")("mnb:search-api:query-predicate");
 
@@ -110,10 +111,11 @@ export class QueryPredicate implements IQueryPredicate {
 
                 // Zero means any, two is explicitly both types - either way, do not need to filter on structure id
                 if (this.tracingStructureIds?.length === 1) {
-                    findOptions.where["tracingStructureId"] = this.tracingStructureIds[0];
+                    findOptions.where["neuronStructureId"] = this.tracingStructureIds[0];
                 }
 
-                const wholeBrainId = AtlasStructure.wholeBrainId();
+                // TODO Atlas which atlas should not be hard-coded.
+                const wholeBrainId = Atlas.defaultAtlas.wholeBrainId();
 
                 // Asking for "Whole Brain" should not eliminate nodes (particularly soma) that are outside the ontology
                 // atlas.  It should be interpreted as an "all" request.  This also helps performance in that there isn't
@@ -122,11 +124,12 @@ export class QueryPredicate implements IQueryPredicate {
 
                 if (applicableCompartments?.length > 0) {
                     // Find all brain areas that are these or children of in terms of structure path.
-                    const comprehensiveBrainAreas = applicableCompartments.map(id => AtlasStructure.getComprehensiveBrainArea(id)).reduce((prev, curr) => {
+                    // TODO Atlas which atlas should not be hard-coded.
+                    const comprehensiveBrainAreas = applicableCompartments.map(id => Atlas.defaultAtlas.getComprehensiveBrainArea(id)).reduce((prev, curr) => {
                         return prev.concat(curr);
                     }, []);
 
-                    findOptions.where["brainAreaId"] = {
+                    findOptions.where["atlasStructureId"] = {
                         [Op.in]: comprehensiveBrainAreas
                     };
                 }
@@ -141,12 +144,12 @@ export class QueryPredicate implements IQueryPredicate {
                     where = {
                         [Op.or]: [
                             {
-                                neuronIdString: {
+                                neuronLabel: {
                                     [Op.in]: this.tracingIdsOrDOIs
                                 }
                             },
                             {
-                                neuronDOI: {
+                                doi: {
                                     [Op.in]: this.tracingIdsOrDOIs
                                 }
                             }
@@ -157,12 +160,12 @@ export class QueryPredicate implements IQueryPredicate {
                         where = {
                             [Op.or]: [
                                 {
-                                    neuronIdString: {
+                                    neuronLabel: {
                                         [Op.iLike]: `%${this.tracingIdsOrDOIs[0]}%`
                                     }
                                 },
                                 {
-                                    neuronDOI: {
+                                    doi: {
                                         [Op.iLike]: `%${this.tracingIdsOrDOIs[0]}%`
                                     }
                                 }
@@ -173,12 +176,12 @@ export class QueryPredicate implements IQueryPredicate {
                             return {
                                 [Op.or]: [
                                     {
-                                        neuronIdString: {
+                                        neuronLabel: {
                                             [Op.iLike]: `%${id}%`
                                         }
                                     },
                                     {
-                                        neuronDOI: {
+                                        doi: {
                                             [Op.iLike]: `%${id}%`
                                         }
                                     }
@@ -217,7 +220,7 @@ export class QueryPredicate implements IQueryPredicate {
             if (opCode) {
                 if (this.nodeStructureIds?.length > 1) {
                     let subQ = this.nodeStructureIds.map(s => {
-                        const columnName = StructureIdentifier.countColumnName(s);
+                        const columnName = NodeStructure.countColumnName(s);
 
                         if (columnName) {
                             let obj = {};
@@ -236,7 +239,7 @@ export class QueryPredicate implements IQueryPredicate {
                         findOptions.where[Op.or] = subQ;
                     }
                 } else if (this.nodeStructureIds?.length > 0) {
-                    const columnName = StructureIdentifier.countColumnName(this.nodeStructureIds[0]);
+                    const columnName = NodeStructure.countColumnName(this.nodeStructureIds[0]);
 
                     if (columnName) {
                         findOptions.where[columnName] = createOperator(opCode, amount);

@@ -1,6 +1,7 @@
 import {BaseModel} from "./baseModel";
 import {DataTypes, BelongsToGetAssociationMixin, Sequelize} from "sequelize";
 import {User} from "./user";
+import {ApiKeyTableName} from "./tableNames";
 
 export class ApiKey extends BaseModel {
     public permissions: number;
@@ -35,12 +36,13 @@ export class ApiKey extends BaseModel {
     }
 }
 
+// noinspection JSUnusedGlobalSymbols
 export const modelInit = (sequelize: Sequelize) => {
-    ApiKey.init({
+    return ApiKey.init({
         id: {
             primaryKey: true,
             type: DataTypes.UUID,
-            defaultValue: DataTypes.UUIDV4
+            defaultValue: Sequelize.literal("uuidv7()")
         },
         permissions: {
             type: DataTypes.INTEGER,
@@ -57,13 +59,14 @@ export const modelInit = (sequelize: Sequelize) => {
             allowNull: true
         }
     }, {
-        tableName: "ApiKey",
+        tableName: ApiKeyTableName,
         timestamps: true,
         paranoid: true,
         sequelize
     });
 };
 
+// noinspection JSUnusedGlobalSymbols
 export const modelAssociate = () => {
-    ApiKey.belongsTo(User, {foreignKey: "userId", as: "User"});
+    ApiKey.belongsTo(User, {foreignKey: "userId"});
 };

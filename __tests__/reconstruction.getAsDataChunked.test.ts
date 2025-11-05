@@ -1,6 +1,6 @@
 /// <reference types="jest" />
 
-import { Reconstruction, ReconstructionDataChunked } from "../src/models/reconstruction";
+import { AtlasReconstruction, PortalJsonReconstruction } from "../src/models/atlasReconstruction";
 import { Tracing } from "../src/models/tracing";
 import { TracingNode } from "../src/models/tracingNode";
 import { AtlasStructure } from "../src/models/atlasStructure";
@@ -22,7 +22,7 @@ describe("Reconstruction.getAsDataChunked", () => {
             const axonTracing = { id: "axon-id", tracingStructureId: "68e76074-1777-42b6-bbf9-93a6a5f02fa4" };
             const dendriteTracing = { id: "dendrite-id", tracingStructureId: "other-id" };
 
-            jest.spyOn(Reconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
+            jest.spyOn(AtlasReconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
             (Tracing.findAll as jest.Mock).mockResolvedValue([axonTracing, dendriteTracing]);
             (TracingNode.findOne as jest.Mock).mockResolvedValue(
                 ReconstructionTestFixtures.createMockTracingNode({ sampleNumber: 1 })
@@ -33,7 +33,7 @@ describe("Reconstruction.getAsDataChunked", () => {
                 ReconstructionTestFixtures.createMockTracingNode({ sampleNumber: 2 })
             ]);
 
-            const result = await Reconstruction.getAsDataChunked("test-id");
+            const result = await AtlasReconstruction.getAsDataChunked("test-id");
 
             expect(result).toBeTruthy();
             expect(result!.comment).toBe("");
@@ -48,9 +48,9 @@ describe("Reconstruction.getAsDataChunked", () => {
         it("should return only requested parts when parts option specified", async () => {
             const mockReconstruction = ReconstructionTestFixtures.createMockReconstruction();
             
-            jest.spyOn(Reconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
+            jest.spyOn(AtlasReconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
 
-            const result = await Reconstruction.getAsDataChunked("test-id", {
+            const result = await AtlasReconstruction.getAsDataChunked("test-id", {
                 parts: ["header"]
             });
 
@@ -67,7 +67,7 @@ describe("Reconstruction.getAsDataChunked", () => {
             const axonTracing = { id: "axon-id", tracingStructureId: "68e76074-1777-42b6-bbf9-93a6a5f02fa4" };
             const dendriteTracing = { id: "dendrite-id", tracingStructureId: "other-id" };
 
-            jest.spyOn(Reconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
+            jest.spyOn(AtlasReconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
             (Tracing.findAll as jest.Mock).mockResolvedValue([axonTracing, dendriteTracing]);
             (TracingNode.count as jest.Mock).mockResolvedValue(1000);
             (TracingNode.findAll as jest.Mock).mockResolvedValue([
@@ -75,7 +75,7 @@ describe("Reconstruction.getAsDataChunked", () => {
                 ReconstructionTestFixtures.createMockTracingNode({ sampleNumber: 12 })
             ]);
 
-            const result = await Reconstruction.getAsDataChunked("test-id", {
+            const result = await AtlasReconstruction.getAsDataChunked("test-id", {
                 parts: ["axon"],
                 axonOffset: 10,
                 axonLimit: 50
@@ -103,14 +103,14 @@ describe("Reconstruction.getAsDataChunked", () => {
             const axonTracing = { id: "axon-id", tracingStructureId: "68e76074-1777-42b6-bbf9-93a6a5f02fa4" };
             const dendriteTracing = { id: "dendrite-id", tracingStructureId: "other-id" };
 
-            jest.spyOn(Reconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
+            jest.spyOn(AtlasReconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
             (Tracing.findAll as jest.Mock).mockResolvedValue([axonTracing, dendriteTracing]);
             (TracingNode.count as jest.Mock).mockResolvedValue(500);
             (TracingNode.findAll as jest.Mock).mockResolvedValue([
                 ReconstructionTestFixtures.createMockTracingNode({ sampleNumber: 21 })
             ]);
 
-            const result = await Reconstruction.getAsDataChunked("test-id", {
+            const result = await AtlasReconstruction.getAsDataChunked("test-id", {
                 parts: ["dendrite"],
                 dendriteOffset: 20,
                 dendriteLimit: 25
@@ -130,12 +130,12 @@ describe("Reconstruction.getAsDataChunked", () => {
             const axonTracing = { id: "axon-id", tracingStructureId: "68e76074-1777-42b6-bbf9-93a6a5f02fa4" };
             const dendriteTracing = { id: "dendrite-id", tracingStructureId: "other-id" };
 
-            jest.spyOn(Reconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
+            jest.spyOn(AtlasReconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
             (Tracing.findAll as jest.Mock).mockResolvedValue([axonTracing, dendriteTracing]);
             (TracingNode.count as jest.Mock).mockResolvedValue(100);
             (TracingNode.findAll as jest.Mock).mockResolvedValue([]);
 
-            const result = await Reconstruction.getAsDataChunked("test-id", {
+            const result = await AtlasReconstruction.getAsDataChunked("test-id", {
                 parts: ["axon"],
                 axonOffset: 90,
                 axonLimit: 20
@@ -155,11 +155,11 @@ describe("Reconstruction.getAsDataChunked", () => {
                 z: 300 
             });
 
-            jest.spyOn(Reconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
+            jest.spyOn(AtlasReconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
             (Tracing.findAll as jest.Mock).mockResolvedValue([axonTracing, dendriteTracing]);
             (TracingNode.findOne as jest.Mock).mockResolvedValue(somaNode);
 
-            const result = await Reconstruction.getAsDataChunked("test-id", {
+            const result = await AtlasReconstruction.getAsDataChunked("test-id", {
                 parts: ["header"]
             });
 
@@ -207,11 +207,11 @@ describe("Reconstruction.getAsDataChunked", () => {
             const mockBrainArea = ReconstructionTestFixtures.createMockBrainArea("area-1");
             const mockNodeWithBrainArea = { BrainArea: mockBrainArea };
 
-            jest.spyOn(Reconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
+            jest.spyOn(AtlasReconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
             (Tracing.findAll as jest.Mock).mockResolvedValue([axonTracing, dendriteTracing]);
             (TracingNode.findAll as jest.Mock).mockResolvedValue([mockNodeWithBrainArea]);
 
-            const result = await Reconstruction.getAsDataChunked("test-id", {
+            const result = await AtlasReconstruction.getAsDataChunked("test-id", {
                 parts: ["allenInformation"]
             });
 
@@ -230,9 +230,9 @@ describe("Reconstruction.getAsDataChunked", () => {
 
     describe("null return cases", () => {
         it("should return null when reconstruction not found", async () => {
-            jest.spyOn(Reconstruction, "findByPk").mockResolvedValue(null);
+            jest.spyOn(AtlasReconstruction, "findByPk").mockResolvedValue(null);
 
-            const result = await Reconstruction.getAsDataChunked("nonexistent-id");
+            const result = await AtlasReconstruction.getAsDataChunked("nonexistent-id");
 
             expect(result).toBeNull();
         });
@@ -240,10 +240,10 @@ describe("Reconstruction.getAsDataChunked", () => {
         it("should return null when reconstruction has wrong number of tracings", async () => {
             const mockReconstruction = ReconstructionTestFixtures.createMockReconstruction();
             
-            jest.spyOn(Reconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
+            jest.spyOn(AtlasReconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
             (Tracing.findAll as jest.Mock).mockResolvedValue([{ id: "single-tracing" }]); // Only 1 tracing
 
-            const result = await Reconstruction.getAsDataChunked("test-id");
+            const result = await AtlasReconstruction.getAsDataChunked("test-id");
 
             expect(result).toBeNull();
         });
@@ -253,9 +253,9 @@ describe("Reconstruction.getAsDataChunked", () => {
         it("should handle empty parts array", async () => {
             const mockReconstruction = ReconstructionTestFixtures.createMockReconstruction();
             
-            jest.spyOn(Reconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
+            jest.spyOn(AtlasReconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
 
-            const result = await Reconstruction.getAsDataChunked("test-id", {
+            const result = await AtlasReconstruction.getAsDataChunked("test-id", {
                 parts: []
             });
 
@@ -272,12 +272,12 @@ describe("Reconstruction.getAsDataChunked", () => {
             const axonTracing = { id: "axon-id", tracingStructureId: "68e76074-1777-42b6-bbf9-93a6a5f02fa4" };
             const dendriteTracing = { id: "dendrite-id", tracingStructureId: "other-id" };
 
-            jest.spyOn(Reconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
+            jest.spyOn(AtlasReconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
             (Tracing.findAll as jest.Mock).mockResolvedValue([axonTracing, dendriteTracing]);
             (TracingNode.count as jest.Mock).mockResolvedValue(100);
             (TracingNode.findAll as jest.Mock).mockResolvedValue([]);
 
-            const result = await Reconstruction.getAsDataChunked("test-id", {
+            const result = await AtlasReconstruction.getAsDataChunked("test-id", {
                 parts: ["axon"],
                 axonOffset: 0,
                 axonLimit: 0
@@ -296,12 +296,12 @@ describe("Reconstruction.getAsDataChunked", () => {
             const axonTracing = { id: "axon-id", tracingStructureId: "68e76074-1777-42b6-bbf9-93a6a5f02fa4" };
             const dendriteTracing = { id: "dendrite-id", tracingStructureId: "other-id" };
 
-            jest.spyOn(Reconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
+            jest.spyOn(AtlasReconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
             (Tracing.findAll as jest.Mock).mockResolvedValue([axonTracing, dendriteTracing]);
             (TracingNode.count as jest.Mock).mockResolvedValue(50);
             (TracingNode.findAll as jest.Mock).mockResolvedValue([]);
 
-            const result = await Reconstruction.getAsDataChunked("test-id", {
+            const result = await AtlasReconstruction.getAsDataChunked("test-id", {
                 parts: ["axon"],
                 axonOffset: 100,
                 axonLimit: 10
@@ -316,11 +316,11 @@ describe("Reconstruction.getAsDataChunked", () => {
             const axonTracing = { id: "axon-id", tracingStructureId: "68e76074-1777-42b6-bbf9-93a6a5f02fa4" };
             const dendriteTracing = { id: "dendrite-id", tracingStructureId: "other-id" };
 
-            jest.spyOn(Reconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
+            jest.spyOn(AtlasReconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
             (Tracing.findAll as jest.Mock).mockResolvedValue([axonTracing, dendriteTracing]);
             (TracingNode.findOne as jest.Mock).mockResolvedValue(null);
 
-            const result = await Reconstruction.getAsDataChunked("test-id", {
+            const result = await AtlasReconstruction.getAsDataChunked("test-id", {
                 parts: ["header"]
             });
 
@@ -332,13 +332,13 @@ describe("Reconstruction.getAsDataChunked", () => {
             const axonTracing = { id: "axon-id", tracingStructureId: "68e76074-1777-42b6-bbf9-93a6a5f02fa4" };
             const dendriteTracing = { id: "dendrite-id", tracingStructureId: "other-id" };
 
-            jest.spyOn(Reconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
+            jest.spyOn(AtlasReconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
             (Tracing.findAll as jest.Mock).mockResolvedValue([axonTracing, dendriteTracing]);
             (TracingNode.findOne as jest.Mock).mockResolvedValue(
                 ReconstructionTestFixtures.createMockTracingNode({ sampleNumber: 1 })
             );
 
-            const result = await Reconstruction.getAsDataChunked("test-id", {
+            const result = await AtlasReconstruction.getAsDataChunked("test-id", {
                 parts: ["header"]
             });
 
@@ -354,13 +354,13 @@ describe("Reconstruction.getAsDataChunked", () => {
             const axonTracing = { id: "axon-id", tracingStructureId: "68e76074-1777-42b6-bbf9-93a6a5f02fa4" };
             const dendriteTracing = { id: "dendrite-id", tracingStructureId: "other-id" };
 
-            jest.spyOn(Reconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
+            jest.spyOn(AtlasReconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
             (Tracing.findAll as jest.Mock).mockResolvedValue([axonTracing, dendriteTracing]);
             (TracingNode.findOne as jest.Mock).mockResolvedValue(
                 ReconstructionTestFixtures.createMockTracingNode({ sampleNumber: 1 })
             );
 
-            await Reconstruction.getAsDataChunked("test-id", {
+            await AtlasReconstruction.getAsDataChunked("test-id", {
                 parts: ["header"]
             });
 
@@ -375,12 +375,12 @@ describe("Reconstruction.getAsDataChunked", () => {
             const axonTracing = { id: "axon-id", tracingStructureId: "68e76074-1777-42b6-bbf9-93a6a5f02fa4" };
             const dendriteTracing = { id: "dendrite-id", tracingStructureId: "other-id" };
 
-            jest.spyOn(Reconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
+            jest.spyOn(AtlasReconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
             (Tracing.findAll as jest.Mock).mockResolvedValue([axonTracing, dendriteTracing]);
             (TracingNode.count as jest.Mock).mockResolvedValue(1000);
             (TracingNode.findAll as jest.Mock).mockResolvedValue([]);
 
-            await Reconstruction.getAsDataChunked("test-id", {
+            await AtlasReconstruction.getAsDataChunked("test-id", {
                 parts: ["axon"],
                 axonOffset: 100,
                 axonLimit: 50
@@ -399,12 +399,12 @@ describe("Reconstruction.getAsDataChunked", () => {
             const axonTracing = { id: "axon-id", tracingStructureId: "68e76074-1777-42b6-bbf9-93a6a5f02fa4" };
             const dendriteTracing = { id: "dendrite-id", tracingStructureId: "other-id" };
 
-            jest.spyOn(Reconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
+            jest.spyOn(AtlasReconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
             (Tracing.findAll as jest.Mock).mockResolvedValue([axonTracing, dendriteTracing]);
             (TracingNode.count as jest.Mock).mockResolvedValue(1000);
             (TracingNode.findAll as jest.Mock).mockResolvedValue([]);
 
-            const result = await Reconstruction.getAsDataChunked("test-id", {
+            const result = await AtlasReconstruction.getAsDataChunked("test-id", {
                 parts: ["axon"],
                 axonOffset: 0,
                 axonLimit: null as any
@@ -438,11 +438,11 @@ describe("Reconstruction.getAsDataChunked", () => {
                 z: 100
             });
 
-            jest.spyOn(Reconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
+            jest.spyOn(AtlasReconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
             (Tracing.findAll as jest.Mock).mockResolvedValue([axonTracing, dendriteTracing]);
             (TracingNode.findOne as jest.Mock).mockResolvedValue(somaNode);
 
-            const result = await Reconstruction.getAsDataChunked("test-id", {
+            const result = await AtlasReconstruction.getAsDataChunked("test-id", {
                 parts: ["header"]
             });
 
@@ -460,13 +460,13 @@ describe("Reconstruction.getAsDataChunked", () => {
             const axonTracing = { id: "axon-id", tracingStructureId: "68e76074-1777-42b6-bbf9-93a6a5f02fa4" };
             const dendriteTracing = { id: "dendrite-id", tracingStructureId: "other-structure-id" };
 
-            jest.spyOn(Reconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
+            jest.spyOn(AtlasReconstruction, "findByPk").mockResolvedValue(mockReconstruction as any);
             (Tracing.findAll as jest.Mock).mockResolvedValue([dendriteTracing, axonTracing]); // Order doesn't matter
             (TracingNode.findOne as jest.Mock).mockResolvedValue(
                 ReconstructionTestFixtures.createMockTracingNode({ sampleNumber: 1 })
             );
 
-            const result = await Reconstruction.getAsDataChunked("test-id", {
+            const result = await AtlasReconstruction.getAsDataChunked("test-id", {
                 parts: ["header"]
             });
 

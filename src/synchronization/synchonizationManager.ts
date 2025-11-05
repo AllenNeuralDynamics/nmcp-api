@@ -3,7 +3,13 @@ import * as path from "path";
 
 const debugWorker = require("debug")("nmcp:synchronization:synchronization-worker");
 
-import {Reconstruction} from "../models/reconstruction";
+import {resetPublishedCount} from "../models/systemSettings";
+
+const debug = require("debug")("nmcp:synchronization:synchronization-manager");
+
+export enum SynchronizationWorkerNotification {
+    SearchIndexUpdated = 100
+}
 
 /**
  * Start and manage a separate node process for synchronizing published reconstruction data.
@@ -44,8 +50,13 @@ export function synchronizationManagerStart(){
         }
     });
 
-    proc.on("message", async (data: any)=> {
-        // Must happen on the original process.  data should be the id of a reconstruction.
-        await Reconstruction.loadReconstructionCache(data);
+    proc.on("message", async (data: number)=> {
+        // Must happen on the original process.
+        switch (data) {
+            case SynchronizationWorkerNotification.SearchIndexUpdated:
+                debug("received search indexing update for published count");
+                resetPublishedCount();
+                break;
+        }
     });
 }

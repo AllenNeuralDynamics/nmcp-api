@@ -1,6 +1,7 @@
 import {DataTypes, Op, Sequelize} from "sequelize";
 
 import {BaseModel} from "./baseModel";
+import {SynchronizationMarkerTableName} from "./tableNames";
 
 export enum SynchronizationMarkerKind {
     Unknown,
@@ -19,19 +20,20 @@ export class SynchronizationMarker extends BaseModel {
     }
 }
 
+// noinspection JSUnusedGlobalSymbols
 export const modelInit = (sequelize: Sequelize) => {
-    SynchronizationMarker.init({
+    return SynchronizationMarker.init({
         id: {
             primaryKey: true,
             type: DataTypes.UUID,
-            defaultValue: DataTypes.UUIDV4
+            defaultValue: Sequelize.literal("uuidv7()")
         },
         markerKind: {
             type: DataTypes.INTEGER
         },
         appliedAt: DataTypes.DATE
     }, {
-        tableName: "SynchronizationMarker",
+        tableName: SynchronizationMarkerTableName,
         timestamps: true,
         paranoid: false,
         sequelize

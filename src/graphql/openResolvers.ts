@@ -1,20 +1,24 @@
 import {Kind} from "graphql/language";
 import {GraphQLScalarType} from "graphql/type";
 
-import {ServiceOptions} from "../options/serviceOptions";
 import {IQueryOperator, operators} from "../models/queryOperator";
-import {NearestNodeOutput, PublishedReconstructionPage, PublishedReconstructionPageInput, Reconstruction} from "../models/reconstruction";
+import {NearestNodeOutput, AtlasReconstruction} from "../models/atlasReconstruction";
 import {PredicateType} from "../models/queryPredicate";
-import {AtlasStructure, CompartmentQueryInput} from "../models/atlasStructure";
+import {AtlasStructure, AtlasStructureQueryInput} from "../models/atlasStructure";
 import {User} from "../models/user";
-import {StructureIdentifier} from "../models/structureIdentifier";
-import {TracingStructure} from "../models/tracingStructure";
+import {NodeStructure} from "../models/nodeStructure";
+import {NeuronStructure} from "../models/neuronStructure";
 import {IQueryDataPage, Neuron, NeuronQueryInput} from "../models/neuron";
 import {SearchContextInput, SearchContext} from "../models/searchContext";
 import {Collection} from "../models/collection";
 import {EntityQueryOutput} from "../models/baseModel";
-import {Sample, SampleQueryInput} from "../models/sample";
-import {MouseStrain, GenotypeQueryInput} from "../models/mouseStrain";
+import {Specimen, SpecimenQueryArgs} from "../models/specimen";
+import {Genotype} from "../models/genotype";
+import {Injection} from "../models/injection";
+import {InjectionVirus} from "../models/injectionVirus";
+import {Fluorophore} from "../models/fluorophore";
+import {Reconstruction, PublishedReconstructionQueryResponse} from "../models/reconstruction";
+import {getSystemSettings, SystemSettings} from "../models/systemSettings";
 
 // const debug = require("debug")("nmcp:api:open-resolvers");
 
@@ -23,15 +27,7 @@ export type IdArgs = {
 }
 
 type AtlasQueryArgs = {
-    input: CompartmentQueryInput;
-}
-
-type GenotypeQueryArgs = {
-    input: GenotypeQueryInput;
-}
-
-type SampleQueryArgs = {
-    input: SampleQueryInput;
+    input: AtlasStructureQueryInput;
 }
 
 type CandidateQueryArgs = {
@@ -40,8 +36,8 @@ type CandidateQueryArgs = {
 }
 
 type NearestNodeArgs = {
-    id: string; // reconstruction id
-    location: number[]; // expected length 3 (x, y, z)
+    id: string;         // reconstruction id
+    location: number[]; // expected distance [x, y, z]
 }
 
 type SearchNeuronsArguments = {
@@ -50,7 +46,10 @@ type SearchNeuronsArguments = {
 
 // noinspection JSUnusedGlobalSymbols
 /**
- * Resolvers that do not require any type of user authentication.  These are essentially just what is needed to use the viewer without signing in.
+ * Resolvers that do not require any type of user authentication.  These are essentially just what is needed to use the viewer and explore candidates
+ * without signing in.
+ *
+ * IF YOU ARE ADDING A MUTATION OTHER THAN THE REQUEST ACCESS MUTATION, CONSIDER WHAT YOU ARE DOING CAREFULLY
  */
 export const openResolvers = {
     Query: {
@@ -58,7 +57,7 @@ export const openResolvers = {
             return context;
         },
 
-        async systemSettings(): Promise<ISystemSettings> {
+        systemSettings(): Promise<SystemSettings> {
             return getSystemSettings();
         },
 
@@ -66,12 +65,12 @@ export const openResolvers = {
             return operators;
         },
 
-        async structureIdentifiers(_: any, __: any, ___: User): Promise<StructureIdentifier[]> {
-            return StructureIdentifier.findAll({});
+        nodeStructures(_: any, __: any, ___: User): Promise<NodeStructure[]> {
+            return NodeStructure.findAll({});
         },
 
-        async tracingStructures(_: any, __: any, ___: User): Promise<TracingStructure[]> {
-            return TracingStructure.findAll({});
+        neuronStructures(_: any, __: any, ___: User): Promise<NeuronStructure[]> {
+            return NeuronStructure.findAll({});
         },
 
         async atlasStructures(_: any, args: AtlasQueryArgs): Promise<AtlasStructure[]> {
@@ -80,41 +79,93 @@ export const openResolvers = {
             return output.items;
         },
 
-        async atlasStructure(_: any, args: IdArgs): Promise<AtlasStructure> {
+        atlasStructure(_: any, args: IdArgs): Promise<AtlasStructure> {
             return AtlasStructure.findByPk(args.id);
         },
 
-        async collections(): Promise<Collection[]> {
+        collections(): Promise<Collection[]> {
             return Collection.findAll();
         },
 
-        genotypes(_: any, args: GenotypeQueryArgs): Promise<MouseStrain[]> {
-            return MouseStrain.getAll(args.input);
+        genotypes(_: any): Promise<Genotype[]> {
+            return Genotype.findAll();
         },
 
-        samples(_: any, args: SampleQueryArgs): Promise<EntityQueryOutput<Sample>> {
-            return Sample.getAll(args.input);
+        fluorophores(_: any): Promise<Fluorophore[]> {
+            return Fluorophore.findAll();
+        },
+
+        injectionViruses(_: any): Promise<InjectionVirus[]> {
+            return InjectionVirus.findAll();
+        },
+
+        specimens(_: any, args: { queryArgs: SpecimenQueryArgs }): Promise<EntityQueryOutput<Specimen>> {
+            return Specimen.getAll(args.queryArgs);
+        },
+
+        neuron(_: any, args: IdArgs): Promise<Neuron> {
+            return Neuron.findByPk(args.id);
         },
 
         candidateNeurons(_: any, args: CandidateQueryArgs): Promise<EntityQueryOutput<Neuron>> {
             return Neuron.getCandidateNeurons(args.input, args.includeInProgress);
         },
 
-        async nearestNode(_: any, args: NearestNodeArgs, __: User): Promise<NearestNodeOutput> {
-            return Reconstruction.nearestNode(args.id, args.location);
+        nearestNode(_: any, args: NearestNodeArgs, __: User): Promise<NearestNodeOutput> {
+            return AtlasReconstruction.nearestNode(args.id, args.location);
         },
 
-
-        async publishedReconstructions(_: any, args: { input: PublishedReconstructionPageInput }, __: User): Promise<PublishedReconstructionPage> {
-            return Reconstruction.getPublishedReconstructions(args.input);
+        publishedReconstructions(_: any, args: { offset: number, limit: number }, user: User): Promise<PublishedReconstructionQueryResponse> {
+            return Reconstruction.getAllPublished(user, args.offset, args.limit);
         },
 
-        async searchNeurons(_: any, args: SearchNeuronsArguments, __: User): Promise<IQueryDataPage> {
-            try {
-                return Neuron.getNeuronsWithPredicates(new SearchContext(args.context));
-            } catch (err) {
-                console.log(err);
-            }
+        searchNeurons(_: any, args: SearchNeuronsArguments, __: User): Promise<IQueryDataPage> {
+            return Neuron.getNeuronsWithPredicates(new SearchContext(args.context));
+        }
+    },
+    Injection: {
+        injectionVirus(injection: Injection): Promise<InjectionVirus> {
+            return injection.getInjectionVirus();
+        },
+        fluorophore(injection: Injection): Promise<Fluorophore> {
+            return injection.getFluorophore();
+        },
+        atlasStructure(injection: Injection): Promise<AtlasStructure> {
+            return injection.getAtlasStructure();
+        },
+        specimen(injection: Injection): Promise<Specimen> {
+            return injection.getSpecimen();
+        },
+    },
+    Specimen: {
+        async neuronCount(specimen: Specimen): Promise<number> {
+            return specimen.neuronCount();
+        },
+        genotype(specimen: Specimen, _: any, __: any): Promise<Genotype> {
+            return specimen.getGenotype();
+        },
+        injections(specimen: Specimen): Promise<Injection[]> {
+            return specimen.getInjections();
+        },
+        neurons(specimen: Specimen): Promise<Neuron[]> {
+            return specimen.getNeurons();
+        }
+    },
+    Neuron: {
+        reconstructionCount(neuron: any): Promise<number> {
+            return Reconstruction.count({where: {neuronId: neuron.id}})
+        },
+        atlasStructure(neuron: Neuron): Promise<AtlasStructure> {
+            return neuron.getAtlasStructure();
+        },
+        specimen(neuron: Neuron): Promise<Specimen> {
+            return neuron.getSpecimen();
+        },
+        reconstructions(neuron: Neuron): Promise<Reconstruction[]> {
+            return neuron.getSpecimenReconstruction();
+        },
+        published(neuron: Neuron): Promise<AtlasReconstruction> {
+            return neuron.published();
         }
     },
     Date: new GraphQLScalarType({
@@ -137,25 +188,5 @@ export const openResolvers = {
         ANATOMICAL: PredicateType.AnatomicalRegion,
         CUSTOM: PredicateType.CustomRegion,
         ID: PredicateType.IdOrDoi,
-    }
-}
-
-interface ISystemSettings {
-    apiVersion: string;
-    neuronCount: number;
-    features: {
-        enableUpdatedViewer: boolean;
-    }
-}
-
-async function getSystemSettings(): Promise<ISystemSettings> {
-    const reconstructionCount = Reconstruction.reconstructionCount();
-
-    return {
-        apiVersion: ServiceOptions.version,
-        neuronCount: reconstructionCount,
-        features: {
-            enableUpdatedViewer: ServiceOptions.allowExperimentalFeatures
-        }
     }
 }

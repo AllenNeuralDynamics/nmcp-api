@@ -1,7 +1,7 @@
 /**
  * Test fixtures for Reconstruction unit tests
  */
-import {AxonStructureId, DendriteStructureId} from "../../src/models/tracingStructure";
+import {AxonStructureId, DendriteStructureId} from "../../src/models/neuronStructure";
 
 export class ReconstructionTestFixtures {
     static readonly AXON_STRUCTURE_ID = AxonStructureId;

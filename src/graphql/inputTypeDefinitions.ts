@@ -9,6 +9,12 @@ export const inputTypeDefinitions = gql`
         includeImported: Boolean
     }
 
+    input IssueReferenceInput {
+        id: String
+        kind: Int
+        # details: JSON // If needed will bring in graphql-scalars for JSON type and allow arbitrary additional info.
+    }
+
     input AtlasStructureQueryInput {
         ids: [String!]
         injectionIds: [String!]
@@ -19,51 +25,14 @@ export const inputTypeDefinitions = gql`
         limit: Int
     }
 
-    input GenotypeQueryInput {
-        ids: [String!]
-        sampleIds: [String!]
-        sortField: String
-        sortOrder: String
-        offset: Int
-        limit: Int
-    }
-
-    input InjectionVirusQueryInput {
-        ids: [String!]
-        injectionIds: [String!]
-        sortField: String
-        sortOrder: String
-        offset: Int
-        limit: Int
-    }
-
-    input FluorophoreQueryInput {
-        ids: [String!]
-        injectionIds: [String!]
-        sortField: String
-        sortOrder: String
-        offset: Int
-        limit: Int
-    }
-
     input InjectionQueryInput {
-        ids: [String!]
-        injectionVirusIds: [String!]
-        fluorophoreIds: [String!]
-        brainAreaIds: [String!]
-        sampleIds: [String!]
-        neuronIds: [String!]
-        sortField: String
-        sortOrder: String
-        offset: Int
-        limit: Int
+        specimenIds: [String!]
     }
 
-    input SampleQueryInput {
+    input SpecimenQueryInput {
         ids: [String!]
-        mouseStrainIds: [String!]
+        genotypeIds: [String!]
         injectionIds: [String!]
-        reconstructionStatus: Int
         sortField: String
         sortOrder: String
         offset: Int
@@ -79,70 +48,55 @@ export const inputTypeDefinitions = gql`
 
     input NeuronQueryInput {
         ids: [String!]
-        injectionIds: [String!]
-        sampleIds: [String!]
-        brainStructureIds: [String!]
-        tag: String
-        reconstructionStatus: Int
+        specimenIds: [String!]
+        atlasStructureIds: [String!]
+        keywords: [String!]
         somaProperties: SomaPropertyInput
-        sortField: String
-        sortOrder: String
         offset: Int
         limit: Int
     }
 
-    input MouseStrainInput {
-        id: String
-        name: String
-    }
-
-    input InjectionVirusInput {
-        id: String
-        name: String
-    }
-
-    input FluorophoreInput {
-        id: String
-        name: String
+    input ReconstructionQueryArgs {
+        offset: Int
+        limit: Int
+        userOnly: Boolean
+        status: [Int!]
+        specimenIds: [String!]
+        keywords:  [String!]
     }
 
     input InjectionInput {
         id: String
-        brainAreaId: String
-        injectionVirusId: String
+        specimenId: String
+        atlasStructureId: String
         injectionVirusName: String
-        fluorophoreId: String
         fluorophoreName: String
-        sampleId: String
     }
 
-    input SampleInput {
+    input SpecimenInput {
         id: String
-        idNumber: Int
-        animalId: String
-        tag: String
-        comment: String
-        sampleDate: Date
-        tomography: String
-        mouseStrainId: String
-        mouseStrainName: String
+        label: String
+        notes: String
+        referenceDate: Date
+        genotypeId: String
+        genotypeName: String
         collectionId: String
-        neuronIds: [String]
+    }
+
+    input SomaLocationInput {
+        x: Float
+        y: Float
+        z: Float
     }
 
     input NeuronInput {
         id: String
-        idNumber: Int
-        idString: String
-        tag: String
-        keywords: String
-        x: Float
-        y: Float
-        z: Float
-        doi: String
-        consensus: Int
-        brainStructureId: String
-        sampleId: String
+        label: String
+        keywords: [String!]
+        specimenSoma: SomaLocationInput
+        atlasSoma: SomaLocationInput
+        atlasStructureId: String
+        specimenId: String
     }
 
     input CollectionInput {
@@ -152,54 +106,24 @@ export const inputTypeDefinitions = gql`
         reference: String
     }
 
-    input TracingInput {
-        id: String!
-        annotator: String
-        neuronId: String
-        tracingStructureId: String
-    }
-
     input ImportSomasOptions {
-        sampleId: String
-        tag: String
+        specimenId: String
+        keywords: [String!]
         shouldLookupSoma: Boolean
         noEmit: Boolean
     }
 
-    input TracingPageInput {
-        offset: Int
-        limit: Int
-        neuronIds: [String!]
-        tracingStructureId: String
+    input JsonUploadArgs {
+        reconstructionId: String!
+        reconstructionSpace: Int!
+        file: Upload!
     }
 
-    input ReconstructionPageInput {
-        offset: Int
-        limit: Int
-        userOnly: Boolean
-        sampleIds: [String!]
-        """Maps directory to Reconstruction status property."""
-        filters: [Int!]
-    }
-
-    input ReviewPageInput {
-        offset: Int
-        limit: Int
-        sampleIds: [String!]
-        status: [Int!]
-    }
-
-    input PeerReviewPageInput {
-        offset: Int
-        limit: Int
-        sampleIds: [String!]
-        tag: String
-    }
-
-    input PublishedReconstructionPageInput {
-        offset: Int
-        limit: Int
-        sampleIds: [String!]
+    input SwcUploadArgs {
+        reconstructionId: String!
+        reconstructionSpace: Int!
+        axonFile: Upload!
+        dendriteFile: Upload!
     }
 
     input InputPosition {
@@ -232,16 +156,14 @@ export const inputTypeDefinitions = gql`
     """
     Input for chunked reconstruction data query
     """
-    input ReconstructionDataChunkedInput {
-        """Which parts of the reconstruction to fetch"""
-        parts: [ReconstructionDataPart!]
+    input PortalReconstructionInput {
         """Offset for axon nodes pagination"""
         axonOffset: Int
-        """Limit for axon nodes pagination"""
+        """Limit for axon nodes pagination.  <=0 to not include axon.  null or undefined to return all."""
         axonLimit: Int
         """Offset for dendrite nodes pagination"""
         dendriteOffset: Int
-        """Limit for dendrite nodes pagination"""
+        """Limit for dendrite nodes pagination  <=0 to not include dendrite.  null or undefined to return all."""
         dendriteLimit: Int
     }
 `;

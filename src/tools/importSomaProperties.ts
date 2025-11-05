@@ -1,11 +1,10 @@
 import * as fs from "fs";
 import * as path from "path";
 
-import {parseSomaPropertyFile} from "../util/somaPropertyParser";
+import {parseSomaPropertyFile} from "../io/somaPropertyParser";
 import {RemoteDatabaseClient} from "../data-access/remoteDatabaseClient";
-import {Sample} from "../models/sample";
+import {Specimen} from "../models/specimen";
 import {Neuron} from "../models/neuron";
-import {AtlasStructure} from "../models/atlasStructure";
 
 const debug = require("debug")("nmcp:api:tools:importSomaProperties");
 
@@ -23,27 +22,25 @@ export async function importSomaProperties(filename: string, subjectId: string =
         if (match && match[1]) {
             subjectId = match[1];
         } else {
-            throw new Error(`Unable to extract subjectId from filename: ${filename}. Expected pattern: sometext-subjectid.csv`);
+            throw new Error(`Unable to extract specimen id from filename: ${filename}. Expected pattern: (any-text)-specimenId.csv`);
         }
     }
 
-    await AtlasStructure.loadCompartmentCache("soma candidate import");
+    const specimen = await Specimen.findOne({ where: { animalId: subjectId } });
 
-    const sample = await Sample.findOne({ where: { animalId: subjectId } });
-
-    if (!sample) {
-        throw new Error(`No sample found with animalId: ${subjectId}`);
+    if (!specimen) {
+        throw new Error(`No specimen found with animalId: ${subjectId}`);
     }
 
-    const processedRecords = await parseSomaPropertyFile(filename);
+    const processedRecords = await parseSomaPropertyFile(filename, specimen.getAtlas());
 
-    const nextNumber = await Neuron.findNextAvailableIdNumber(sample.id);
+    const nextNumber = await Neuron.findNextAvailableIdString(specimen.id);
 
     debug(`Starting neuron labelling from base index ${nextNumber}`);
 
-    const idStrings = await Neuron.insertSomaEntries(processedRecords, sample, nextNumber, noEmit);
+    const idStrings = await Neuron.insertSomaEntries(processedRecords, specimen, nextNumber, noEmit);
 
-    debug(`Created ${processedRecords.length} neurons for sample ${sample.animalId} (${sample.id})`);
+    debug(`Created ${processedRecords.length} neurons for specimen ${specimen.label} (${specimen.id})`);
 
     debug(`First ids: ${idStrings.slice(0, 5).join(", ")}`);
 }

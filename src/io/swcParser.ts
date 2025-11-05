@@ -1,7 +1,8 @@
 import * as byline from "byline";
 import * as fs from "fs";
-import {StructureIdentifiers} from "../models/structureIdentifier";
-import {SimpleNeuronStructure} from "./parsedReconstruction";
+import {NodeStructures} from "../models/nodeStructure";
+
+import {SimpleNeuronStructure} from "./simpleReconstruction";
 
 /**
  * Parse a SWC file and calculate branch/end points and lengths between nodes.
@@ -62,32 +63,32 @@ function oneSwcLine(line: string, swcData: SimpleNeuronStructure) {
         return;
     }
 
-    const sampleNumber = parseInt(data[0]);
-    const parentNumber = parseInt(data[6]);
+    const index = parseInt(data[0]);
+    const parentIndex = parseInt(data[6]);
 
-    if (isNaN(sampleNumber) || isNaN(parentNumber)) {
+    if (isNaN(index) || isNaN(parentIndex)) {
         return;
     }
 
     let structure = parseInt(data[1]);
 
-    if (parentNumber === -1) {
-        if (structure !== StructureIdentifiers.soma) {
-            swcData.addComment(`# Un-parented (root) sample ${sampleNumber} converted from ${structure} to soma (${StructureIdentifiers.soma})`);
-            structure = StructureIdentifiers.soma;
+    if (parentIndex === -1) {
+        if (structure !== NodeStructures.soma) {
+            swcData.addComment(`# Un-parented (root) node ${index} converted from ${structure} to soma (${NodeStructures.soma})`);
+            structure = NodeStructures.soma;
         }
     }
 
-    swcData.addSample({
-        sampleNumber: sampleNumber,
-        parentNumber: parentNumber,
-        structure: structure,
+    swcData.addNode({
+        sampleNumber: index,
+        parentNumber: parentIndex,
+        structureIdentifier: structure,
         x: swcData.offsetX + parseFloat(data[2]),
         y: swcData.offsetY + parseFloat(data[3]),
         z: swcData.offsetZ + parseFloat(data[4]),
         radius: parseFloat(data[5]),
         lengthToParent: 0,
-        brainStructureId: null
+        allenId: null
     });
 }
 

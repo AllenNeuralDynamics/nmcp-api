@@ -5,9 +5,9 @@ export const coreTypeDefinitions = gql`
     scalar Date
 
     type Error {
-        kind: Int
         name: String
         message: String
+        stack: String
     }
 
     type Features {
@@ -28,9 +28,8 @@ export const coreTypeDefinitions = gql`
         emailAddress:String
         affiliation: String
         permissions: Int
-        isAnonymousForComplete: Boolean
-        isAnonymousForCandidate: Boolean
-        reconstructions: [Reconstruction]
+        isAnonymousForAnnotation: Boolean
+        isAnonymousForPublish: Boolean
     }
 
     enum PredicateType {
@@ -45,6 +44,17 @@ export const coreTypeDefinitions = gql`
         operator: String
     }
 
+    type NodeStructure {
+        id: String!
+        name: String
+        swcValue: Int
+    }
+
+    type NeuronStructure {
+        id: String!
+        name: String
+    }
+
     type AtlasStructure {
         id: String!
         name: String
@@ -55,22 +65,14 @@ export const coreTypeDefinitions = gql`
         safeName: String
         acronym: String
         aliasList: [String]
-        atlasId: Int
-        graphId: Int
-        graphOrder: Int
-        hemisphereId: Int
-        geometryFile: String
-        geometryColor: String
-        geometryEnable: Boolean
-        neurons: [Neuron!]
-        createdAt: Date
-        updatedAt: Date
+        internalId: Int
+        defaultColor: String
+        hasGeometry: Boolean
     }
 
     type Genotype {
         id: String!
         name: String
-        samples: [Sample!]
         createdAt: Date
         updatedAt: Date
     }
@@ -78,7 +80,6 @@ export const coreTypeDefinitions = gql`
     type InjectionVirus {
         id: String!
         name: String
-        injections: [Injection!]
         createdAt: Date
         updatedAt: Date
     }
@@ -86,30 +87,30 @@ export const coreTypeDefinitions = gql`
     type Fluorophore  {
         id: String!
         name: String
-        injections: [Injection!]
         createdAt: Date
         updatedAt: Date
     }
 
     type Injection {
         id: String!
-        sample: Sample
-        brainArea: AtlasStructure
-        injectionVirus: InjectionVirus
-        fluorophore: Fluorophore
-        neurons: [Neuron!]
+        specimenId: String!
+        specimen: Specimen!
+        atlasStructureId: String!
+        atlasStructure: AtlasStructure
+        injectionVirusId: String!
+        injectionVirus: InjectionVirus!
+        fluorophoreId: String!
+        fluorophore: Fluorophore!
         createdAt: Date
         updatedAt: Date
     }
 
-    type Sample {
+    type Specimen {
         id: String
-        idNumber: Int
-        animalId: String
-        tag: String
-        comment: String
-        sampleDate: Date
-        tomography: String
+        label: String
+        notes: String
+        referenceDate: Date
+        tomographyUrl: String
         genotype: Genotype
         injections: [Injection!]!
         collectionId: String
@@ -119,84 +120,109 @@ export const coreTypeDefinitions = gql`
         updatedAt: Date
     }
 
-    type Neuron {
-        id: String
-        idNumber: Int
-        idString: String
-        tag: String
-        keywords: String
+    type SomaLocation {
         x: Float
         y: Float
         z: Float
-        sampleX: Float
-        sampleY: Float
-        sampleZ: Float
-        doi: String
-        consensus: Int
-        metadata: String
-        brainStructureId: String
+    }
+
+    type Neuron {
+        id: String
+        label: String
+        keywords: [String!]
+        specimenSoma: SomaLocation
+        atlasSoma: SomaLocation
+        atlasStructureId: String
         atlasStructure: AtlasStructure
-        sample: Sample
-        latest: Reconstruction
-        reconstructions: [Reconstruction!]
+        specimen: Specimen
+        published: AtlasReconstruction
+        reconstructions: [Reconstruction]
         reconstructionCount: Int
-        unregisteredReconstructions: [UnregisteredReconstruction]
-        unregisteredReconstructionCount: Int
         createdAt: Date
         updatedAt: Date
     }
 
-    type StructureIdentifier {
+    type AtlasNode {
         id: String!
-        name: String
-        value: Int
-        mutable: Boolean
-        createdAt: Date
-        updatedAt: Date
-    }
-
-    type TracingStructure {
-        id: String!
-        name: String
-        value: Int
-        createdAt: Date
-        updatedAt: Date
-    }
-
-    type Tracing {
-        id: String!
-        filename: String
-        fileComments: String
-        nodeCount: Int
-        pathCount: Int
-        branchCount: Int
-        endCount: Int
-        tracingStructure: TracingStructure
-        searchTransformAt: Date
-        reconstruction: Reconstruction
-        soma: TracingNode
-        nodes: [TracingNode!]
-        createdAt: Date
-        updatedAt: Date
-    }
-
-    type TracingNode {
-        id: String!
-        sampleNumber: Int
-        parentNumber: Int
+        index: Int
+        parentIndex: Int
         x: Float
         y: Float
         z: Float
         radius: Float
         lengthToParent: Float
-        structureIdentifierId: String
-        structureIdentifier: StructureIdentifier
+        nodeStructureId: String
+        nodeStructure: NodeStructure
         structureIdValue: Int
-        brainStructureId: String
-        brainStructure: AtlasStructure
-        tracing: Tracing
+        atlasStructureId: String
+        atlasStructure: AtlasStructure
+    }
+
+    type NodeCount {
+        total: Int
+        soma: Int
+        path: Int
+        branch: Int
+        end: Int
+    }
+
+    type NodeCounts {
+        axon: NodeCount
+        dendrite: NodeCount
+    }
+
+    type Reconstruction {
+        id: String!
+        sourceUrl: String
+        sourceComments: String
+        status: Int
+        notes: String
+        durationHours: Float
+        specimenLengthMillimeters: Float
+        specimenNodeCounts: NodeCounts
+        annotatorId: String
+        annotator: User
+        reviewerId: String
+        reviewer: User
+        neuronId: String
+        neuron: Neuron
+        atlasReconstructionId: String
+        atlasReconstruction: AtlasReconstruction
+        startedAt: Date
+        completedAt: Date
+        reviewedAt: Date
+        approvedAt: Date
+        publishedAt: Date
+        archivedAt: Date
         createdAt: Date
         updatedAt: Date
+    }
+
+    type AtlasReconstruction {
+        id: String!
+        sourceUrl: String
+        sourceComments: String
+        status: Int
+        lengthMillimeters: Float
+        nodeCounts: NodeCounts
+        soma: AtlasNode
+        reconstruction: Neuron
+        reconstructionId: String
+        qualityControl: QualityControl
+        precomputed: Precomputed
+        reviewerId: String
+        reviewer: User
+        nodeStructureAssignmentAt: Date
+        searchIndexedAt: Date
+        publishedAt: Date
+        archivedAt: Date
+        createdAt: Date
+        updatedAt: Date
+    }
+
+    type QualityControl {
+        id: String!
+        status: Int
     }
 
     type QualityError {
@@ -211,64 +237,13 @@ export const coreTypeDefinitions = gql`
         standardMorphVersion: String!
     }
 
-    type Reconstruction {
-        id: String!
-        status: Int
-        notes: String
-        checks: String
-        durationHours: Float
-        lengthMillimeters: Float
-        annotatorId: String
-        annotator: User
-        proofreaderId: String
-        proofreader: User
-        peerReviewerId: String
-        peerReviewer: User
-        neuronId: String
-        neuron: Neuron
-        axon: Tracing
-        dendrite: Tracing
-        precomputed: Precomputed
-        startedAt: Date
-        completedAt: Date
-        qualityCheckStatus: Int
-        qualityCheckVersion: String
-        qualityCheck: QualityCheck
-        qualityCheckAt: Date
-        createdAt: Date
-        updatedAt: Date
-    }
-
-    type UnregisteredReconstruction {
-        id: String!
-        sourceUrl: String
-        sourceComments: String
-        status: Int
-        notes: String
-        checks: String
-        durationHours: Float
-        lengthMillimeters: Float
-        annotatorId: String
-        annotator: User
-        neuronId: String
-        neuron: Neuron
-        nodeCount: Int
-        pathCount: Int
-        branchCount: Int
-        endCount: Int
-        precomputed: Precomputed
-        startedAt: Date
-        completedAt: Date
-        createdAt: Date
-        updatedAt: Date
-    }
-
     type Precomputed {
         id: String!
-        skeletonSegmentId: Int
+        skeletonId: Int
+        status: Int
         version: Int
-        generatedAt: Date
         reconstructionId: String!
+        generatedAt: Date
         createdAt: Date
         updatedAt: Date
     }
@@ -276,20 +251,30 @@ export const coreTypeDefinitions = gql`
     type Collection {
         id: String!
         name: String!
-        description: String
-        reference: String
+        description: String!
+        reference: String!
+        specimenCount: Int!
         createdAt: Date
         updatedAt: Date
     }
 
+    type IssueReference {
+        id: String
+        kind: Int
+    }
+
     type Issue {
         id: String!
-        kind: Int
-        status: Int
-        description: String
-        response: String
-        creator: User
+        issueId: Int!
+        kind: Int!
+        status: Int!
+        description: String!
+        resolutionKind: Int!
+        resolution: String
+        references: [IssueReference!]!
         neuron: Neuron
+        authorId: String
+        author: User
         responder: User
         createdAt: Date
         updatedAt: Date
@@ -303,7 +288,7 @@ export const coreTypeDefinitions = gql`
     """
     Node structure for reconstruction data
     """
-    type ReconstructionDataNode {
+    type PortalReconstructionNode {
         sampleNumber: Int!
         structureIdentifier: Int!
         x: Float!
@@ -315,9 +300,9 @@ export const coreTypeDefinitions = gql`
     }
 
     """
-    Allen brain area information for reconstruction
+    Atlas structure information for reconstruction
     """
-    type ReconstructionAllenInfo {
+    type PortalReconstructionAtlasInfo {
         allenId: Int!
         name: String!
         safeName: String!
@@ -330,7 +315,7 @@ export const coreTypeDefinitions = gql`
     """
     Annotation space information
     """
-    type ReconstructionAnnotationSpace {
+    type PortalReconstructionAnnotationSpace {
         version: Int!
         description: String!
     }
@@ -338,7 +323,7 @@ export const coreTypeDefinitions = gql`
     """
     Soma information for reconstruction
     """
-    type ReconstructionSoma {
+    type PortalReconstructionSoma {
         x: Float!
         y: Float!
         z: Float!
@@ -348,15 +333,15 @@ export const coreTypeDefinitions = gql`
     """
     Label information for reconstruction
     """
-    type ReconstructionLabel {
+    type PortalReconstructionLabel {
         virus: String!
         fluorophore: String!
     }
 
     """
-    Collection information for sample
+    Collection information for specimens
     """
-    type ReconstructionSampleCollection {
+    type PortalReconstructionCollection {
         id: String
         name: String
         description: String
@@ -364,58 +349,19 @@ export const coreTypeDefinitions = gql`
     }
 
     """
-    Sample information for reconstruction
+    Specimen information for reconstruction
     """
-    type ReconstructionSample {
-        date: Date
+    type PortalReconstructionSpecimen {
+        date: String
         subject: String
         genotype: String
-        collection: ReconstructionSampleCollection
-    }
-
-    """
-    Individual neuron data within reconstruction
-    """
-    type ReconstructionNeuronData {
-        id: String!
-        idString: String!
-        DOI: String
-        sample: ReconstructionSample!
-        label: [ReconstructionLabel!]
-        annotationSpace: ReconstructionAnnotationSpace!
-        annotator: User
-        proofreader: User
-        peerReviewer: User
-        soma: ReconstructionSoma!
-        axonId: String
-        axon: [ReconstructionDataNode!]!
-        dendriteId: String
-        dendrite: [ReconstructionDataNode!]!
-        allenInformation: [ReconstructionAllenInfo!]!
-    }
-
-    """
-    Complete reconstruction data as JSON object
-    """
-    type ReconstructionDataJSON {
-        comment: String!
-        neurons: [ReconstructionNeuronData!]!
-    }
-
-    """
-    Enum for reconstruction data parts
-    """
-    enum ReconstructionDataPart {
-        header
-        axon
-        dendrite
-        allenInformation
+        collection: PortalReconstructionCollection
     }
 
     """
     Chunk information for paginated data
     """
-    type ReconstructionChunkInfo {
+    type PortalReconstructionChunkInfo {
         totalCount: Int!
         offset: Int!
         limit: Int!
@@ -423,33 +369,33 @@ export const coreTypeDefinitions = gql`
     }
 
     """
-    Header information for chunked reconstruction (everything except axon, dendrite, and allenInformation)
+    Chunked reconstruction data response
     """
-    type ReconstructionHeaderData {
+    type PortalReconstruction {
         id: String!
         idString: String!
         DOI: String
-        sample: ReconstructionSample!
-        label: [ReconstructionLabel!]
-        annotationSpace: ReconstructionAnnotationSpace!
-        annotator: User
-        proofreader: User
-        peerReviewer: User
-        soma: ReconstructionSoma!
+        sample: PortalReconstructionSpecimen!
+        label: PortalReconstructionLabel
+        annotationSpace: PortalReconstructionAnnotationSpace!
+        annotator: String
+        proofreader: String
+        peerReviewer: String
+        soma: PortalReconstructionSoma!
         axonId: String
         dendriteId: String
+        axon: [PortalReconstructionNode!]
+        axonChunkInfo: PortalReconstructionChunkInfo
+        dendrite: [PortalReconstructionNode!]
+        dendriteChunkInfo: PortalReconstructionChunkInfo
+        allenInformation: [PortalReconstructionAtlasInfo!]
     }
 
     """
     Chunked reconstruction data response
     """
-    type ReconstructionDataChunked {
+    type PortalReconstructionContainer {
         comment: String!
-        header: ReconstructionHeaderData
-        axon: [ReconstructionDataNode!]
-        axonChunkInfo: ReconstructionChunkInfo
-        dendrite: [ReconstructionDataNode!]
-        dendriteChunkInfo: ReconstructionChunkInfo
-        allenInformation: [ReconstructionAllenInfo!]
+        neurons: [PortalReconstruction]!
     }
 `;

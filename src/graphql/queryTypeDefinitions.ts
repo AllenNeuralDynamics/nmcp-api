@@ -1,10 +1,9 @@
 import {gql} from "graphql-tag";
 
 export const queryTypeDefinitions = gql`
-    type ReconstructionPage {
-        offset: Int
-        limit: Int
-        totalCount: Int
+    type ReconstructionsResponse {
+        total: Int!
+        offset: Int!
         reconstructions: [Reconstruction!]!
     }
 
@@ -13,14 +12,14 @@ export const queryTypeDefinitions = gql`
         items: [User!]!
     }
 
-    type QueryBrainAreas {
+    type QueryAtlasStructures {
         totalCount: Int!
         items: [AtlasStructure!]!
     }
 
-    type QuerySamples {
+    type QuerySpecimens {
         totalCount: Int!
-        items: [Sample!]!
+        items: [Specimen!]!
     }
 
     type QueryNeurons {
@@ -37,14 +36,6 @@ export const queryTypeDefinitions = gql`
     type EntityCountOutput {
         counts: [EntityCount]
         error: String
-    }
-
-    type PublishedReconstructionPage {
-        totalCount: Int!
-        offset: Int!
-        limit: Int!
-        sampleIds: [String!]!
-        reconstructions: [Reconstruction!]!
     }
 
     type SearchOutput {
@@ -64,15 +55,7 @@ export const queryTypeDefinitions = gql`
     type NearestNodeOutput {
         reconstructionId: String!
         location: [Float!]!
-        node: TracingNode
+        node: AtlasNode
         error: String
-    }
-
-    type QualityCheckOutput {
-        id: String!
-        qualityCheckStatus: Int
-        qualityCheck: QualityCheck
-        qualityCheckAt: Date
-        error: Error
     }
 `;

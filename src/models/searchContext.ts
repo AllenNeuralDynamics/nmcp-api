@@ -20,7 +20,7 @@ export class SearchContext {
     private readonly _predicates: IQueryPredicate[];
 
     public constructor(input: SearchContextInput) {
-        input = input || SearchContext.createDefault();
+        input = input ?? SearchContext.createDefault();
 
         this._nonce = input.nonce;
         this._predicates = (!input.predicates || input.predicates.length === 0) ? [QueryPredicate.createDefault()] : input.predicates.map(p => new QueryPredicate(p));

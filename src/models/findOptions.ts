@@ -1,29 +1,20 @@
 import {FindOptions, Op} from "sequelize";
 
 import {Neuron} from "./neuron";
-import {Sample} from "./sample";
+import {Specimen} from "./specimen";
 import {Injection} from "./injection";
 import {EntityQueryInput} from "./baseModel";
-import {ReconstructionStatus} from "./reconstructionStatus";
 
-export type WithCompartmentQueryInput = {
-    brainStructureIds?: string[];
+export type WithAtlasStructureQueryInput = {
+    atlasStructureIds?: string[];
 }
 
-export type WithMouseStrainQueryInput = {
-    mouseStrainIds?: string[];
+export type WithGenotypeQueryInput = {
+    genotypeId?: string[];
 }
 
-export type WithInjectionVirusQueryInput = {
-    injectionVirusIds?: string[];
-}
-
-export type WithFluorophoreQueryInput = {
-    fluorophoreIds?: string[];
-}
-
-export type WithSamplesQueryInput = {
-    sampleIds?: string[];
+export type WithSpecimensQueryInput = {
+    specimenIds?: string[];
 }
 
 export type WithInjectionsQueryInput = {
@@ -32,10 +23,6 @@ export type WithInjectionsQueryInput = {
 
 export type WithNeuronsQueryInput = {
     neuronIds?: string[];
-}
-
-export type WithReconstructionStatusQueryInput = {
-    reconstructionStatus?: ReconstructionStatus;
 }
 
 export function optionsIncludeInjectionIds(input: WithInjectionsQueryInput, options: FindOptions): FindOptions {
@@ -62,12 +49,12 @@ export function optionsIncludeNeuronIds(input: WithNeuronsQueryInput, options: F
     return options;
 }
 
-export function optionsIncludeSampleIds(input: WithSamplesQueryInput, options: FindOptions): FindOptions {
-    if (input && input.sampleIds && input.sampleIds.length > 0) {
+export function optionsIncludeSpecimenIds(input: WithSpecimensQueryInput, options: FindOptions): FindOptions {
+    if (input && input.specimenIds && input.specimenIds.length > 0) {
         // @ts-ignore
         options.include.push({
-            model: Sample,
-            where: {id: {[Op.in]: input.sampleIds}}
+            model: Specimen,
+            where: {id: {[Op.in]: input.specimenIds}}
         });
     }
 
@@ -77,10 +64,10 @@ export function optionsIncludeSampleIds(input: WithSamplesQueryInput, options: F
 function optionsWherePropertyIds(input: any, propertyName: string, options: FindOptions): FindOptions {
     const fieldName = `${propertyName}s`;
 
-    const outOptions = options || {where: null, include: []};
+    const outOptions = options ?? {where: null, include: []};
 
     if (input && input[fieldName] && input[fieldName].length > 0) {
-        outOptions.where = Object.assign(outOptions.where || {}, {[propertyName]: {[Op.in]: input[fieldName]}});
+        outOptions.where = Object.assign(outOptions.where ?? {}, {[propertyName]: {[Op.in]: input[fieldName]}});
     }
 
     return outOptions;
@@ -90,26 +77,14 @@ export function optionsWhereIds(input: EntityQueryInput, options: FindOptions = 
     return optionsWherePropertyIds(input, "id", options);
 }
 
-export function optionsWhereMouseStrainIds(input: WithMouseStrainQueryInput, options: FindOptions = null): FindOptions {
-    return optionsWherePropertyIds(input, "mouseStrainId", options);
+export function optionsWhereGenotypeIds(input: WithGenotypeQueryInput, options: FindOptions = null): FindOptions {
+    return optionsWherePropertyIds(input, "genotypeId", options);
 }
 
-export function optionsWhereSampleIds(input: WithSamplesQueryInput, options: FindOptions = null): FindOptions {
-    return optionsWherePropertyIds(input, "sampleId", options);
+export function optionsWhereSpecimenIds(input: WithSpecimensQueryInput, options: FindOptions = null): FindOptions {
+    return optionsWherePropertyIds(input, "specimenId", options);
 }
 
-export function optionsWhereInjectionIds(input: WithInjectionsQueryInput, options: FindOptions = null): FindOptions {
-    return optionsWherePropertyIds(input, "injectionId", options);
-}
-
-export function optionsWhereInjectionVirusIds(input: WithInjectionVirusQueryInput, options: FindOptions = null): FindOptions {
-    return optionsWherePropertyIds(input, "injectionVirusId", options);
-}
-
-export function optionsWhereFluorophoreIds(input: WithFluorophoreQueryInput, options: FindOptions = null): FindOptions {
-    return optionsWherePropertyIds(input, "fluorophoreId", options);
-}
-
-export function optionsWhereCompartmentIds(input: WithCompartmentQueryInput, options: FindOptions = null): FindOptions {
-    return optionsWherePropertyIds(input, "brainStructureId", options);
+export function optionsWhereAtlasStructureIds(input: WithAtlasStructureQueryInput, options: FindOptions = null): FindOptions {
+    return optionsWherePropertyIds(input, "atlasStructureId", options);
 }

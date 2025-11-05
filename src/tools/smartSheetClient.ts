@@ -1,15 +1,19 @@
-import moment = require("moment");
-import {AtlasStructure} from "../models/atlasStructure";
-import {RemoteDatabaseClient} from "../data-access/remoteDatabaseClient";
-import {Neuron, NeuronInput} from "../models/neuron";
+import * as fs from "fs";
+import {glob} from "glob";
+
 import {Cell, Client, createClient, Row, Sheet} from "smartsheet";
-import {Sample, SampleInput} from "../models/sample";
+import {RemoteDatabaseClient} from "../data-access/remoteDatabaseClient";
+import {AtlasStructure} from "../models/atlasStructure";
+import {Neuron, NeuronShape} from "../models/neuron";
+import {Specimen, SpecimenShape} from "../models/specimen";
 import {Collection} from "../models/collection";
 import {User} from "../models/user";
 import {Reconstruction} from "../models/reconstruction";
 import {ReconstructionStatus} from "../models/reconstructionStatus";
-import {Tracing} from "../models/tracing";
-import {glob} from "glob";
+import {ReconstructionSpace} from "../models/reconstructionSpace";
+import {Atlas} from "../models/atlas";
+import {isNullOrEmpty} from "../util/objectUtil";
+import moment = require("moment");
 
 const debug = require("debug")("nmcp:api:smartsheet");
 
@@ -24,6 +28,7 @@ enum ColumnName {
     Genotype = "Genotype",
     Notes = "Notes",
     DateStarted = "Date Started",
+    DateCompleted = "Date Completed",
     Annotator1 = "Annotator 1",
     Status1 = "Status 1",
     Annotator2 = "Annotator 2",
@@ -37,6 +42,7 @@ enum ColumnName {
     Test = "Test"
 }
 
+// Smartsheet definitions
 enum Status {
     InProgress = "In Progress",
     Hold = "Hold",
@@ -48,7 +54,7 @@ enum Status {
 
 const statusValues = Object.values(Status);
 
-type SampleRowContents = {
+type SpecimenRowContents = {
     subjectId: string;
     sampleDate: Date;
     genotype: string;
@@ -81,6 +87,8 @@ type NeuronRowContents = {
     proofreader: string;
     proofreaderEmail: string;
     assigned: string;
+    startedAt: Date;
+    completedAt: Date;
 }
 
 enum ImportQualifier {
@@ -89,195 +97,180 @@ enum ImportQualifier {
     Test = 2
 }
 
-type ParsedNeuronIdWithSample = [string, SampleRowContents];
+type ParsedNeuronIdWithSample = [string, SpecimenRowContents];
 
 // Some ugly globals while we figure out what we want.
 const reconstructionNotFound = [];
 const ccfMissing = [];
 const ccfCoordinatesParseFailed = [];
 const ccfLookupFailed = [];
+const failedToApprove = [];
+
+const neuronSelection = {
+    // "653159": ["N009", "N017"]
+};
+
+const specimenSubset = [...new Set(Object.keys(neuronSelection))];
+
+console.log(specimenSubset);
 
 // Should be an argument but testing for now.
 const allowMissingCCF = true;
 
-export const synchronize = async (sheetId: number = 0, pathToReconstructions: string = "", insertReconstructions: number = 1, inQualifier: ImportQualifier = ImportQualifier.Production, accessToken: string = "") => {
-    const token = accessToken || process.env.SS_API_TOKEN;
+function synchronize(sheetId: number, importQualifier: ImportQualifier, pathToReconstructions: string): Promise<void> {
+    return new Promise(async (resolve, reject) => {
+        const token = process.env.SS_API_TOKEN;
 
-    if (!token) {
-        debug("SmartSheet access token required.");
-        return;
-    }
+        if (!token) {
+            debug("SmartSheet access token required.");
+            reject(new Error("SmartSheet access token required."));
+        }
 
-    let qualifier: ImportQualifier;
+        const insertReconstructions = !isNullOrEmpty(pathToReconstructions);
 
-    if (typeof inQualifier === "string") {
-        qualifier = parseInt(inQualifier) as ImportQualifier;
-    } else {
-        qualifier = inQualifier;
-    }
+        debug(`SmartSheet import from ${sheetId}. Import Qualifier: ${ImportQualifier[importQualifier]}, Parse files: ${insertReconstructions}`)
 
-    debug(`SmartSheet import from ${sheetId}. Import Qualifier: ${ImportQualifier[qualifier]}, Parse files: ${insertReconstructions != 0}`)
+        await RemoteDatabaseClient.Start(false, false);
 
-    await RemoteDatabaseClient.Start(false, false);
+        await populateCollections();
 
-    await AtlasStructure.loadCompartmentCache("smartsheet import");
+        const s = new SmartSheetClient(token);
 
-    const s = new SmartSheetClient(token);
+        await s.parseSheet(sheetId, importQualifier);
 
-    await s.parseSheet(sheetId, qualifier);
+        // If true, but insertReconstructions is false, will perform the transaction to insert to check for errors, but rollback the insert to leave tracing data
+        // untouched.  This generally only changed to false in order to speed testing of other parts of the bulk sheet import process.
+        const testFlightInsertion = true;
 
-    // If true, but insertReconstructions is false, will perform the transaction to insert to check for errors, but rollback the insert to leave tracing data
-    // untouched.  This generally only changed to false in order to speed testing of other parts of the bulk sheet import process.
-    const testFlightInsertion = true;
+        await s.updateDatabase(pathToReconstructions, insertReconstructions, testFlightInsertion);
 
-    await s.updateDatabase(pathToReconstructions, insertReconstructions != 0 && pathToReconstructions.length > 0, testFlightInsertion);
+        s.print();
 
-    s.print();
-
-    if (reconstructionNotFound.length > 0) {
-        debug("Expected reconstruction data not found:")
-        reconstructionNotFound.forEach(r => {
-            debug(`\t${r.subject}-${r.neuron}`);
-        });
-    }
-
-    if (ccfMissing.length > 0) {
-        debug(`CCF soma coordinates missing ${allowMissingCCF ? "" : "(included due to allowMissingCCF = true)"}:`)
-        ccfCoordinatesParseFailed.forEach(r => {
-            debug(`\t${r.subject}-${r.neuron}`);
-        });
-    }
-
-    if (ccfCoordinatesParseFailed.length > 0) {
-        debug("Could not parse CCF soma coordinates:")
-        ccfCoordinatesParseFailed.forEach(r => {
-            debug(`\t${r.subject}-${r.neuron}`);
-        });
-    }
-
-    if (ccfLookupFailed.length > 0) {
-        debug("Failed to look up some brain compartment:")
-        ccfLookupFailed.forEach(r => {
-            debug(`\t${r.subject}-${r.neuron}`);
-        });
-    }
-};
+        resolve();
+    });
+}
 
 function isReadyToImport(status: Status): boolean {
     return status == Status.Completed || status == Status.PendingReview || status == Status.InProgress;
 }
 
-function reconstructionStatusForSmartSheetStatus(status: Status) {
+function reconstructionStatusForSmartSheetStatus(status: Status): ReconstructionStatus {
     switch (status) {
         case Status.InProgress:
             return ReconstructionStatus.InProgress;
         case Status.Hold:
             return ReconstructionStatus.OnHold;
         case Status.PendingReview:
-            return ReconstructionStatus.InReview;
+            return ReconstructionStatus.PublishReview;
         case Status.Completed:
             return ReconstructionStatus.Approved;
         case Status.Untraceable:
-            return ReconstructionStatus.Invalid;
+            return ReconstructionStatus.Discarded;
     }
 }
 
 async function ensureUser(name: string, email: string) {
     if (name && email) {
-        let names = name.split(" ");
+        let names = name.split(" ").map(s => s.trim());
 
         // Special exception for AIND-specific smartsheet variation - this user dropdown entry does not have email value w/display name.
         if (email == "kevianna.adams@alleninstitute.org") {
             names = ["Kevianna", "Adams"];
         }
 
-        return await User.findOrCreateUser(null, names.length > 0 ? names[0] : "", names.length > 1 ? names[1] : "", email)
+        return await User.findOrCreateUser(null, names.length > 0 ? names[0] : "", names.length > 1 ? names[1] : "", email, User.SystemAutomationUser)
     }
 
     return null;
 }
 
-function findBrainCompartmentSimple(label: string): AtlasStructure {
-    let somaBrainStructure = AtlasStructure.getFromAcronym(label);
-
-    const simplifiedName = label.replace(new RegExp(",", 'g'), "");
-
-    if (!somaBrainStructure) {
-        somaBrainStructure = AtlasStructure.getFromName(simplifiedName)
-    }
-
-    if (!somaBrainStructure) {
-        somaBrainStructure = AtlasStructure.getFromSafeName(simplifiedName)
-    }
-
-    return somaBrainStructure;
+function findBrainCompartmentSimple(atlas: Atlas, label: string): AtlasStructure {
+    return atlas.matchAnyLabel(label);
 }
 
-function findBrainCompartment(primaryLabel: string, secondaryLabel: string): AtlasStructure {
-    return findBrainCompartmentSimple(primaryLabel) ?? findBrainCompartmentSimple(secondaryLabel);
+function findBrainCompartment(atlas: Atlas, primaryLabel: string, secondaryLabel: string): AtlasStructure {
+    return findBrainCompartmentSimple(atlas, primaryLabel) ?? findBrainCompartmentSimple(atlas, secondaryLabel);
 }
 
-async function sampleFromRowContents(s: SampleRowContents, reconstructionLocation: string, insertReconstructions: boolean, testFlightInsertion: boolean = true) {
-    const sample = await Sample.findOrCreateForSubject(s.subjectId);
+const immutableReconstructionStatus = [ReconstructionStatus.Published, ReconstructionStatus.Archived, ReconstructionStatus.Discarded];
 
+async function specimenDataFromRow(s: SpecimenRowContents, reconstructionLocation: string, insertReconstructions: boolean, testFlightInsertion: boolean = true) {
     const collection = await Collection.findByName(s.collectionName);
 
     if (!collection) {
-        debug(`no matching collection ${s.collectionName} for sample ${s.subjectId}`);
+        debug(`no matching collection ${s.collectionName} for specimen ${s.subjectId}`);
         return;
     }
 
-    const input: SampleInput = {
-        id: sample.id,
-        animalId: s.subjectId,
-        sampleDate: s.sampleDate?.valueOf(),
-        mouseStrainName: s.genotype,
-        tag: s.notes,
+    const shape: SpecimenShape = {
+        label: s.subjectId,
+        referenceDate: s.sampleDate,
+        genotypeName: s.genotype,
+        notes: s.notes,
         collectionId: collection.id
+    };
+
+    let specimen: Specimen;
+
+    try {
+        specimen = await Specimen.createOrUpdateForShape(shape, User.SystemAutomationUser, {allowCreate: true, allowMatchLabel: true});
+    } catch (e) {
+        debug(`error with createOrUpdateForShape for specimen ${s.subjectId}`)
+        debug(e);
+        return;
     }
 
-    await Sample.updateWith(input);
+    const suitableReconstructions: NeuronRowContents[] = [];
 
-    await Promise.all(s.neurons.map(async (n) => {
-        let somaBrainStructure = findBrainCompartment(n.manualBrainStructureAcronym, n.ccfBrainStructureAcronym)?.id
-
-        if (!somaBrainStructure) {
-            ccfLookupFailed.push({subject: s.subjectId, neuron: n.idString});
-            debug(`failed to look up soma brain structure for ${s.subjectId}-${n.idString}:`);
-            debug(`\tmanual estimated: ${n.manualBrainStructureAcronym.replace(new RegExp(",", 'g'), "")}`);
-            debug(`\tccf: ${n.ccfBrainStructureAcronym.replace(new RegExp(",", 'g'), "")}`);
-            // return;
+    for (const n of s.neurons) {
+        if (neuronSelection[s.subjectId] !== undefined) {
+            if (!neuronSelection[s.subjectId].includes(n.idString)) {
+                debug("exempted");
+                continue;
+            }
         }
 
-        let neuron = null;
+        let somaAtlasStructure = findBrainCompartment(specimen.getAtlas(), n.manualBrainStructureAcronym, n.ccfBrainStructureAcronym)?.id
 
-        try {
-            neuron = await Neuron.findOrCreateWithIdString(n.idString, sample.id);
-        } catch (e) {
-            debug(`error with findOrCreateWithIdString for neuron ${n.idString} (sample ${s.subjectId})`)
-            return
+        if (!somaAtlasStructure) {
+            ccfLookupFailed.push({
+                subject: s.subjectId,
+                neuron: n.idString,
+                manual: n.manualBrainStructureAcronym,
+                ccf: n.ccfBrainStructureAcronym
+            });
         }
 
-        n.id = neuron.id;
+        const assigned = n.assigned?.trim() ?? "";
 
-        const input: NeuronInput = {
-            id: n.id,
-            x: n.x,
-            y: n.y,
-            z: n.z,
-            sampleX: n.sampleX,
-            sampleY: n.sampleY,
-            sampleZ: n.sampleZ,
-            brainStructureId: somaBrainStructure,
-            tag: n.assigned?.trim() ?? ""
+        const shape: NeuronShape = {
+            specimenId: specimen.id,
+            label: n.idString,
+            specimenSoma: {
+                x: n.sampleX,
+                y: n.sampleY,
+                z: n.sampleZ,
+            },
+            atlasSoma: {
+                x: n.x,
+                y: n.y,
+                z: n.z,
+            },
+            atlasStructureId: somaAtlasStructure,
+            keywords: assigned.length > 0 ? [assigned] : []
         };
 
-        // debug(`updating neuron ${n.idString} (sample ${sample.animalId})`)
+        try {
+            const neuron = await Neuron.createOrUpdateForShape(shape, User.SystemAutomationUser, {allowCreate: true, allowMatchLabel: true});
+            n.id = neuron.id;
+            suitableReconstructions.push(n);
+            debug(`neuron ${neuron.label} (specimen ${specimen.label}) OK`)
+        } catch (e) {
+            debug(`error with createOrUpdateForShape for neuron ${n.idString} (specimen ${specimen.label})`)
+        }
+    }
 
-        await Neuron.updateWith(input);
-    }));
-
-    const neuronsForReconstructions = s.neurons.filter(n => isReadyToImport(n.status));
+    const neuronsForReconstructions = suitableReconstructions.filter(n => isReadyToImport(n.status));
 
     const users = new Map<string, User>()
 
@@ -307,66 +300,77 @@ async function sampleFromRowContents(s: SampleRowContents, reconstructionLocatio
     for (const n of neuronsForReconstructions) {
         if (!n.id) {
             // Earlier issue w/parsing - neuron not created.
-            return;
+            continue;
         }
 
         const annotator1 = users.get(n.annotatorEmail);
 
         const annotator2 = users.get(n.annotator2Email);
 
-        const annotator = annotator1 || annotator2;
+        const annotator = annotator1 ?? annotator2;
+
+        const proofreader = users.get(n.proofreaderEmail);
 
         if (!annotator) {
             debug(`neuron ${n.idString}-${s.subjectId} is missing annotator - skipped`)
-            return;
+            continue;
         }
+        const targetStatus = reconstructionStatusForSmartSheetStatus(n.status);
 
         try {
-            let reconstruction = await Reconstruction.findOne({
-                where: {
-                    annotatorId: annotator.id,
-                    neuronId: n.id
-                }
-            });
+            // This tool assumes one instance of a reconstruction per annotator, per candidate.  If the information in SmartSheets is meant to allow a second
+            // reconstruction for the same annotator on the same neuron/candidate, this must be changed.
+            let reconstruction = await Reconstruction.findOrOpenReconstruction(n.id, annotator, User.SystemAutomationUser);
 
-            const updateStatus = reconstructionStatusForSmartSheetStatus(n.status);
-
-            if (reconstruction) {
-                // TODO This will overwrite any manual changes make in the portal - is this ok?
-                const updates = {
-                    notes: n.notes,
-                    checks: n.checks,
-                    durationHours: isNaN(n.duration) ? 0 : n.duration,
-                    lengthMillimeters: isNaN(n.length) ? 0 : n.length,
-                };
-
-                // Can only override certain status values.
-                if (reconstruction.status == ReconstructionStatus.InReview || reconstruction.status == ReconstructionStatus.OnHold || reconstruction.status == ReconstructionStatus.InProgress) {
-                    updates["status"] = updateStatus;
-                }
-
-                // debug(`updating reconstruction ${reconstruction.id} (${n.idString}-${s.subjectId})`)
-
-                await reconstruction.update(updates);
-            } else {
-                reconstruction = await Reconstruction.create({
-                    neuronId: n.id,
-                    annotatorId: annotator.id,
-                    status: updateStatus,
-                    notes: n.notes,
-                    checks: n.checks,
-                    durationHours: isNaN(n.duration) ? 0 : n.duration,
-                    lengthMillimeters: isNaN(n.length) ? 0 : n.length,
-                    startedAt: null
-                });
-
-                // debug(`created reconstruction ${reconstruction.id} (${n.idString}-${s.subjectId})`)
+            // Do not modify a published, archived, or discards reconstruction.
+            if (immutableReconstructionStatus.includes(reconstruction.status)) {
+                debug(`${reconstruction.id} (${n.idString}-${s.subjectId}) skipped ${ReconstructionStatus[reconstruction.status]}.`)
+                continue;
             }
 
-            // Do not replace tracing if already published.
-            if (reconstruction.status >= ReconstructionStatus.PendingStructureAssignment) {
-                debug(`updating reconstruction ${reconstruction.id} (${n.idString}-${s.subjectId}) is already published or pending publication.`)
-                continue;
+            const checks = n.checks ? "\n" + n.checks : "";
+
+            debug(`updating reconstruction ${reconstruction.id} (${n.idString}-${s.subjectId})`);
+
+            const updates = {
+                notes: n.notes + checks,
+                durationHours: isNaN(n.duration) ? null : n.duration,
+                startedAt: n.startedAt ?? null,
+                completedAt: n.completedAt ?? null
+            };
+
+            await reconstruction.update(updates);
+
+            switch (targetStatus) {
+                case ReconstructionStatus.InProgress:
+                    continue;
+                case ReconstructionStatus.OnHold:
+                    await Reconstruction.pauseReconstruction(reconstruction.id, annotator, User.SystemAutomationUser)
+                    continue;
+                case ReconstructionStatus.PublishReview:
+                    await Reconstruction.requestReview({
+                        reconstructionId: reconstruction.id,
+                        targetStatus: ReconstructionStatus.PublishReview
+                    }, annotator, User.SystemAutomationUser, true);
+                    continue;
+                case ReconstructionStatus.Approved:
+                    // Approve is not viable b/c reconstruction has not been uploaded.  Try after that is performed below.
+                    await Reconstruction.requestReview({
+                        reconstructionId: reconstruction.id,
+                        targetStatus: ReconstructionStatus.PublishReview
+                    }, annotator, User.SystemAutomationUser, true);
+                    /*
+                    reconstruction = await Reconstruction.approveReconstruction(reconstruction.id, ReconstructionStatus.Approved, proofreader ?? User.SystemAutomationUser, User.SystemAutomationUser, true);
+                    if (reconstruction.status != ReconstructionStatus.Approved) {
+                        failedToApprove.push(`${reconstruction.id} (${n.idString}-${s.subjectId})`);
+                        debug(`failed to approve reconstruction ${reconstruction.id} (${n.idString}-${s.subjectId})`);
+                        continue;
+                    }
+                    */
+                    break;
+                case ReconstructionStatus.Discarded:
+                    await Reconstruction.discardReconstruction(reconstruction.id, annotator, User.SystemAutomationUser);
+                    continue;
             }
 
             const file_prefix = `${n.idString}-${s.subjectId}`;
@@ -377,16 +381,27 @@ async function sampleFromRowContents(s: SampleRowContents, reconstructionLocatio
                 if (jsonPath) {
                     if (insertReconstructions || testFlightInsertion) {
                         debug(`\tupdating or adding reconstruction data for ${file_prefix}`)
-                        const result = await Tracing.createTracingFromJson(reconstruction.id, jsonPath, insertReconstructions);
+                        try {
+                            await Reconstruction.fromJsonFile(proofreader ?? User.SystemAutomationUser, reconstruction.id, jsonPath, ReconstructionSpace.Atlas, User.SystemAutomationUser);
 
-                        if (result.error) {
+                            if (targetStatus == ReconstructionStatus.Approved) {
+                                reconstruction = await Reconstruction.approveReconstruction(reconstruction.id, ReconstructionStatus.Approved, proofreader ?? User.SystemAutomationUser, User.SystemAutomationUser, true);
+                                if (reconstruction.status != ReconstructionStatus.WaitingForAtlasReconstruction) {
+                                    failedToApprove.push(`${reconstruction.id} (${n.idString}-${s.subjectId})`);
+                                    debug(`failed to approve reconstruction ${reconstruction.id} (${n.idString}-${s.subjectId})`);
+                                }
+                            }
+                        } catch (error) {
                             debug(`\t---> parsing error for ${jsonPath}`);
-                            debug(`\t---> ${result.error}`);
+                            debug(error);
+                            debug(`\t---`);
                         }
                     }
                 } else if (reconstruction.status == ReconstructionStatus.Approved) {
                     reconstructionNotFound.push({subject: s.subjectId, neuron: n.idString});
                     debug(`\t---> expected reconstruction data not found for ${file_prefix}`);
+                } else {
+                    debug(`\t---> failed to find reconstruction data for unexpected status: ${reconstruction.status} for: ${reconstruction.id} (${n.idString}-${s.subjectId}`);
                 }
             } catch (err) {
                 debug(`---> issue detecting file for ${file_prefix}`);
@@ -404,17 +419,17 @@ async function locateReconstructionFile(baseLocation: string, file_prefix: strin
     return sources?.length > 0 ? sources[0] : null;
 }
 
-export class SmartSheetClient {
+class SmartSheetClient {
     private static columns: Map<ColumnName, number> = new Map();
 
     private _client: Client;
 
     // Samples that will be used.
-    private samples: Map<string, SampleRowContents>;
+    private samples: Map<string, SpecimenRowContents>;
 
     // Samples that may be used if a neuron meets the requirements.  Primarily this is used for the production instance where a subset of neurons may be
     // marked for production and the parent sample is not.  Those samples linger here until or unless an associated neuron is marked to use.
-    private pendingSamples: Map<string, SampleRowContents>;
+    private pendingSamples: Map<string, SpecimenRowContents>;
 
 
     public constructor(token: string) {
@@ -451,10 +466,14 @@ export class SmartSheetClient {
     }
 
     public async updateDatabase(reconstructionLocation: string, insertReconstructions: boolean, testFlightInsertion: boolean = true) {
-        const ordered = Array.from(this.samples.values()).sort((a, b) => a.subjectId.localeCompare(b.subjectId));
+        let ordered = Array.from(this.samples.values()).sort((a, b) => a.subjectId.localeCompare(b.subjectId));
+
+        if (specimenSubset.length > 0) {
+            ordered = ordered.filter(o => specimenSubset.includes(o.subjectId));
+        }
 
         for (const s of ordered) {
-            await sampleFromRowContents(s, reconstructionLocation, insertReconstructions, testFlightInsertion);
+            await specimenDataFromRow(s, reconstructionLocation, insertReconstructions, testFlightInsertion);
         }
     }
 
@@ -462,31 +481,68 @@ export class SmartSheetClient {
         const showPending = false;
 
         let ordered = Array.from(this.samples.values()).sort((a, b) => a.subjectId.localeCompare(b.subjectId));
-        debug(`subjects with imports:`);
-        ordered.forEach(s => {
-            if (s.neurons.length > 0) {
-                debug(`\t${s.subjectId} imported with ${s.neurons.length} neuron(s)`);
-            }
-        });
+        if (ordered.length > 0) {
+            debug(`subjects with imports:`);
+            ordered.forEach(s => {
+                if (s.neurons.length > 0) {
+                    debug(`\t${s.subjectId} imported with ${s.neurons.length} neuron(s)`);
+                }
+            });
+        }
 
-        let shown = false;
-        debug(`subjects with expected imports that are missing:`);
-        ordered.forEach(s => {
-            if (s.neurons.length == 0) {
-                debug(`\t${s.subjectId}`);
-                shown = true;
-            }
-        });
-
-        if (!shown) {
-            debug("\tnone");
+        if (ordered.length > 0) {
+            let needTitle = true;
+            ordered.forEach(s => {
+                if (s.neurons.length == 0) {
+                    if (needTitle) {
+                        debug(`subjects with expected imports that are missing:`);
+                        needTitle = false;
+                    }
+                    debug(`\t${s.subjectId}`);
+                }
+            });
         }
 
         if (showPending) {
             ordered = Array.from(this.pendingSamples.values()).sort((a, b) => a.subjectId.localeCompare(b.subjectId));
-            debug(`subjects stuck in pending:`);
-            ordered.forEach(s => {
-                debug(`\t${s.subjectId}`);
+            if (ordered.length > 0) {
+                debug(`subjects stuck in pending:`);
+                ordered.forEach(s => {
+                    debug(`\t${s.subjectId}`);
+                });
+            }
+        }
+
+        if (reconstructionNotFound.length > 0) {
+            debug("reconstruction marked approved, but data not found:")
+            reconstructionNotFound.forEach(r => {
+                debug(`\t${r.subject}-${r.neuron}`);
+            });
+        }
+
+        if (ccfMissing.length > 0) {
+            debug(`ccf soma coordinates missing ${allowMissingCCF ? "" : "(included due to allowMissingCCF = true)"}:`)
+            debug(ccfMissing.map(r => `\t${r.subject}-${r.neuron}`).join(", "));
+        }
+
+        if (ccfCoordinatesParseFailed.length > 0) {
+            debug("could not parse CCF soma coordinates:")
+            ccfCoordinatesParseFailed.forEach(r => {
+                debug(`\t${r.subject}-${r.neuron}`);
+            });
+        }
+
+        if (ccfLookupFailed.length > 0) {
+            debug("failed to look up soma atlas structure:")
+            ccfLookupFailed.forEach(r => {
+                debug(`\t${r.subject}-${r.neuron}`);
+            });
+        }
+
+        if (failedToApprove.length > 0) {
+            debug("failed to approve reconstructions:")
+            ccfLookupFailed.forEach(r => {
+                debug(r);
             });
         }
     }
@@ -497,7 +553,7 @@ export class SmartSheetClient {
         const notes = this.getStringValue(row, ColumnName.Notes);
         const collectionName = this.getDisplayValue(row, ColumnName.Collection)
 
-        const filename = this.getStringValue(row, ColumnName.DateStarted);
+        const sampleDate = this.getDateValue(row, ColumnName.DateStarted);
 
         let cell = null;
 
@@ -510,15 +566,6 @@ export class SmartSheetClient {
             cell = this.getCell(row, ColumnName.Test);
             if (!cell) {
                 throw new Error("Failed to find Test column");
-            }
-        }
-
-        let sampleDate: Date = null;
-
-        if (filename) {
-            const parsed = moment(filename, "YYYY-MM-DD");
-            if (parsed.isValid()) {
-                sampleDate = parsed.toDate();
             }
         }
 
@@ -628,7 +675,9 @@ export class SmartSheetClient {
             checks: this.getStringValue(row, ColumnName.Checks),
             proofreader: this.getDisplayValue(row, ColumnName.Proofreader),
             proofreaderEmail: this.getStringValue(row, ColumnName.Proofreader),
-            assigned: this.getStringValue(row, ColumnName.Assigned)
+            assigned: this.getStringValue(row, ColumnName.Assigned),
+            startedAt: this.getDateValue(row, ColumnName.DateStarted),
+            completedAt: this.getDateValue(row, ColumnName.DateCompleted)
         };
 
         sample.neurons.push(neuron);
@@ -699,6 +748,19 @@ export class SmartSheetClient {
         return null;
     }
 
+    private getDateValue(row: Row, name: ColumnName): Date {
+        const date = this.getStringValue(row, name);
+
+        if (date) {
+            const parsed = moment(date, "YYYY-MM-DD");
+            if (parsed.isValid()) {
+                return parsed.toDate();
+            }
+        }
+
+        return null;
+    }
+
     private findColumnIds(sheet: Sheet) {
         if (SmartSheetClient.columns.size > 0) {
             return;
@@ -713,3 +775,44 @@ export class SmartSheetClient {
         });
     }
 }
+
+const exaSPIMCollection = {
+    name: "ExaSPIM"
+}
+
+const fMostCollection = {
+    name: "fMOST"
+}
+
+async function populateCollections(): Promise<void> {
+    await Collection.createOrUpdateForShape(User.SystemAutomationUser, exaSPIMCollection, true);
+    await Collection.createOrUpdateForShape(User.SystemAutomationUser, fMostCollection, true);
+}
+
+if (process.argv.length < 3 || isNaN(parseInt(process.argv[2]))) {
+    console.error("SmartSheet sheet numeric id required.");
+    process.exit(-1);
+}
+
+let importQualifier = ImportQualifier.Test;
+let reconstructionLocation: string = null;
+
+if (process.argv.length > 3) {
+    const qualifier = parseInt(process.argv[3]);
+    if (!isNaN(qualifier)) {
+        importQualifier = qualifier;
+    }
+}
+
+if (process.argv.length > 4 && process.argv[4]) {
+    if (process.argv[4]) {
+        if (fs.existsSync(process.argv[4])) {
+            reconstructionLocation = process.argv[4];
+        }
+    } else {
+        console.error(`${process.argv[4]} is not readable.`);
+        process.exit(-1);
+    }
+}
+
+synchronize(parseInt(process.argv[2]), importQualifier, reconstructionLocation).then(debug("done"));

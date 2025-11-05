@@ -6,6 +6,8 @@ import {queryTypeDefinitions} from "./queryTypeDefinitions";
 import {mutationTypeDefinitions} from "./mutationTypeDefinitions";
 
 export const typeDefinitions = gql`
+    directive @hidden on FIELD_DEFINITION | OBJECT | INPUT_OBJECT
+
     ${coreTypeDefinitions}
     ${inputTypeDefinitions}
     ${queryTypeDefinitions}
@@ -25,20 +27,38 @@ export const typeDefinitions = gql`
         """Returns supported operators for use in search queries."""
         queryOperators: [QueryOperator!]!
 
-        """Returns the pre-define set of all node structure identifiers (e.g., soma, branch, end, etc)."""
-        structureIdentifiers: [StructureIdentifier!]!
+        """Returns the pre-define set of all node structures (e.g., soma, branch, end, etc)."""
+        nodeStructures: [NodeStructure!]!
 
-        """Returns the pre-defined set of all reconstruction elements (axon, dendrite)."""
-        tracingStructures: [TracingStructure!]!
+        """Returns the pre-defined set of neuron structures (axon, dendrite)."""
+        neuronStructures: [NeuronStructure!]!
 
-        """Returns all brain structures, subject to any input filtering."""
+        """Returns all atlas structures, subject to any input filtering."""
         atlasStructures(input: AtlasStructureQueryInput): [AtlasStructure!]!
 
-        """Returns details for a single brain compartment."""
+        """Returns details for a single atlas structure."""
         atlasStructure(id: String!): AtlasStructure
 
         """Returns details for all collections."""
         collections: [Collection!]!
+
+        """Returns details for all genotypes."""
+        genotypes: [Genotype!]!
+
+        """Returns details for all fluorophores."""
+        fluorophores: [Fluorophore!]!
+
+        """Returns details for all injection viruses."""
+        injectionViruses: [InjectionVirus!]!
+
+        """ Returns details for all specimens, subject to any input filtering."""
+        specimens(input: SpecimenQueryInput): QuerySpecimens
+
+        """Returns details for a single aneuron."""
+        neuron(id: String!): Neuron
+
+        """Returns a filtered list of candidate neurons."""
+        candidateNeurons(input: NeuronQueryInput, includeInProgress: Boolean): QueryNeurons
 
         """Returns a set of reconstructions based on the provided search criteria."""
         searchNeurons(context: SearchContext): SearchOutput
@@ -48,8 +68,8 @@ export const typeDefinitions = gql`
 
         # The following are not used by any of the services themselves at this time.  They are open/public for use by scripts/tools that may want to access
         # the data.
-
-        publishedReconstructions(input: PublishedReconstructionPageInput): PublishedReconstructionPage!
+        """Returns all or subset of published reconstruction details"""
+        publishedReconstructions(offset: Int, limit: Int): ReconstructionsResponse!
 
         #
         # Secure queries that require user-level authentication.
@@ -57,37 +77,18 @@ export const typeDefinitions = gql`
 
         users(input: UserQueryInput): QueryUsers
 
-        structureIdentifier(id: String): StructureIdentifier!
+        nodeStructure(id: String): NodeStructure!
 
-        genotypes(input: GenotypeQueryInput): [Genotype!]!
         genotype(id: String!): Genotype
-
-        injectionViruses(input: InjectionVirusQueryInput): [InjectionVirus!]!
-        injectionVirus(id: String!): InjectionVirus
-
-        fluorophores(input: FluorophoreQueryInput): [Fluorophore!]!
-        fluorophore(id: String!): Fluorophore
 
         injections(input: InjectionQueryInput): [Injection!]!
         injection(id: String!): Injection
 
-        samples(input: SampleQueryInput): QuerySamples
-        sample(id: String!): Sample
+        specimen(id: String!): Specimen
 
         neurons(input: NeuronQueryInput): QueryNeurons
-        neuron(id: String!): Neuron
 
-        unregisteredReconstructions(neuronId: String!): [UnregisteredReconstruction!]!
-
-        reconstructions(pageInput: ReconstructionPageInput): ReconstructionPage!
-        reconstruction(id: String): Reconstruction
-
-        candidateNeurons(input: NeuronQueryInput, includeInProgress: Boolean): QueryNeurons
-
-        reviewableReconstructions(input: ReviewPageInput): ReconstructionPage!
-        peerReviewableReconstructions(input: PeerReviewPageInput): ReconstructionPage!
-
-        qualityCheck(id: String): QualityCheck
+        reconstructions(queryArgs: ReconstructionQueryArgs!): ReconstructionsResponse
 
         issueCount: Int!
 
@@ -96,16 +97,8 @@ export const typeDefinitions = gql`
         #
         # Internal queries that require system authentication.
         #
-
-        reconstructionData(id: String!): String
-
-        """Returns reconstruction data as a structured JSON object instead of a string"""
-        reconstructionDataJSON(id: String!): ReconstructionDataJSON
-
         """Returns reconstruction data with support for partial fetching and chunking"""
-        reconstructionDataChunked(id: String!, input: ReconstructionDataChunkedInput): ReconstructionDataChunked
-
-        neuronReconstructionData(id: String!): String
+        reconstructionAsJSON(id: String!, options: PortalReconstructionInput): PortalReconstructionContainer
 
         pendingPrecomputed: [Precomputed!]!
     }
@@ -119,67 +112,52 @@ export const typeDefinitions = gql`
         # Secure mutations that require user-level authentication.
         #
 
-        createMouseStrain(mouseStrain: MouseStrainInput): MutatedMouseStrain!
-        updateMouseStrain(mouseStrain: MouseStrainInput): MutatedMouseStrain!
+        createInjection(injectionInput: InjectionInput): Injection!
+        updateInjection(injectionInput: InjectionInput): Injection!
+        deleteInjection(id: String!): String!
 
-        createInjectionVirus(injectionVirus: InjectionVirusInput): MutatedInjectionVirus!
-        updateInjectionVirus(injectionVirus: InjectionVirusInput): MutatedInjectionVirus!
+        createSpecimen(specimen: SpecimenInput): Specimen!
+        updateSpecimen(specimen: SpecimenInput): Specimen!
+        deleteSpecimen(id: String!): String!
 
-        createFluorophore(fluorophore: FluorophoreInput): MutatedFluorophore!
-        updateFluorophore(fluorophore: FluorophoreInput): MutatedFluorophore!
+        createNeuron(neuron: NeuronInput): Neuron!
+        updateNeuron(neuron: NeuronInput): Neuron!
+        deleteNeuron(id: String!): String!
 
-        createInjection(injectionInput: InjectionInput): MutatedInjection!
-        updateInjection(injectionInput: InjectionInput): MutatedInjection!
-        deleteInjection(id: String!): DeleteOutput!
-
-        createSample(sample: SampleInput): MutatedSample!
-        updateSample(sample: SampleInput): MutatedSample!
-        deleteSample(id: String!): DeleteOutput!
-
-        createNeuron(neuron: NeuronInput): MutatedNeuron!
-        updateNeuron(neuron: NeuronInput): MutatedNeuron!
-        deleteNeuron(id: String!): DeleteOutput!
-
-        createCollection(collection: CollectionInput!): MutatedCollection!
-        updateCollection(collection: CollectionInput!): MutatedCollection!
-        deleteCollection(id: String!): DeleteOutput!
+        createCollection(collection: CollectionInput!): Collection!
+        updateCollection(collection: CollectionInput!): Collection!
+        # No delete.  Has implications that are not yet handled.
 
         updateUserPermissions(id: String!, permissions: Int!): User
-        updateUserAnonymity(id: String!, anonymousCandidate: Boolean!, anonymousComplete: Boolean!): User
+        updateUserAnonymity(id: String!, anonymousAnnotation: Boolean!, anonymousPublish: Boolean!): User
 
         importSomas(file: Upload!, options: ImportSomasOptions!): ImportSomasOutput!
 
-        uploadReconstructionData(reconstructionId: String, structureId: String, file: Upload): ReconstructionUploadOutput!
-        uploadUnregisteredJsonData(neuronId: String!, file: Upload!, reconstructionId: String): UnregisteredReconstructionUploadOutput!
-        uploadUnregisteredSwcData(neuronId: String!, axonFile: Upload!, dendriteFile: Upload!, reconstructionId: String): UnregisteredReconstructionUploadOutput!
+        openReconstruction(neuronId: String!): Reconstruction
+        pauseReconstruction(reconstructionId: String!): Reconstruction
+        resumeReconstruction(reconstructionId: String!): Reconstruction
+        requestReview(reconstructionId: String!, targetStatus: Int!, duration: Float, notes: String): Reconstruction
+        approveReconstruction(reconstructionId: String!, targetStatus: Int!): Reconstruction
 
-        requestReconstruction(id: String!): Tracing
-        requestReconstructionHold(id: String!): Error
-        requestReconstructionPeerReview(id: String!, duration: Float!, length: Float!, notes: String!, checks: String!): Error
-        requestReconstructionReview(id: String!, duration: Float!, length: Float!, notes: String!, checks: String!): Error
-        updateReconstruction(id: String!, duration: Float!, length: Float!, notes: String!, checks: String!): Error
-        approveReconstructionPeerReview(id: String!): Error
-        approveReconstruction(id: String!): Error
-        declineReconstruction(id: String!): Error
-        cancelReconstruction(id: String!): Error
         """Requests the reconstruction be queued for publishing.  May not be immediately available as published."""
-        publishReconstruction(id: String!): Error
-        deleteReconstruction(id: String!): Boolean
+        publish(reconstructionId: String!): Reconstruction
+        publishAll(reconstructionIds: [String!]!): [Reconstruction!]!
+        rejectReconstruction(reconstructionId: String!): Reconstruction
+        discardReconstruction(reconstructionId: String!): Reconstruction
 
-        unpublish(id: String!): Boolean
+        updateReconstruction(reconstructionId: String!, duration: Float, notes: String, started: Date, completed: Date): Reconstruction
+        uploadJsonData(uploadArgs: JsonUploadArgs!): Reconstruction
+        uploadSwcData(uploadArgs: SwcUploadArgs!): Reconstruction
 
-        requestQualityCheck(id: String!): QualityCheckOutput
-
-        createIssue(neuronId: String, reconstructionId: String, kind: Int!, description: String!): Issue
-        closeIssue(id: String!, reason: String!): Boolean
+        openIssue(kind: Int!, description: String!, references: [IssueReferenceInput!]!): Issue
+        modifyIssue(id: String!, status: Int!): Issue
+        closeIssue(id: String!, resolutionKind: Int!, resolution: String!): Issue
 
         #
         # Internal mutations that require system authentication.
         #
 
-        updatePrecomputed(id: String!, version: Int!, generatedAt: Date!): Precomputed
-
-        invalidatePrecomputed(ids: [String!]!): [String!]!
+        updatePrecomputed(id: String!, status: Int!, version: Int!, generatedAt: Date!): Precomputed
     }
 
     schema {

@@ -1,9 +1,9 @@
 import * as byline from "byline";
 import * as fs from "fs";
 import JSONStream = require("JSONStream");
-import {SimpleNode, SimpleNeuronStructure} from "./parsedReconstruction";
-import {AtlasStructure} from "../models/atlasStructure";
-import {AxonStructureId, DendriteStructureId} from "../models/tracingStructure";
+import {PortalJsonNode} from "./portalJson";
+import {NeuronStructure} from "../models/neuronStructure";
+import {SimpleNeuronStructure} from "./simpleReconstruction";
 
 const debug = require("debug")("nmcp:nmcp-api:json-parser");
 
@@ -77,13 +77,13 @@ function oneFileComplete(data: string, resolve, reject) {
 }
 
 function parseObj(obj: any): [SimpleNeuronStructure, SimpleNeuronStructure] {
-    const axonData = createNeuronStructure(AxonStructureId, obj.axon);
+    const axonData = createNeuronStructure(NeuronStructure.AxonStructureId, obj.axon);
 
     if (axonData) {
         axonData.finalize();
     }
 
-    const dendriteData = createNeuronStructure(DendriteStructureId, obj.dendrite)
+    const dendriteData = createNeuronStructure(NeuronStructure.DendriteStructureId, obj.dendrite)
 
     if (dendriteData) {
         dendriteData.finalize();
@@ -92,33 +92,34 @@ function parseObj(obj: any): [SimpleNeuronStructure, SimpleNeuronStructure] {
     return [axonData, dendriteData];
 }
 
-function createNeuronStructure(neuronStructureId: string, nodes: any[]): SimpleNeuronStructure {
-    if (!nodes) {
+function createNeuronStructure(neuronStructureId: string, jsonNodes: any[]): SimpleNeuronStructure {
+    if (!jsonNodes) {
         return null;
     }
     const data = new SimpleNeuronStructure(neuronStructureId);
 
-    const samples = parseSamples(nodes);
+    const nodes = parseNodes(jsonNodes);
 
-    samples.forEach(n => {
-        data.addSample(n);
+    nodes.forEach(n => {
+        data.addNode(n);
     });
 
     return data;
 }
 
-function parseSamples(nodes: any[]): SimpleNode[] {
+function parseNodes(nodes: any[]): PortalJsonNode[] {
     return nodes.map((n: any) => {
         return {
             sampleNumber: n.sampleNumber,
             parentNumber: n.parentNumber,
-            structure: n.structureIdentifier,
+            structureIdentifier: n.structureIdentifier,
             x: n.x,
             y: n.y,
             z: n.z,
             radius: n.radius,
-            lengthToParent: 0,
-            brainStructureId: AtlasStructure.getFromStructureId(n.allenId)?.id
+            lengthToParent: n.lengthToParent ?? 0,
+            // TODO Atlas should not be hard-coded, but too lazy to properly propagate until the while JSON-representation code is cleaned up
+            allenId: n.allenId
         };
     });
 }

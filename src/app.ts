@@ -1,26 +1,26 @@
 import * as os from "os";
 import * as express from "express";
 import * as bodyParser from "body-parser";
-import * as cors from 'cors';
+import * as cors from "cors";
 import {ApolloServer} from '@apollo/server';
 import {expressMiddleware} from '@apollo/server/express4';
 
 const graphqlUploadExpress = require('graphql-upload/graphqlUploadExpress.js');
-import {merge} from 'lodash';
 import {jwtDecode} from "jwt-decode";
 import moment = require("moment");
 
 const debug = require("debug")("mnb:nmcp-api:server");
 
 import {ServiceOptions} from "./options/serviceOptions";
-import {typeDefinitions} from "./graphql/typeDefinitions";
-import {openResolvers} from "./graphql/openResolvers";
-import {secureResolvers} from "./graphql/secureResolvers";
-import {internalResolvers} from "./graphql/internalResolvers";
 import {RemoteDatabaseClient} from "./data-access/remoteDatabaseClient";
 
 import {synchronizationManagerStart} from "./synchronization/synchonizationManager";
-import {User, UserPermissions} from "./models/user";
+import {User} from "./models/user";
+import {typeDefinitions} from "./graphql/typeDefinitions";
+import {merge} from "lodash";
+import {openResolvers} from "./graphql/openResolvers";
+import {secureResolvers} from "./graphql/secureResolvers";
+import {internalResolvers} from "./graphql/internalResolvers";
 
 start().then().catch((err) => debug(err));
 
@@ -38,7 +38,7 @@ async function start() {
     const server = new ApolloServer<User>({
         typeDefs: typeDefinitions,
         resolvers: merge(openResolvers, secureResolvers, internalResolvers),
-        introspection: process.env.NODE_ENV === "development",
+        introspection: process.env.NODE_ENV === "development" || process.env.NMCP_EXPERIMENTAL_ENV === "true",
         csrfPrevention: false
     });
 
@@ -60,10 +60,7 @@ async function start() {
 
                 if (requireAuthentication) {
                     if (ServiceOptions.serverAuthenticationKey != null && token == ServiceOptions.serverAuthenticationKey) {
-                        return {
-                            id: "00000000-FFFF-FFFF-FFFF-000000000000",
-                            permissions: UserPermissions.InternalSystem
-                        };
+                        return User.SystemInternalUser;
                     }
 
                     let [scopes, tokenUser] = await validateToken(token);
@@ -73,15 +70,12 @@ async function start() {
                     }
                 }
 
-                return user || {
-                    id: "00000000-0000-0000-0000-000000000000",
-                    permissions: UserPermissions.None
-                };
+                return user || User.SystemNoUser;
             }
         })
     );
 
-    app.listen(ServiceOptions.port, () => debug(`sample api server is now running on http://${os.hostname()}:${ServiceOptions.port}/graphql`));
+    app.listen(ServiceOptions.port, () => debug(`nmcp api server is now running on http://${os.hostname()}:${ServiceOptions.port}/graphql`));
 }
 
 export type TokenOutput = [scopes: string[], user: User];
