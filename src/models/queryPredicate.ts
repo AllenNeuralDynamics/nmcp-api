@@ -1,6 +1,5 @@
 import {FindOptions, Op} from "sequelize";
 
-import {AtlasStructure} from "./atlasStructure";
 import {operatorIdValueMap} from "./queryOperator";
 import {NodeStructure} from "./nodeStructure";
 import {Atlas} from "./atlas";

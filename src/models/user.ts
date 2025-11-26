@@ -70,6 +70,9 @@ export class User extends BaseModel {
     public crossAuthenticationId: string;
     public authDirectoryId: string;
 
+    // A bit of a hack for keepin the resolvers simple (see app.ts).
+    public ip: string;
+
     private static _systemNoUser: User = null;
     private static _systemInternalUser: User = null;
     private static _systemAutomationUser: User = null;
@@ -299,6 +302,10 @@ export class User extends BaseModel {
     }
 
     public canEditNeurons(): boolean {
+        return (this.permissions & UserPermissions.Edit) != 0;
+    }
+
+    public canImportCandidates(): boolean {
         return (this.permissions & UserPermissions.Edit) != 0;
     }
 

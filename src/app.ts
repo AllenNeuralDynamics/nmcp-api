@@ -70,7 +70,15 @@ async function start() {
                     }
                 }
 
-                return user || User.SystemNoUser;
+                user = user ?? User.SystemNoUser;
+
+                // Not really async safe for SystemNoUser.  Is only going to be used for the request access mutation,
+                // and the likelihood of overlapping queries triggering rate limiting seems low.  If that ever becomes
+                // an issue, can property return user an ip as the context.  Will just have to update all the resolvers
+                // to destructure for user.
+                user.ip = req.socket.remoteAddress;
+
+                return user;
             }
         })
     );

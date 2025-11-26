@@ -1,5 +1,6 @@
 import {BaseModel} from "./baseModel";
 import {DataTypes, BelongsToGetAssociationMixin, Sequelize, Transaction} from "sequelize";
+
 import {User} from "./user";
 import {EventLogItemTableName} from "./tableNames";
 
@@ -11,44 +12,51 @@ export enum EventLogItemKind {
     IssueUpdate = 1110,
     IssueClose = 1150,
 
-    // AccessRequest 1200
+    AccessRequestCreate = 1200,
+    AccessRequestUpdate = 1210,
+    AccessRequestApprove = 1220,
+    AccessRequestDeny = 1230,
+
     // ApiKey 1300
 
     AtlasKindCreate = 2000,
-    AtlasKindUpdate = 2005,
-    AtlasCreate = 2010,
-    AtlasUpdate = 2015,
+    AtlasKindUpdate = 2010,
+    AtlasCreate = 2050,
+    AtlasUpdate = 2060,
 
     CollectionCreate = 2100,
-    CollectionUpdate = 2105,
+    CollectionUpdate = 2110,
 
     GenotypeCreate = 2200,
-    GenotypeUpdate = 2205,
+    GenotypeUpdate = 2210,
 
     VirusCreate = 2300,
-    VirusUpdate = 2305,
+    VirusUpdate = 2310,
 
     FluorophoreCreate = 2400,
-    FluorophoreUpdate = 2405,
+    FluorophoreUpdate = 2410,
 
     InjectionCreate = 2500,
-    InjectionUpdate = 2505,
-    InjectionDelete = 2510,
+    InjectionUpdate = 2510,
+    InjectionDelete = 2550,
 
     SpecimenCreate = 3000,
-    SpecimenUpdate = 3005,
-    SpecimenDelete = 3010,
+    SpecimenUpdate = 3010,
+    SpecimenUpdateSomaProperties = 3020,
+    SpecimenDelete = 3050,
 
     NeuronCreate = 4000,
-    NeuronUpdate = 4005,
-    NeuronDelete = 4010,
+    NeuronUpdate = 4010,
+    NeuronDelete = 4050,
+
+    CandidatesInsert = 4500,
 
     ReconstructionCreate = 5000,
-    ReconstructionUpdate = 5005,
-    ReconstructionUpload = 5010,
+    ReconstructionUpdate = 5010,
+    ReconstructionUpload = 5020,
 
     ReconstructionPause = 5100,
-    ReconstructionResume = 5105,
+    ReconstructionResume = 5110,
 
     ReconstructionRequestPeerReview = 5200,
     ReconstructionRequestPublishReview = 5205,
@@ -64,12 +72,12 @@ export enum EventLogItemKind {
     ReconstructionArchive = 5900,
 
     AtlasReconstructionCreate = 6000,
-    AtlasReconstructionUpdate = 6005,
-    AtlasReconstructionUpload = 6010,
+    AtlasReconstructionUpdate = 6010,
+    AtlasReconstructionUpload = 6020,
 
     AtlasReconstructionApprove = 6200,
     AtlasReconstructionReject = 6220,
-    AtlasReconstructionDiscard = 6225,
+    AtlasReconstructionDiscard = 6230,
 
     AtlasReconstructionRequestRegistration = 6300,
     AtlasReconstructionQualityControlRequest = 6400,

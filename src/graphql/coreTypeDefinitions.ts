@@ -104,6 +104,11 @@ export const coreTypeDefinitions = gql`
         createdAt: Date
         updatedAt: Date
     }
+    
+    type SomaFeatures {
+        defaultBrightness: Float
+        defaultVolume: Float
+    }
 
     type Specimen {
         id: String
@@ -111,6 +116,7 @@ export const coreTypeDefinitions = gql`
         notes: String
         referenceDate: Date
         tomographyUrl: String
+        somaProperties: SomaFeatures
         genotype: Genotype
         injections: [Injection!]!
         collectionId: String

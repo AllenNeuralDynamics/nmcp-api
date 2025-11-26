@@ -117,7 +117,7 @@ console.log(specimenSubset);
 // Should be an argument but testing for now.
 const allowMissingCCF = true;
 
-function synchronize(sheetId: number, importQualifier: ImportQualifier, pathToReconstructions: string): Promise<void> {
+function smartSheetImport(sheetId: number, importQualifier: ImportQualifier, pathToReconstructions: string): Promise<void> {
     return new Promise(async (resolve, reject) => {
         const token = process.env.SS_API_TOKEN;
 
@@ -134,7 +134,7 @@ function synchronize(sheetId: number, importQualifier: ImportQualifier, pathToRe
 
         await populateCollections();
 
-        const s = new SmartSheetClient(token);
+        const s = new SmartSheetImport(token);
 
         await s.parseSheet(sheetId, importQualifier);
 
@@ -419,7 +419,7 @@ async function locateReconstructionFile(baseLocation: string, file_prefix: strin
     return sources?.length > 0 ? sources[0] : null;
 }
 
-class SmartSheetClient {
+class SmartSheetImport {
     private static columns: Map<ColumnName, number> = new Map();
 
     private _client: Client;
@@ -723,7 +723,7 @@ class SmartSheetClient {
     }
 
     private getCell(row: Row, name: ColumnName): Cell {
-        return row.cells.find((r: any) => r.columnId == SmartSheetClient.columns[name]);
+        return row.cells.find((r: any) => r.columnId == SmartSheetImport.columns[name]);
     }
 
     private getDisplayValue(row: Row, name: ColumnName): string {
@@ -762,7 +762,7 @@ class SmartSheetClient {
     }
 
     private findColumnIds(sheet: Sheet) {
-        if (SmartSheetClient.columns.size > 0) {
+        if (SmartSheetImport.columns.size > 0) {
             return;
         }
 
@@ -770,7 +770,7 @@ class SmartSheetClient {
 
         sheet.columns.forEach((column) => {
             if (columNameValues.includes(column.title as ColumnName)) {
-                SmartSheetClient.columns[column.title as ColumnName] = column.id;
+                SmartSheetImport.columns[column.title as ColumnName] = column.id;
             }
         });
     }
@@ -815,4 +815,6 @@ if (process.argv.length > 4 && process.argv[4]) {
     }
 }
 
-synchronize(parseInt(process.argv[2]), importQualifier, reconstructionLocation).then(debug("done"));
+const start = performance.now();
+
+smartSheetImport(parseInt(process.argv[2]), importQualifier, reconstructionLocation).then((count) => debug(`synchronize: ${((performance.now() - start)/1000).toFixed(3)}s`));

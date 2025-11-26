@@ -8,7 +8,7 @@ import {AtlasStructure, AtlasStructureQueryInput} from "../models/atlasStructure
 import {User} from "../models/user";
 import {NodeStructure} from "../models/nodeStructure";
 import {NeuronStructure} from "../models/neuronStructure";
-import {IQueryDataPage, Neuron, NeuronQueryInput} from "../models/neuron";
+import {SearchOutputPage, Neuron, NeuronQueryInput} from "../models/neuron";
 import {SearchContextInput, SearchContext} from "../models/searchContext";
 import {Collection} from "../models/collection";
 import {EntityQueryOutput} from "../models/baseModel";
@@ -19,6 +19,7 @@ import {InjectionVirus} from "../models/injectionVirus";
 import {Fluorophore} from "../models/fluorophore";
 import {Reconstruction, PublishedReconstructionQueryResponse} from "../models/reconstruction";
 import {getSystemSettings, SystemSettings} from "../models/systemSettings";
+import {AccessRequest, AccessRequestShape, RequestAccessResponse} from "../models/accessRequest";
 
 // const debug = require("debug")("nmcp:api:open-resolvers");
 
@@ -119,8 +120,13 @@ export const openResolvers = {
             return Reconstruction.getAllPublished(user, args.offset, args.limit);
         },
 
-        searchNeurons(_: any, args: SearchNeuronsArguments, __: User): Promise<IQueryDataPage> {
+        searchNeurons(_: any, args: SearchNeuronsArguments, __: User): Promise<SearchOutputPage> {
             return Neuron.getNeuronsWithPredicates(new SearchContext(args.context));
+        }
+    },
+    Mutation: {
+        requestAccess(_: any, args: {request: AccessRequestShape}, user: User): Promise<RequestAccessResponse> {
+            return AccessRequest.createRequest(user, args.request);
         }
     },
     Injection: {

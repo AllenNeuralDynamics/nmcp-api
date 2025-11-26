@@ -3,7 +3,6 @@ import {gql} from "graphql-tag";
 import {coreTypeDefinitions} from "./coreTypeDefinitions"
 import {inputTypeDefinitions} from "./inputTypeDefinitions"
 import {queryTypeDefinitions} from "./queryTypeDefinitions";
-import {mutationTypeDefinitions} from "./mutationTypeDefinitions";
 
 export const typeDefinitions = gql`
     directive @hidden on FIELD_DEFINITION | OBJECT | INPUT_OBJECT
@@ -11,7 +10,6 @@ export const typeDefinitions = gql`
     ${coreTypeDefinitions}
     ${inputTypeDefinitions}
     ${queryTypeDefinitions}
-    ${mutationTypeDefinitions}
 
     type Query {
         #
@@ -105,8 +103,11 @@ export const typeDefinitions = gql`
 
     type Mutation {
         #
-        # There are no open (unauthenticated) mutations.
+        # Open (unauthenticated) mutations.
         #
+        # IF YOU ARE ADDING A MUTATION OTHER THAN THE REQUEST ACCESS MUTATION, CONSIDER WHAT YOU ARE DOING CAREFULLY
+        #
+        requestAccess(request: AccessRequestInput!): Int!
 
         #
         # Secure mutations that require user-level authentication.
@@ -131,7 +132,7 @@ export const typeDefinitions = gql`
         updateUserPermissions(id: String!, permissions: Int!): User
         updateUserAnonymity(id: String!, anonymousAnnotation: Boolean!, anonymousPublish: Boolean!): User
 
-        importSomas(file: Upload!, options: ImportSomasOptions!): ImportSomasOutput!
+        importSomas(file: Upload!, options: ImportSomasOptions!): Int!
 
         openReconstruction(neuronId: String!): Reconstruction
         pauseReconstruction(reconstructionId: String!): Reconstruction

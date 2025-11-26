@@ -1,8 +1,8 @@
 import {IdArgs} from "./openResolvers";
-import {Neuron, NeuronShape, NeuronQueryInput, SomaImportResponse, SomaImportOptions} from "../models/neuron";
+import {Neuron, NeuronShape, NeuronQueryInput} from "../models/neuron";
 
 import {Genotype} from "../models/genotype";
-import {Specimen, SpecimenShape} from "../models/specimen";
+import {CandidateImportOptions, Specimen, SpecimenShape} from "../models/specimen";
 import {EntityQueryOutput} from "../models/baseModel";
 import {Injection, InjectionShape, InjectionQueryInput} from "../models/injection";
 import {User, UserPermissions, UserQueryInput} from "../models/user";
@@ -18,7 +18,6 @@ import {
     Reconstruction,
     SwcUploadArgs, ReconstructionMetadataArgs
 } from "../models/reconstruction";
-import {ReconstructionSpace} from "../models/reconstructionSpace";
 import GraphQLUpload = require("graphql-upload/GraphQLUpload.js");
 import {QualityControl} from "../models/qualityControl";
 import {AtlasNode} from "../models/atlasNode";
@@ -178,23 +177,18 @@ export const secureResolvers = {
 
         createCollection(_: any, args: { collection: CollectionShape }, user: User): Promise<Collection> {
             return Collection.createOrUpdateForShape(user, args.collection, true);
-
         },
 
         updateCollection(_: any, args: { collection: CollectionShape }, user: User): Promise<Collection> {
             return Collection.createOrUpdateForShape(user, args.collection, false);
         },
 
-        importSomas(_: any, args: { file: Promise<GqlFile>, options: SomaImportOptions }, context: User): Promise<SomaImportResponse> {
-            if (context.permissions & UserPermissions.Edit) {
-                return Neuron.receiveSomaPropertiesUpload(args.file, args.options);
-            }
-
-            throw new UnauthorizedError();
+        importSomas(_: any, args: { file: Promise<GqlFile>, options: CandidateImportOptions }, user: User): Promise<number> {
+            return Specimen.receiveSomaPropertiesUpload(user, args.file, args.options);
         },
 
         openReconstruction(_: any, args: { neuronId: string }, user: User): Promise<Reconstruction> {
-            return Neuron.startReconstruction(args.neuronId, user);
+            return Neuron.startReconstruction(user, args.neuronId);
         },
 
         pauseReconstruction(_: any, args: { reconstructionId: string }, user: User): Promise<Reconstruction> {

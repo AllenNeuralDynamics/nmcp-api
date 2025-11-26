@@ -1,19 +1,16 @@
 {
   "name": "nmcp-api",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "main": "dist/app.js",
   "repository": "https://github.com/AllenNeuralDynamics/nmcp-sample-api",
   "author": "Patrick Edson <pedson@leapscientific.com>",
   "license": "SEE LICENSE IN LICENSE",
   "scripts": {
     "test": "jest",
-    "debug": "tsc && node --trace-warnings --max-old-space-size=8192 --optimize-for-size src/app.js",
+    "dev": "tsc && node --trace-warnings --max-old-space-size=8192 --optimize-for-size src/app.js",
     "express": "node dist/app.js",
-    "smartsheet": "tsc && node --trace-warnings --max-old-space-size=8192 src/tools/smartSheetClient.js",
-    "json": "tsc && node --trace-warnings --max-old-space-size=8192 src/tools/exportJsonData.js",
-    "structures": "tsc && node --trace-warnings --max-old-space-size=8192 src/tools/nodeStructureAssignment.js",
-    "import-somas": "npx run-func src/tools/importSomaProperties.js importSomaProperties",
-    "show-duplicate": "npx run-func src/util/processDuplicateReconstructions.js processDuplicateReconstructions"
+    "smartsheet": "tsc && node --trace-warnings --max-old-space-size=8192 src/tools/smartSheetImport.js",
+    "import-candidates": "tsc && node --trace-warnings src/tools/importCandidates.js"
   },
   "jest": {
     "preset": "ts-jest",

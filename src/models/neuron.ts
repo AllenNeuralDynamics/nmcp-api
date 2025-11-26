@@ -1,7 +1,6 @@
-import {BelongsToGetAssociationMixin, DataTypes, FindOptions, HasManyGetAssociationsMixin, literal, Op, Sequelize} from "sequelize";
+import {BelongsToGetAssociationMixin, DataTypes, FindOptions, HasManyGetAssociationsMixin, literal, Op, Sequelize, Transaction} from "sequelize";
 import "fs";
 import * as _ from "lodash";
-import {validate as uuidValidate, version as uuidVersion} from "uuid";
 
 import {NeuronTableName} from "./tableNames";
 import {BaseModel, EntityQueryInput, EntityQueryOutput} from "./baseModel";
@@ -18,21 +17,16 @@ import {SearchContext} from "./searchContext";
 import {SearchIndex} from "./searchIndex";
 import {PredicateType} from "./queryPredicate";
 import {AtlasReconstruction} from "./atlasReconstruction";
-import {AtlasReconstructionStatus} from "./atlasReconstructionStatus";
 import {User} from "./user";
 import {UnauthorizedError} from "../graphql/secureResolvers";
-import {parseSomaPropertySteam} from "../io/somaPropertyParser";
 import {isNotNullOrUndefined, isNullOrEmpty} from "../util/objectUtil";
 import {Reconstruction} from "./reconstruction";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {Atlas} from "./atlas";
 import {ReconstructionStatus} from "./reconstructionStatus";
-import {AtlasNode} from "./atlasNode";
 import {publishedCount} from "./systemSettings";
 
 const debug = require("debug")("nmcp:nmcp-api:neuron-model");
-
-type NeuronCache = Map<string, Neuron>;
 
 function getSequelizeOperator(operator: SomaFilterOperator, value: number) {
     switch (operator) {
@@ -73,18 +67,11 @@ export type SomaFilterInput = {
 export type SomaProperties = {
     brightness?: number;
     volume?: number;
-}
-
-export type SomaImportOptions = {
-    specimenId: string;
-    keywords: string[];
-    shouldLookupSoma: boolean;
-    noEmit: boolean;
+    radii?: SomaLocation;
 }
 
 export type SomaImportResponse = {
     count: number;
-    idStrings: string[];
     error: Error;
 }
 
@@ -114,15 +101,14 @@ export type NeuronCreateOrUpdateOptions = {
     substituteUser?: User;
 }
 
-export interface IQueryDataPage {
+export type SearchOutputPage = {
     nonce: string;
     queryTime: number;
     totalCount: number;
     neurons: Neuron[];
     error: Error;
 }
-
-export enum FilterComposition {
+enum FilterComposition {
     and = 1,
     or = 2,
     not = 3
@@ -143,6 +129,17 @@ export class Neuron extends BaseModel {
 
     public AtlasStructure: AtlasStructure;
     public Specimen?: Specimen;
+
+    private async recordEvent(kind: EventLogItemKind, details: NeuronShape, user: User, t: Transaction, substituteUser: User = null): Promise<void> {
+        await recordEvent({
+            kind: kind,
+            targetId: this.id,
+            parentId: this.specimenId,
+            details: details,
+            userId: user.id,
+            substituteUserId: substituteUser?.id
+        }, t);
+    }
 
     public static async publishedCount(): Promise<number> {
         return await Reconstruction.count({where: {status: ReconstructionStatus.Published}, distinct: true, col: "neuronId"});
@@ -267,47 +264,47 @@ export class Neuron extends BaseModel {
         return Neuron.isDuplicate(neuron.label, neuron.specimenId, neuron.id);
     }
 
-    private static async createForShape(shape: NeuronShape, user: User, substituteUser: User): Promise<Neuron> {
-        const specimen = await Specimen.findByPk(shape.specimenId);
+    private static async createWithTransaction(shape: NeuronShape, user: User, t: Transaction, substituteUser: User = null) {
+        // Assumes a validated input shape.
+        const neuron = await this.create(shape, {transaction: t});
+
+        await neuron.recordEvent(EventLogItemKind.NeuronCreate, shape, user, t, substituteUser);
+
+        return neuron;
+    }
+
+    private static async createForShape(inputShape: NeuronShape, user: User, substituteUser: User): Promise<Neuron> {
+        const specimen = await Specimen.findByPk(inputShape.specimenId);
 
         if (!specimen) {
             throw new Error("The requested specimen can not be found.");
         }
 
-        if (shape.atlasStructureId) {
-            const atlasStructure = await AtlasStructure.findByPk(shape.atlasStructureId);
+        if (inputShape.atlasStructureId) {
+            const atlasStructure = await AtlasStructure.findByPk(inputShape.atlasStructureId);
             if (!atlasStructure) {
                 throw new Error("The requested atlas structure can not be found.");
             }
-        } else if (shape.atlasStructureId !== null) {
+        } else if (inputShape.atlasStructureId !== null) {
             // Zero-length string or undefined
-            shape.atlasStructureId = null;
+            inputShape.atlasStructureId = null;
         }
 
-        if (await Neuron.isDuplicateNeuronObj(shape)) {
-            throw new Error(`a neuron id "${shape.label}" already exists on this specimen.`);
+        if (await Neuron.isDuplicateNeuronObj(inputShape)) {
+            throw new Error(`a neuron id "${inputShape.label}" already exists on this specimen.`);
         }
+
+        const shape: NeuronShape = {
+            label: (inputShape.label ?? "").trim(),
+            keywords: inputShape.keywords ?? [],
+            specimenSoma: inputShape.specimenSoma ?? {x: 0, y: 0, z: 0},
+            atlasSoma: inputShape.atlasSoma ?? {x: 0, y: 0, z: 0},
+            atlasStructureId: inputShape.atlasStructureId,
+            specimenId: inputShape.specimenId
+        };
 
         return this.sequelize.transaction(async (t) => {
-            const neuron = await this.create({
-                label: (shape.label ?? "").trim(),
-                keywords: shape.keywords ?? [],
-                specimenSoma: shape.specimenSoma ?? {x: 0, y: 0, z: 0},
-                atlasSoma: shape.atlasSoma ?? {x: 0, y: 0, z: 0},
-                atlasStructureId: shape.atlasStructureId,
-                specimenId: shape.specimenId
-            }, {transaction: t});
-
-            await recordEvent({
-                kind: EventLogItemKind.NeuronCreate,
-                targetId: neuron.id,
-                userId: user.id,
-                parentId: specimen.id,
-                details: shape,
-                substituteUserId: substituteUser?.id
-            }, t);
-
-            return neuron;
+            return await this.createWithTransaction(shape, user, t, substituteUser);
         });
     }
 
@@ -352,14 +349,7 @@ export class Neuron extends BaseModel {
         return await Neuron.sequelize.transaction(async (t) => {
             const neuron = await this.update(shape, {transaction: t});
 
-            await recordEvent({
-                kind: EventLogItemKind.NeuronUpdate,
-                targetId: neuron.id,
-                parentId: neuron.specimenId,
-                userId: user.id,
-                details: shape,
-                substituteUserId: substituteUser?.id
-            }, t);
+            await neuron.recordEvent(EventLogItemKind.NeuronUpdate, shape, user, t, substituteUser);
 
             return neuron;
         });
@@ -404,12 +394,7 @@ export class Neuron extends BaseModel {
             const count = await Neuron.destroy({where: {id}, transaction: t});
 
             if (count > 0) {
-                await recordEvent({
-                    kind: EventLogItemKind.NeuronDelete,
-                    targetId: id,
-                    parentId: neuron?.specimenId,
-                    userId: user.id
-                }, t);
+                await neuron.recordEvent(EventLogItemKind.NeuronUpdate, null, user, t);
 
                 return id;
             }
@@ -420,7 +405,7 @@ export class Neuron extends BaseModel {
         });
     }
 
-    public static async getNeuronsWithPredicates(context: SearchContext): Promise<IQueryDataPage> {
+    public static async getNeuronsWithPredicates(context: SearchContext): Promise<SearchOutputPage> {
         try {
             const start = Date.now();
 
@@ -491,9 +476,7 @@ export class Neuron extends BaseModel {
         return await this.findAll({where: {id: {[Op.in]: neuronIds}}});
     }
 
-    public static async startReconstruction(neuronId: string, userOrId: User | string): Promise<Reconstruction> {
-        const user = await User.findUserOrId(userOrId);
-
+    public static async startReconstruction(user: User, neuronId: string): Promise<Reconstruction> {
         if (!user?.canAnnotate()) {
             throw new UnauthorizedError();
         }
@@ -501,11 +484,11 @@ export class Neuron extends BaseModel {
         return Reconstruction.openReconstruction(neuronId, user);
     }
 
-    public static async findNextAvailableIdString(specimen: string): Promise<number> {
+    public static async findNextAvailableLabel(specimen: string): Promise<number> {
         const existingNeurons = await Neuron.findAll({
             where: {specimenId: specimen},
-            attributes: ["idString"],
-            order: [["idString", "DESC"]]
+            attributes: ["label"],
+            order: [["label", "DESC"]]
         });
 
         let nextNumber = 1;
@@ -513,7 +496,7 @@ export class Neuron extends BaseModel {
         if (existingNeurons.length > 0) {
             const existingNumbers = existingNeurons
                 .map(n => n.label)
-                .filter(idString => /^N\d{3,}$/.test(idString))
+                .filter(label => /^N\d{3,}$/.test(label))
                 .map(idString => parseInt(idString.substring(1)))
                 .filter(num => !isNaN(num));
 
@@ -525,114 +508,23 @@ export class Neuron extends BaseModel {
         return nextNumber;
     }
 
-    public static async receiveSomaPropertiesUpload(uploadFile: Promise<any>, options: SomaImportOptions): Promise<SomaImportResponse> {
-        if (!uploadFile) {
-            return {
-                count: 0,
-                idStrings: [],
-                error: {name: "ImportSomasError", message: "There are no files attached to import."}
-            };
-        }
-
-        if (!options.specimenId) {
-            return {
-                count: 0,
-                idStrings: [],
-                error: {name: "ImportSomasError", message: "A specimen id must be provided."}
-            };
-        }
-
-        if (!uuidValidate(options.specimenId) || uuidVersion(options.specimenId) != 4) {
-            return {
-                count: 0,
-                idStrings: [],
-                error: {name: "ImportSomasError", message: "The specimen id must be UUID (v7) format."}
-            };
-        }
-
-        const specimen = await Specimen.findByPk(options.specimenId);
-
-        if (!specimen) {
-            return {
-                count: 0,
-                idStrings: [],
-                error: {name: "ImportSomasError", message: `Specimen with id ${options.specimenId} does not exist.`}
-            };
-        }
+    public static async insertSomaEntries(user: User, shapes: NeuronShape[], labelBase: number, t: Transaction): Promise<number> {
+        let nextNumber = 0;
 
         try {
-            let file = await uploadFile;
+            for (const shape of shapes) {
+                shape.label = `N${String(labelBase + nextNumber++).padStart(3, "0")}`;
 
-            debug(`import somas from ${file.filename}`);
-
-            const records = await parseSomaPropertySteam(file.createReadStream(), specimen.getAtlas());
-
-            const nextNumber = await Neuron.findNextAvailableIdString(specimen.id);
-
-            if (options.keywords) {
-                records.forEach(r => {
-                    r.keywords = options.keywords
-                });
-            }
-
-            const idStrings = await Neuron.insertSomaEntries(records, specimen, nextNumber, options.noEmit);
-
-            return {
-                count: records.length,
-                idStrings: idStrings,
-                error: null
-            }
-        } catch (error) {
-            debug(`Error parsing soma properties: ${error.message}`);
-
-            return {
-                count: 0,
-                idStrings: [],
-                error: {name: "ImportSomasError", message: error.message}
-            };
-        }
-    }
-
-    public static async insertSomaEntries(records: any[], sample: Specimen, idNumberBase: number, noEmit: boolean = false): Promise<string[]> {
-        const idStrings: string[] = [];
-
-        const t = await Neuron.sequelize.transaction();
-
-        try {
-            for (let i = 0; i < records.length; i++) {
-                const record = records[i];
-                const idString = `N${String(idNumberBase + i).padStart(3, "0")}`;
-                // console.log(record);
-                const neuron = await Neuron.create({
-                    sampleId: sample.id,
-                    idString: idString,
-                    tag: record.tag,
-                    x: record.ccfxyz?.x ?? 0,
-                    y: record.ccfxyz?.y ?? 0,
-                    z: record.ccfxyz?.z ?? 0,
-                    sampleX: record.xyz?.x ?? 0,
-                    sampleY: record.xyz?.y ?? 0,
-                    sampleZ: record.xyz?.z ?? 0,
-                    somaProperties: record,
-                    brainStructureId: record.brainStructureId
-                }, {transaction: t});
-
-                idStrings.push(neuron.label);
-            }
-
-            if (!noEmit) {
-                await t.commit();
-            } else {
-                debug(`Skipping database update (noEmit is true). Created ${idStrings.length} soma entries.`);
-                await t.rollback();
+                if (t) {
+                    await this.createWithTransaction(shape, user, t);
+                }
             }
         } catch (error) {
             debug(`Error inserting soma entries: ${error.message}`);
-            await t.rollback();
-            throw new Error(`Failed to insert soma entries: ${error.message}`);
+            throw {name: "ImportSomasError", message: error.message};
         }
 
-        return idStrings;
+        return shapes.length;
     }
 
     public async published(): Promise<AtlasReconstruction> {

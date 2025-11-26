@@ -1,4 +1,6 @@
-import {BelongsToGetAssociationMixin, DataTypes, FindOptions, HasManyGetAssociationsMixin, OrderItem, Sequelize} from "sequelize";
+import {BelongsToGetAssociationMixin, DataTypes, FindOptions, HasManyGetAssociationsMixin, OrderItem, Sequelize, Transaction} from "sequelize";
+import {validate as uuidValidate, version as uuidVersion} from "uuid";
+import moment = require("moment");
 
 import {
     BaseModel,
@@ -20,7 +22,7 @@ import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {UnauthorizedError} from "../graphql/secureResolvers";
 import {Atlas} from "./atlas";
 import {PortalJsonSpecimen} from "../io/portalJson";
-import moment = require("moment");
+import {parseSomaPropertySteam} from "../io/somaPropertyParser";
 
 const debug = require("debug")("nmcp:nmcp-api:specimen-model");
 
@@ -53,6 +55,19 @@ export type SpecimenCreateOrUpdateOptions = {
     substituteUser?: User;
 }
 
+export type CandidateImportOptions = {
+    source?: string;
+    specimenId: string;
+    keywords: string[];
+    shouldLookupSoma: boolean;
+    defaultBrightness: number;
+    defaultVolume: number;
+}
+
+type CandidateImportShape = CandidateImportOptions & {
+    count: number;
+}
+
 export class Specimen extends BaseModel {
     public label: string;
     public referenceDate: Date;
@@ -72,6 +87,17 @@ export class Specimen extends BaseModel {
     public readonly Genotype?: Genotype;
     public readonly Injections?: Injection[];
     public readonly Neurons?: Neuron[];
+
+    private async recordEvent(kind: EventLogItemKind, details: SpecimenShape | CandidateImportShape, user: User, t: Transaction, substituteUser: User = null): Promise<void> {
+        await recordEvent({
+            kind: kind,
+            targetId: this.id,
+            parentId: this.collectionId,
+            details: details,
+            userId: user.id,
+            substituteUserId: substituteUser?.id
+        }, t);
+    }
 
     public static async getAll(input: SpecimenQueryArgs): Promise<EntityQueryOutput<Specimen>> {
         let options: FindOptions = optionsWhereIds(input, {where: null, include: []});
@@ -112,14 +138,7 @@ export class Specimen extends BaseModel {
                 }
             }
 
-            await recordEvent({
-                kind: EventLogItemKind.SpecimenCreate,
-                targetId: specimen.id,
-                parentId: specimen.collectionId,
-                userId: user.id,
-                details: shape,
-                substituteUserId: substituteUser?.id
-            }, t);
+            await specimen.recordEvent(EventLogItemKind.SpecimenCreate, shape, user, t, substituteUser);
 
             return specimen
         });
@@ -155,14 +174,7 @@ export class Specimen extends BaseModel {
 
             const specimen = await this.update(shape, {transaction: t});
 
-            await recordEvent({
-                kind: EventLogItemKind.SpecimenUpdate,
-                targetId: specimen.id,
-                parentId: specimen.collectionId,
-                userId: user.id,
-                details: shape,
-                substituteUserId: substituteUser?.id
-            }, t);
+            await specimen.recordEvent(EventLogItemKind.SpecimenUpdate, shape, user, t, substituteUser);
 
             return specimen;
         });
@@ -207,12 +219,7 @@ export class Specimen extends BaseModel {
             const count = await Specimen.destroy({where: {id}, transaction: t});
 
             if (count > 0) {
-                await recordEvent({
-                    kind: EventLogItemKind.SpecimenDelete,
-                    parentId: specimen.collectionId,
-                    targetId: id,
-                    userId: user.id
-                }, t);
+                await specimen.recordEvent(EventLogItemKind.SpecimenDelete, null, user, t);
 
                 return id;
             }
@@ -221,6 +228,90 @@ export class Specimen extends BaseModel {
 
             throw new Error(`The specimen could not be removed.  Verify ${id} is a valid specimen id.`);
         });
+    }
+
+    public static async receiveSomaPropertiesUpload(user: User, uploadFile: Promise<any>, options: CandidateImportOptions): Promise<number> {
+        if (!user?.canImportCandidates()) {
+            throw new UnauthorizedError();
+        }
+
+        if (!uploadFile) {
+            throw {name: "ImportSomasError", message: "There are no files attached to import."};
+        }
+
+        let file = await uploadFile;
+
+        options.source = file.filename;
+
+        debug(`import somas from ${file.filename}`);
+
+        return await this.importCandidates(user, file.createReadStream(), options);
+    }
+
+    public static async importCandidates(user: User, readStream: NodeJS.ReadableStream, options: CandidateImportOptions): Promise<number> {
+        if (!user?.canImportCandidates()) {
+            throw new UnauthorizedError();
+        }
+
+        if (!options.specimenId) {
+            throw {name: "ImportSomasError", message: "A specimen id must be provided."};
+        }
+
+        if (!uuidValidate(options.specimenId) || uuidVersion(options.specimenId) != 7) {
+            throw {name: "ImportSomasError", message: "The specimen id must be UUID (v7) format."}
+        }
+
+        const specimen = await Specimen.findByPk(options.specimenId);
+
+        if (!specimen) {
+            throw {name: "ImportSomasError", message: `Specimen with id ${options.specimenId} does not exist.`};
+        }
+
+        try {
+            const records = await parseSomaPropertySteam(readStream, specimen.id, specimen.getAtlas(), options.shouldLookupSoma);
+
+            const nextNumber = await Neuron.findNextAvailableLabel(specimen.id);
+
+            debug(`starting neuron labeling from base index ${nextNumber}`);
+
+            if (options.keywords) {
+                records.forEach(r => {
+                    r.keywords = options.keywords
+                });
+            }
+
+            return await this.sequelize.transaction(async (t) => {
+                const count = await Neuron.insertSomaEntries(user, records, nextNumber, t);
+
+                const properties = specimen.somaProperties ?? {};
+                let needsUpdate = false;
+
+                if (options.defaultBrightness) {
+                    properties["defaultBrightness"] = options.defaultBrightness;
+                    needsUpdate = true;
+                }
+
+                if (options.defaultVolume) {
+                    properties["defaultVolume"] = options.defaultVolume;
+                    needsUpdate = true;
+                }
+
+                if (needsUpdate) {
+                    await specimen.update("somaProperties", properties);
+                }
+
+                if (count > 0) {
+                    await specimen.recordEvent(EventLogItemKind.CandidatesInsert, {...options, count: count}, user, t);
+                } else if (needsUpdate) {
+                    await specimen.recordEvent(EventLogItemKind.SpecimenUpdate, properties, user, t);
+                }
+
+                return count;
+            });
+        } catch (error) {
+            debug(`error parsing soma properties: ${error.message}`);
+            throw {name: "ImportSomasError", message: error.message};
+        }
     }
 
     public async neuronCount(): Promise<number> {

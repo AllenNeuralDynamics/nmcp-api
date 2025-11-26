@@ -110,7 +110,8 @@ export const inputTypeDefinitions = gql`
         specimenId: String
         keywords: [String!]
         shouldLookupSoma: Boolean
-        noEmit: Boolean
+        defaultBrightness: Float
+        defaultVolume: Float
     }
 
     input JsonUploadArgs {
@@ -151,6 +152,14 @@ export const inputTypeDefinitions = gql`
         nonce: String
         scope: Int
         predicates: [Predicate!]
+    }
+
+    input AccessRequestInput {
+        firstName: String!
+        lastName: String!
+        emailAddress: String!
+        affiliation: String!
+        purpose: String!
     }
 
     """

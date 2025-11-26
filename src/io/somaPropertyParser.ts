@@ -1,42 +1,11 @@
-import * as fs from "fs";
 import * as csvParse from "csv-parse";
+
 import {Atlas} from "../models/atlas";
+import {NeuronShape, SomaLocation, SomaProperties} from "../models/neuron";
 
 const debug = require("debug")("nmcp:api:tools:importSomaProperties");
 
-export type SomaPropertyRecord = {
-    xyz: { x: number, y: number, z: number } | null;
-    ccfxyz: { x: number, y: number, z: number } | null;
-    keywords: string[];
-    brainStructureId: string | null;
-    brightness: number | null;
-    volume: number | null;
-}
-
-export async function parseSomaPropertyFile(filename: string, atlas: Atlas) {
-
-    const csvData = fs.readFileSync(filename, "utf8");
-
-    const records = await new Promise<any[]>((resolve, reject) => {
-        csvParse(csvData, {
-            columns: (header) => header.map(normalizeColumnName),
-            skip_empty_lines: true
-        }, (err, output) => {
-            if (err) {
-                reject(err);
-            } else {
-                resolve(output);
-            }
-        });
-    });
-
-    debug(`Processed ${records.length} records from ${filename}`);
-
-    return parseSomaPropertyRecords(records, atlas);
-}
-
-export async function parseSomaPropertySteam(stream: NodeJS.ReadableStream, atlas: Atlas) {
-
+export async function parseSomaPropertySteam(stream: NodeJS.ReadableStream, specimenId: string, atlas: Atlas, performAtlasLookup: boolean): Promise<NeuronShape[]> {
     const records = await new Promise<any[]>((resolve, reject) => {
         const parser = csvParse({
             columns: (header) => header.map(normalizeColumnName),
@@ -63,38 +32,47 @@ export async function parseSomaPropertySteam(stream: NodeJS.ReadableStream, atla
         stream.pipe(parser);
     });
 
-    debug(`Processed ${records.length} records from stream`);
+    debug(`processed ${records.length} records from stream`);
 
-    return parseSomaPropertyRecords(records, atlas);
+    return parseSomaPropertyRecords(records, specimenId, atlas, performAtlasLookup);
 }
 
-async function parseSomaPropertyRecords(records: any[], atlas: Atlas): Promise<SomaPropertyRecord[]> {
-    const processedRecords = records.map(record => {
-        const processed: SomaPropertyRecord = {
-            xyz: null,
-            ccfxyz: null,
+async function parseSomaPropertyRecords(records: any[], specimenId: string, atlas: Atlas, performAtlasLookup: boolean): Promise<NeuronShape[]> {
+    return records.map(record => {
+        const processed: NeuronShape = {
             keywords: [],
-            brainStructureId: null,
-            brightness: null,
-            volume: null
+            specimenSoma: null,
+            atlasSoma: null,
+            somaProperties: null,
+            atlasStructureId: null,
+            specimenId: specimenId
         };
 
         if (record.xyzRaw) {
-            processed.xyz = parseXyzString(record.xyzRaw);
+            processed.specimenSoma = parseXyzString(record.xyzRaw);
         }
 
-
-        if (record.xyzCcf) {
-            processed.ccfxyz = parseXyzString(record.xyzCcf);
-
-            if (processed.ccfxyz) {
-                processed.brainStructureId = atlas.findForLocation(processed.ccfxyz, false);
+        if (record.xyzCcfAuto) {
+            processed.atlasSoma = parseXyzString(record.xyzCcfAuto);
+            if (performAtlasLookup) {
+                processed.atlasStructureId = atlas.findForLocation(processed.atlasSoma, false);
             }
         }
 
+        const somaProperties: SomaProperties = {
+            brightness: 0,
+            volume: 0,
+            radii: {
+                x: 0,
+                y: 0,
+                z: 0
+            }
+        };
+
         const radiiColumn = Object.keys(record).find(key => key.toLowerCase().startsWith("radii"));
+
         if (radiiColumn && record[radiiColumn]) {
-            processed[radiiColumn] = parseXyzString(record[radiiColumn]);
+            somaProperties.radii = parseXyzString(record[radiiColumn]);
         }
 
         Object.keys(record).forEach(key => {
@@ -102,18 +80,18 @@ async function parseSomaPropertyRecords(records: any[], atlas: Atlas): Promise<S
             if ((lowerKey.includes("brightness") || lowerKey.includes("volume")) && record[key]) {
                 const numValue = parseFloat(record[key]);
                 if (!isNaN(numValue)) {
-                    processed[key] = numValue;
+                    somaProperties[key] = numValue;
                 }
             }
         });
 
+        processed.somaProperties = somaProperties;
+
         return processed;
     });
-
-    return processedRecords;
 }
 
-function parseXyzString(xyzStr: string): { x: number, y: number, z: number } {
+function parseXyzString(xyzStr: string): SomaLocation {
     const cleanStr = xyzStr.replace(/[()]/g, "");
     const [x, y, z] = cleanStr.split(",").map(s => parseFloat(s.trim()));
     return {x, y, z};
