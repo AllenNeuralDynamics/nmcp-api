@@ -147,6 +147,9 @@ export const openResolvers = {
         async neuronCount(specimen: Specimen): Promise<number> {
             return specimen.neuronCount();
         },
+        collection(specimen: Specimen): Promise<Collection> {
+            return specimen.getCollection();
+        },
         genotype(specimen: Specimen, _: any, __: any): Promise<Genotype> {
             return specimen.getGenotype();
         },

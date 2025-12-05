@@ -115,9 +115,9 @@ export = {
                     type: Sequelize.JSONB,
                     defaultValue: null
                 },
-                tomographyUrl: {
-                    type: Sequelize.TEXT,
-                    defaultValue: ""
+                tomography: {
+                    type: Sequelize.JSONB,
+                    defaultValue: null
                 },
                 genotypeId: {
                     type: Sequelize.UUID,

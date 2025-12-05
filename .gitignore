@@ -19,7 +19,8 @@ dist/
 
 .DS_Store
 
-# Taskfile.dist.yaml is used by the GitHub workflow.  Allow a local task file to push images to other hubs, etc.
+# Taskfile.dist.yaml is used by the GitHub workflow.  Allow a local task file that is not commited to push images to other hubs, etc.
 Taskfile.yaml
-.claude
-CLAUDE.md
+
+# Optionally preload users with SmartSheet or other imports that will vary across environments.
+defaultUsers.json

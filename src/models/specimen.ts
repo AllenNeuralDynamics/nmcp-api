@@ -68,12 +68,20 @@ type CandidateImportShape = CandidateImportOptions & {
     count: number;
 }
 
+type SpecimenTomography = {
+    url: string;
+    options: {
+        range: number[];
+        window: number[];
+    }
+}
+
 export class Specimen extends BaseModel {
     public label: string;
     public referenceDate: Date;
     public notes: string;
     public keywords?: string[];
-    public tomographyUrl: string;
+    public tomography?: SpecimenTomography;
     public somaProperties?: SpecimenSomaProperties;
     public collectionId?: string;
     public atlasId?: string;
@@ -363,9 +371,9 @@ export const modelInit = (sequelize: Sequelize) => {
             type: DataTypes.JSONB,
             defaultValue: null
         },
-        tomographyUrl: {
-            type: DataTypes.TEXT,
-            defaultValue: ""
+        tomography: {
+            type: DataTypes.JSONB,
+            defaultValue: null
         },
         atlasId: {
             // Would generally be in modelAssociate below, but using a custom getAtlas() method for cached lookups.

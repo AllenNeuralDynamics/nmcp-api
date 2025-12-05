@@ -104,10 +104,20 @@ export const coreTypeDefinitions = gql`
         createdAt: Date
         updatedAt: Date
     }
-    
+
     type SomaFeatures {
         defaultBrightness: Float
         defaultVolume: Float
+    }
+    
+    type TomographyOptions {
+        range: [Float!]!
+        window: [Float!]!
+    }
+
+    type TomographyReference {
+        url: String
+        options: TomographyOptions
     }
 
     type Specimen {
@@ -117,9 +127,11 @@ export const coreTypeDefinitions = gql`
         referenceDate: Date
         tomographyUrl: String
         somaProperties: SomaFeatures
+        tomography: TomographyReference
         genotype: Genotype
         injections: [Injection!]!
         collectionId: String
+        collection: Collection
         neurons: [Neuron!]!
         neuronCount: Int
         createdAt: Date

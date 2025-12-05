@@ -99,6 +99,14 @@ enum ImportQualifier {
 
 type ParsedNeuronIdWithSample = [string, SpecimenRowContents];
 
+type DefaultUser = {
+    authId: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    permissions: number
+}
+
 // Some ugly globals while we figure out what we want.
 const reconstructionNotFound = [];
 const ccfMissing = [];
@@ -112,12 +120,14 @@ const neuronSelection = {
 
 const specimenSubset = [...new Set(Object.keys(neuronSelection))];
 
-console.log(specimenSubset);
+if (specimenSubset.length > 0) {
+    debug(`limiting specimens to ${specimenSubset.toString()}`);
+}
 
 // Should be an argument but testing for now.
 const allowMissingCCF = true;
 
-function smartSheetImport(sheetId: number, importQualifier: ImportQualifier, pathToReconstructions: string): Promise<void> {
+function smartSheetImport(sheetId: number, importQualifier: ImportQualifier, pathToReconstructions: string, defaultUsers: DefaultUser[] = []): Promise<void> {
     return new Promise(async (resolve, reject) => {
         const token = process.env.SS_API_TOKEN;
 
@@ -132,7 +142,7 @@ function smartSheetImport(sheetId: number, importQualifier: ImportQualifier, pat
 
         await RemoteDatabaseClient.Start(false, false);
 
-        await populateCollections();
+        await populateDefaults(defaultUsers);
 
         const s = new SmartSheetImport(token);
 
@@ -784,9 +794,14 @@ const fMostCollection = {
     name: "fMOST"
 }
 
-async function populateCollections(): Promise<void> {
+async function populateDefaults(defaultUsers: DefaultUser[]): Promise<void> {
     await Collection.createOrUpdateForShape(User.SystemAutomationUser, exaSPIMCollection, true);
     await Collection.createOrUpdateForShape(User.SystemAutomationUser, fMostCollection, true);
+
+    for (const defaultUser of defaultUsers) {
+        const user = await User.findOrCreateUser(defaultUser.authId, defaultUser.firstName, defaultUser.lastName, defaultUser.email, User.SystemAutomationUser);
+        await User.updatePermissions(user.id, defaultUser.permissions, User.SystemAutomationUser);
+    }
 }
 
 if (process.argv.length < 3 || isNaN(parseInt(process.argv[2]))) {
@@ -815,6 +830,13 @@ if (process.argv.length > 4 && process.argv[4]) {
     }
 }
 
+let defaultUsers: DefaultUser[] = [];
+
+if (fs.existsSync("./defaultUsers.json")) {
+    const obj = JSON.parse(fs.readFileSync("./defaultUsers.json", "utf8"));
+    defaultUsers = obj.users;
+}
+
 const start = performance.now();
 
-smartSheetImport(parseInt(process.argv[2]), importQualifier, reconstructionLocation).then((count) => debug(`synchronize: ${((performance.now() - start)/1000).toFixed(3)}s`));
+smartSheetImport(parseInt(process.argv[2]), importQualifier, reconstructionLocation, defaultUsers).then((count) => debug(`synchronize: ${((performance.now() - start) / 1000).toFixed(3)}s`));

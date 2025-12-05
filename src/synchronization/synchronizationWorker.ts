@@ -6,6 +6,8 @@ import {SynchronizationWorkerNotification} from "./synchonizationManager";
 
 const debug = require("debug")("nmcp:synchronization:synchronization-worker");
 
+const defaultBatchSize = 10;
+
 setTimeout(async () => {
     debug("synchronization worker starting");
 
@@ -24,13 +26,16 @@ setTimeout(async () => {
 async function performSynchronization(repeat: boolean = true, intervalSeconds = 60) {
     let intervalStart = Date.now();
 
-    await performQualityControl();
+    // Would like to complete processing, where possible, in batches, rather than doing all QC, before moving on to the next step, etc.
+    let mayBeMore = await performQualityControl(defaultBatchSize);
 
-    await performStructureAssignments();
+    mayBeMore = (await performStructureAssignments(defaultBatchSize)) || mayBeMore;
 
-    await performSearchIndexing();
+    mayBeMore = (await performSearchIndexing(defaultBatchSize)) || mayBeMore;
 
-    const delay = Math.max(0, (intervalSeconds * 1000 - (Date.now() - intervalStart)));
+    // If the batch size was fulfilled for any of the steps, immediately (ok, 50ms) perform another loop.  Otherwise, wait whatever is left of the polling
+    // interval.
+    const delay = mayBeMore ? 50 : Math.max(0, (intervalSeconds * 1000 - (Date.now() - intervalStart)));
 
     if (repeat) {
         setTimeout(async () => {
@@ -46,11 +51,11 @@ let sanityQualityCheckPendingCount = sanityCheckInterval - 1;
 let sanityStructureCheckCount = sanityCheckInterval - 1;
 let sanitySearchContentsCheckCount = sanityCheckInterval - 1;
 
-async function performQualityControl() {
-    const pending = await QualityControl.getPending(10);
+async function performQualityControl(batchSize: number): Promise<boolean> {
+    const pending = await QualityControl.getPending(batchSize);
 
     if (pending.length > 0) {
-        debug(`${pending.length} quality control calls are pending`);
+        debug(`${pending.length} or more quality control calls are pending`);
 
         for (const qc of pending) {
             // Success == service was available and called, not whether QC passed.
@@ -65,6 +70,8 @@ async function performQualityControl() {
         }
 
         sanityQualityCheckPendingCount = 0;
+
+        return pending.length == batchSize;
     } else {
         sanityQualityCheckPendingCount++;
 
@@ -73,19 +80,23 @@ async function performQualityControl() {
             sanityQualityCheckPendingCount = 0;
         }
     }
+
+    return false;
 }
 
-async function performStructureAssignments() {
-    const pending = await AtlasReconstruction.getPendingStructureAssignment(10);
+async function performStructureAssignments(batchSize: number): Promise<boolean> {
+    const pending = await AtlasReconstruction.getPendingStructureAssignment(batchSize);
 
     if (pending.length > 0) {
-        debug(`${pending.length} reconstructions have node structure assignment pending`);
+        debug(`${pending.length} or more reconstructions have node structure assignment pending`);
 
         for (let reconstruction of pending) {
             await reconstruction.calculateStructureAssignments(User.SystemInternalUser);
         }
 
         sanityStructureCheckCount = 0;
+
+        return pending.length == batchSize;
     } else {
         sanityStructureCheckCount++;
 
@@ -94,13 +105,15 @@ async function performStructureAssignments() {
             sanityStructureCheckCount = 0;
         }
     }
+
+    return false;
 }
 
-async function performSearchIndexing() {
-    const pending = await AtlasReconstruction.getIndexable(10);
+async function performSearchIndexing(batchSize: number): Promise<boolean> {
+    const pending = await AtlasReconstruction.getIndexable(batchSize);
 
     if (pending.length > 0) {
-        debug(`${pending.length} atlas reconstructions require indexing`);
+        debug(`${pending.length} or more atlas reconstructions require indexing`);
 
         for (let reconstruction of pending) {
             await reconstruction.updateSearchIndex(User.SystemInternalUser);
@@ -111,6 +124,8 @@ async function performSearchIndexing() {
         process.send(SynchronizationWorkerNotification.SearchIndexUpdated);
 
         sanitySearchContentsCheckCount = 0;
+
+        return pending.length == batchSize;
     } else {
         sanitySearchContentsCheckCount++;
 
@@ -119,4 +134,6 @@ async function performSearchIndexing() {
             sanitySearchContentsCheckCount = 0;
         }
     }
+
+    return false;
 }
