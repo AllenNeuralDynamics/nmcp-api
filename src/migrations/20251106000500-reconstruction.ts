@@ -7,6 +7,7 @@ import {
     NeuronStructureTableName,
     NeuronTableName,
     NodeStructureTableName,
+    SpecimenSpacePrecomputedTableName,
     PrecomputedTableName,
     QualityControlTableName,
     SpecimenNodeTableName,
@@ -318,6 +319,45 @@ export = {
                         key: "id"
                     }
                 },
+                createdAt: Sequelize.DATE,
+                updatedAt: Sequelize.DATE,
+                deletedAt: Sequelize.DATE
+            });
+
+        await queryInterface.createTable(
+            SpecimenSpacePrecomputedTableName,
+            {
+                id: {
+                    primaryKey: true,
+                    type: Sequelize.UUID,
+                    defaultValue: Sequelize.literal("uuidv7()")
+                },
+                skeletonId: {
+                    type: Sequelize.INTEGER,
+                    autoIncrement: true,
+                    allowNull: false,
+                    unique: true
+                },
+                status: {
+                    type: Sequelize.INTEGER,
+                    defaultValue: 0
+                },
+                version: {
+                    type: Sequelize.INTEGER,
+                    defaultValue: 0
+                },
+                location: {
+                    type: Sequelize.TEXT,
+                    defaultValue: ""
+                },
+                reconstructionId: {
+                    type: Sequelize.UUID,
+                    references: {
+                        model: ReconstructionTableName,
+                        key: "id"
+                    }
+                },
+                generatedAt: Sequelize.DATE,
                 createdAt: Sequelize.DATE,
                 updatedAt: Sequelize.DATE,
                 deletedAt: Sequelize.DATE

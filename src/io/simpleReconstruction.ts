@@ -22,11 +22,7 @@ export type NodeCounts = {
 export class SimpleNeuronStructure {
     private _soma: PortalJsonNode;
 
-    public offsetX: number;
-    public offsetY: number;
-    public offsetZ: number;
-
-    private _somas: number;
+    private _soma_count: number;
     private _paths: number;
     private _branches: number;
     private _ends: number;
@@ -40,11 +36,7 @@ export class SimpleNeuronStructure {
     public constructor(neuronStructureId: string) {
         this._neuronStructureId = neuronStructureId;
 
-        this.offsetX = 0;
-        this.offsetY = 0;
-        this.offsetZ = 0;
-
-        this._somas = 0;
+        this._soma_count = 0;
         this._paths = 0;
         this._branches = 0;
         this._ends = 0;
@@ -62,7 +54,7 @@ export class SimpleNeuronStructure {
     public get nodeCounts(): NodeCount {
         return {
             total: this._nodes.size,
-            soma: this._somas,
+            soma: this._soma_count,
             path: this._paths,
             branch: this._branches,
             end: this._ends
@@ -71,10 +63,6 @@ export class SimpleNeuronStructure {
 
     public get nodeCount(): number {
         return this._nodes.size;
-    }
-
-    public get somaCount(): number {
-        return this._somas;
     }
 
     public get branchCount(): number {
@@ -117,6 +105,21 @@ export class SimpleNeuronStructure {
     }
 
     public finalize(): void {
+        const nodes = Array.from(this._nodes.values()).filter(n => n.parentNumber != -1).sort((a, b) => a.sampleNumber - b.sampleNumber);
+
+        if (nodes.length > 0) {
+            const offset = nodes[0].sampleNumber - 2;
+
+            if (offset > 0) {
+                nodes.forEach((node: PortalJsonNode) => {
+                    node.sampleNumber -= offset;
+                    if (node.parentNumber != 1) {
+                        node.parentNumber -= offset;
+                    }
+                });
+            }
+        }
+
         this.mapChildren();
         this.countNodeTypes();
     }
@@ -168,7 +171,7 @@ export class SimpleNeuronStructure {
 
             switch (s.structureIdentifier) {
                 case NodeStructures.soma:
-                    this._somas++;
+                    this._soma_count++;
                     break;
                 case NodeStructures.forkPoint:
                     this._branches++;
@@ -194,10 +197,6 @@ export type SimpleReconstruction = {
     dendrite: SimpleNeuronStructure;
 }
 
-export async function parseSwcFile(stream: ReadStream, structureId: string): Promise<SimpleNeuronStructure> {
-    return await swcParse(structureId, stream);
-}
-
 export async function parseJsonFile(source: string, stream: ReadStream): Promise<SimpleReconstruction> {
     const [axonData, dendriteData] = await jsonChunkParse(stream);
 
@@ -209,16 +208,6 @@ export async function parseJsonFile(source: string, stream: ReadStream): Promise
     };
 }
 
-export async function parseSwcFiles(source: string, axonFile: ReadStream, dendriteFile: ReadStream): Promise<SimpleReconstruction> {
-    const [axonData, dendriteData] = await Promise.all([
-        parseSwcFile(axonFile, NeuronStructure.AxonStructureId),
-        parseSwcFile(dendriteFile, NeuronStructure.DendriteStructureId)
-    ]);
-
-    return {
-        source: source,
-        comments: [axonData.comments, dendriteData.comments].filter(s => s).join("\n"),
-        axon: axonData,
-        dendrite: dendriteData
-    };
+export async function parseSwcFile(source: string, swcFile: ReadStream): Promise<SimpleReconstruction> {
+    return await swcParse(source, swcFile);
 }

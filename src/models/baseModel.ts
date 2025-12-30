@@ -1,7 +1,5 @@
-import {Sequelize, Model, FindOptions, OrderItem, Transaction} from "sequelize";
+import {Sequelize, Model, FindOptions, OrderItem} from "sequelize";
 import {validate, version} from "uuid";
-import {EventLogItemKind, recordEvent} from "./eventLogItem";
-import {User} from "./user";
 
 export type OffsetAndLimit = {
     offset?: number;
@@ -16,16 +14,6 @@ export type EntityQueryOutput<T> = {
     totalCount: number;
     offset?: number;
     items: T[];
-}
-
-export interface EntityMutateOutput<T> {
-    source: T;
-    error: string;
-}
-
-export interface DeleteOutput {
-    id: string;
-    error?: string;
 }
 
 export class BaseModel extends Model {

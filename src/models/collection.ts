@@ -1,4 +1,4 @@
-import {Sequelize, DataTypes} from "sequelize";
+import {Sequelize, DataTypes, Op} from "sequelize";
 
 import {BaseModel} from "./baseModel";
 import {Specimen} from "./specimen";
@@ -76,7 +76,16 @@ export class Collection extends BaseModel {
         let collection: Collection;
 
         if (shape.id) {
-            collection = await Collection.findByPk(shape.id);
+            collection = await this.findByPk(shape.id);
+        }
+
+        if (!collection) {
+            // Collections that have the same name.
+            const existing = await this.findAll({where: {name: {[Op.eq]: shape.name}}});
+
+            if (existing.length > 0) {
+                return collection.updateForShape(shape, user, substituteUser);
+            }
         }
 
         if (!collection) {
@@ -90,7 +99,7 @@ export class Collection extends BaseModel {
         return await Specimen.count({where: {collectionId: this.id}});
     }
 
-    public toPortalJson(): PortalJsonCollection{
+    public toPortalJson(): PortalJsonCollection {
         return {
             id: this.id,
             name: this.name,

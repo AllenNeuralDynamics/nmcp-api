@@ -1,5 +1,6 @@
 import {AtlasNode} from "../models/atlasNode";
 import {NodeStructures} from "../models/nodeStructure";
+import {SpecimenNode} from "../models/specimenNode";
 
 // Types based on the "NMCP JSON" file format.  May include legacy fields and terminology.
 
@@ -92,6 +93,22 @@ export function mapNodes(nodes: AtlasNode[], structureIdentifier: NodeStructures
             lengthToParent: n.lengthToParent,
             parentNumber: n.parentIndex,
             allenId: n.AtlasStructure?.structureId ?? null
+        }
+    });
+}
+
+export function mapSpecimenNodes(nodes: SpecimenNode[], structureIdentifier: NodeStructures = null): PortalJsonNode[] {
+    return nodes.map(n => {
+        return {
+            sampleNumber: n.index,
+            structureIdentifier: structureIdentifier ?? n.NodeStructure.swcValue,
+            x: n.x,
+            y: n.y,
+            z: n.z,
+            radius: n.radius,
+            lengthToParent: n.lengthToParent,
+            parentNumber: n.parentIndex,
+            allenId: null
         }
     });
 }

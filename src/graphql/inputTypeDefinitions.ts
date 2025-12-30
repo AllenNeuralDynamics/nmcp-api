@@ -73,6 +73,16 @@ export const inputTypeDefinitions = gql`
         fluorophoreName: String
     }
 
+    input TomographyOptionsInput {
+        range: [Float!]!
+        window: [Float!]!
+    }
+
+    input TomographyReferenceInput {
+        url: String
+        options: TomographyOptionsInput
+    }
+
     input SpecimenInput {
         id: String
         label: String
@@ -80,6 +90,7 @@ export const inputTypeDefinitions = gql`
         referenceDate: Date
         genotypeId: String
         genotypeName: String
+        tomography: TomographyReferenceInput
         collectionId: String
     }
 
@@ -114,17 +125,10 @@ export const inputTypeDefinitions = gql`
         defaultVolume: Float
     }
 
-    input JsonUploadArgs {
+    input ReconstructionUploadArgs {
         reconstructionId: String!
         reconstructionSpace: Int!
         file: Upload!
-    }
-
-    input SwcUploadArgs {
-        reconstructionId: String!
-        reconstructionSpace: Int!
-        axonFile: Upload!
-        dendriteFile: Upload!
     }
 
     input InputPosition {

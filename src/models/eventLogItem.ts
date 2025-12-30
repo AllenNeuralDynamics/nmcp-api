@@ -5,6 +5,8 @@ import {User} from "./user";
 import {EventLogItemTableName} from "./tableNames";
 
 export enum EventLogItemKind {
+    Invalid = -1000,
+
     UserCreate = 1000,
     UserUpdate = 1010,
 
@@ -100,7 +102,12 @@ export enum EventLogItemKind {
     PrecomputedCreate = 8000,
     PrecomputedUpdate = 8010,
     PrecomputedComplete = 8100,
-    PrecomputedError = 8120
+    PrecomputedError = 8120,
+
+    SpecimenPrecomputedCreate = 9000,
+    SpecimenPrecomputedUpdate = 9010,
+    SpecimenPrecomputedComplete = 9100,
+    SpecimenPrecomputedError = 9120
 }
 
 export enum EventLogReferenceKind {

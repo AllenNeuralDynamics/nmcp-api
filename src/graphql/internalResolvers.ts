@@ -1,7 +1,9 @@
 import {User} from "../models/user";
-import {Precomputed, PrecomputedUpdateShape} from "../models/precomputed";
 import {AtlasReconstruction, JsonParts} from "../models/atlasReconstruction";
 import {PortalJsonReconstructionContainer} from "../io/portalJson";
+import {Reconstruction} from "../models/reconstruction";
+import {Precomputed, PrecomputedUpdateShape} from "../models/precomputed";
+import {SpecimenSpacePrecomputed} from "../models/specimenSpacePrecomputed";
 
 // noinspection JSUnusedGlobalSymbols
 /**
@@ -13,16 +15,25 @@ export const internalResolvers = {
         reconstructionAsJSON(_: any, args: { id: string, options: JsonParts }, user: User): Promise<PortalJsonReconstructionContainer | null> {
             return AtlasReconstruction.getAsJSON(user, args.id, args.options);
         },
+        specimenSpaceReconstructionAsJson(_: any, args: { id: string }, user: User): Promise<PortalJsonReconstructionContainer | null> {
+            return Reconstruction.getAsJSON(user, args.id);
+        },
 
         // Used by precomputed worker service
         pendingPrecomputed(_: any, __: any, user: User): Promise<Precomputed[]> {
             return Precomputed.getPending(user);
-        }
+        },
+        specimenSpacePendingPrecomputed(_: any, __: any, user: User): Promise<SpecimenSpacePrecomputed[]> {
+            return SpecimenSpacePrecomputed.getPending(user);
+        },
     },
     Mutation: {
         // Used by precomputed worker service
         updatePrecomputed(_: any, args: PrecomputedUpdateShape, user: User): Promise<Precomputed> {
             return Precomputed.updateGeneration(user, args.id, args.status, args.version, args.generatedAt);
+        },
+        updateSpecimenSpacePrecomputed(_: any, args: PrecomputedUpdateShape, user: User): Promise<SpecimenSpacePrecomputed> {
+            return SpecimenSpacePrecomputed.updateGeneration(user, args.id, args.status, args.version, args.generatedAt);
         }
     }
 };

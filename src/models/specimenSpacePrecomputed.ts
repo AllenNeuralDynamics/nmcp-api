@@ -1,30 +1,14 @@
-import {BelongsToGetAssociationMixin, DataTypes, Sequelize, Transaction} from "sequelize";
+import {BelongsToGetAssociationMixin, BelongsToGetAssociationMixinOptions, DataTypes, Sequelize, Transaction} from "sequelize";
 
 import {BaseModel} from "./baseModel";
 import {User} from "./user"
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {UnauthorizedError} from "../graphql/secureResolvers";
-import {AtlasReconstruction} from "./atlasReconstruction";
-import {PrecomputedTableName} from "./tableNames";
+import {SpecimenSpacePrecomputedTableName} from "./tableNames";
+import {Reconstruction} from "./reconstruction";
+import {PrecomputedGenerationStatus, PrecomputedStatus} from "./precomputed";
 
-export enum PrecomputedStatus {
-    Initialized = 0,
-    Pending = 100,
-    Complete = 200,
-    FailedToLoad = 300,
-    FailedToGenerate = 400
-}
-
-export type PrecomputedGenerationStatus = PrecomputedStatus.Complete | PrecomputedStatus.FailedToLoad | PrecomputedStatus.FailedToGenerate;
-
-export class PrecomputedUpdateShape {
-    id?: string;
-    status?: PrecomputedGenerationStatus;
-    version?: number;
-    generatedAt?: number;
-}
-
-export class Precomputed extends BaseModel {
+export class SpecimenSpacePrecomputed extends BaseModel {
     public skeletonId?: number;
     public status?: PrecomputedStatus;
     public version?: number;
@@ -32,7 +16,7 @@ export class Precomputed extends BaseModel {
     public generatedAt?: Date;
     public reconstructionId?: string;
 
-    public getReconstruction!: BelongsToGetAssociationMixin<AtlasReconstruction>;
+    public getReconstruction: BelongsToGetAssociationMixin<Reconstruction>
 
     protected async recordEvent(kind: EventLogItemKind, details: object, user: User, t: Transaction): Promise<void> {
         await recordEvent({
@@ -47,24 +31,24 @@ export class Precomputed extends BaseModel {
     protected static eventKindForGenerationStatus(status: PrecomputedStatus): EventLogItemKind {
         switch (status) {
             case PrecomputedStatus.Initialized:
-                return EventLogItemKind.PrecomputedCreate;
+                return EventLogItemKind.SpecimenPrecomputedCreate;
             case PrecomputedStatus.Pending:
-                return EventLogItemKind.PrecomputedUpdate;
+                return EventLogItemKind.SpecimenPrecomputedUpdate;
             case PrecomputedStatus.Complete:
-                return EventLogItemKind.PrecomputedComplete;
+                return EventLogItemKind.SpecimenPrecomputedComplete;
             case PrecomputedStatus.FailedToLoad:
             case PrecomputedStatus.FailedToGenerate:
-                return EventLogItemKind.PrecomputedError;
+                return EventLogItemKind.SpecimenPrecomputedError;
         }
     }
 
     protected async precomputedChanged(user: User, complete: boolean, t: Transaction): Promise<void> {
         const reconstruction = await this.getReconstruction();
 
-        await reconstruction.precomputedChanged(user,complete, t);
+        // await reconstruction.precomputedChanged(user,complete, t);
     }
 
-    public static async getPending(user: User, limit: number = 10): Promise<Precomputed[]> {
+    public static async getPending(user: User, limit: number = 10): Promise<SpecimenSpacePrecomputed[]> {
         if (!user?.canRequestPendingPrecomputed()) {
             throw new UnauthorizedError();
         }
@@ -77,7 +61,7 @@ export class Precomputed extends BaseModel {
         })
     }
 
-    public static async createWithTransaction(user: User, reconstructionId: string, t: Transaction): Promise<Precomputed> {
+    public static async createWithTransaction(user: User, reconstructionId: string, t: Transaction): Promise<SpecimenSpacePrecomputed> {
         const shape = {
             reconstructionId: reconstructionId,
             status: PrecomputedStatus.Initialized
@@ -90,7 +74,7 @@ export class Precomputed extends BaseModel {
         return precomputed;
     }
 
-    public static async createForReconstruction(user: User, reconstructionId: string, t: Transaction = null): Promise<Precomputed> {
+    public static async createForReconstruction(user: User, reconstructionId: string, t: Transaction = null): Promise<SpecimenSpacePrecomputed> {
         if (t === null) {
             return await this.sequelize.transaction(async (t) => {
                 return await this.createWithTransaction(user, reconstructionId, t);
@@ -100,7 +84,7 @@ export class Precomputed extends BaseModel {
         }
     }
 
-    public async requestGeneration(user: User, t: Transaction = null): Promise<Precomputed> {
+    public async requestGeneration(user: User, t: Transaction = null): Promise<SpecimenSpacePrecomputed> {
         const update = {"status": PrecomputedStatus.Pending};
 
         const updated = await this.update(update, {transaction: t});
@@ -110,7 +94,7 @@ export class Precomputed extends BaseModel {
         return updated;
     }
 
-    public static async updateGeneration(user: User, id: string, status: PrecomputedGenerationStatus, version: number, generatedAt: number): Promise<Precomputed> {
+    public static async updateGeneration(user: User, id: string, status: PrecomputedGenerationStatus, version: number, generatedAt: number): Promise<SpecimenSpacePrecomputed> {
         if (!user?.canUpdatePrecomputed()) {
             throw new UnauthorizedError();
         }
@@ -141,7 +125,7 @@ export class Precomputed extends BaseModel {
 
 // noinspection JSUnusedGlobalSymbols
 export const modelInit = (sequelize: Sequelize) => {
-    return Precomputed.init({
+    return SpecimenSpacePrecomputed.init({
         id: {
             primaryKey: true,
             type: DataTypes.UUID,
@@ -162,7 +146,7 @@ export const modelInit = (sequelize: Sequelize) => {
         },
         generatedAt: DataTypes.DATE
     }, {
-        tableName: PrecomputedTableName,
+        tableName: SpecimenSpacePrecomputedTableName,
         timestamps: true,
         paranoid: true,
         sequelize
@@ -171,6 +155,5 @@ export const modelInit = (sequelize: Sequelize) => {
 
 // noinspection JSUnusedGlobalSymbols
 export const modelAssociate = () => {
-    Precomputed.belongsTo(AtlasReconstruction, {foreignKey: "reconstructionId", as: "Reconstruction"});
+    SpecimenSpacePrecomputed.belongsTo(Reconstruction, {foreignKey: "reconstructionId", as: "Reconstruction"});
 };
-

@@ -125,7 +125,6 @@ export const coreTypeDefinitions = gql`
         label: String
         notes: String
         referenceDate: Date
-        tomographyUrl: String
         somaProperties: SomaFeatures
         tomography: TomographyReference
         genotype: Genotype
@@ -206,6 +205,7 @@ export const coreTypeDefinitions = gql`
         neuron: Neuron
         atlasReconstructionId: String
         atlasReconstruction: AtlasReconstruction
+        precomputed: Precomputed
         startedAt: Date
         completedAt: Date
         reviewedAt: Date
@@ -224,7 +224,7 @@ export const coreTypeDefinitions = gql`
         lengthMillimeters: Float
         nodeCounts: NodeCounts
         soma: AtlasNode
-        reconstruction: Neuron
+        reconstruction: Reconstruction
         reconstructionId: String
         qualityControl: QualityControl
         precomputed: Precomputed

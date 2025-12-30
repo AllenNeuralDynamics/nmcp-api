@@ -11,18 +11,19 @@ import {GraphQLError} from "graphql/error";
 import {Collection, CollectionShape} from "../models/collection";
 import {Issue, IssueReference, IssueResolutionKind, IssueStatus} from "../models/issue";
 import {
-    JsonUploadArgs,
+    ReconstructionUploadArgs,
     ReconstructionQueryResponse,
     ReconstructionsQueryArgs,
     ReviewRequestArgs,
     Reconstruction,
-    SwcUploadArgs, ReconstructionMetadataArgs
+    ReconstructionMetadataArgs
 } from "../models/reconstruction";
 import GraphQLUpload = require("graphql-upload/GraphQLUpload.js");
 import {QualityControl} from "../models/qualityControl";
 import {AtlasNode} from "../models/atlasNode";
 import {Precomputed} from "../models/precomputed";
 import {NodeStructure} from "../models/nodeStructure";
+import {SpecimenSpacePrecomputed} from "../models/specimenSpacePrecomputed";
 
 export class UnauthorizedError extends GraphQLError {
     public constructor() {
@@ -227,11 +228,11 @@ export const secureResolvers = {
             return Reconstruction.updateMetadata(user, args);
         },
 
-        uploadJsonData(_: any, {uploadArgs}: { uploadArgs: JsonUploadArgs }, user: User): Promise<Reconstruction> {
+        uploadJsonData(_: any, {uploadArgs}: { uploadArgs: ReconstructionUploadArgs }, user: User): Promise<Reconstruction> {
             return Reconstruction.fromJsonUpload(user, uploadArgs);
         },
 
-        uploadSwcData(_: any, {uploadArgs}: { uploadArgs: SwcUploadArgs }, user: User): Promise<Reconstruction> {
+        uploadSwcData(_: any, {uploadArgs}: { uploadArgs: ReconstructionUploadArgs }, user: User): Promise<Reconstruction> {
             return Reconstruction.fromSwcUpload(user, uploadArgs);
         },
 
@@ -258,6 +259,9 @@ export const secureResolvers = {
         },
         atlasReconstruction(reconstruction: Reconstruction): Promise<AtlasReconstruction> {
             return reconstruction.getAtlasReconstruction();
+        },
+        precomputed(reconstruction: Reconstruction): Promise<SpecimenSpacePrecomputed> {
+            return reconstruction.getPrecomputed();
         },
         annotator(reconstruction: Reconstruction): Promise<User> {
             return reconstruction.getAnnotator({attributes: ["id", "firstName", "lastName"]});

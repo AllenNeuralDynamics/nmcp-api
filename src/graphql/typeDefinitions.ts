@@ -95,10 +95,13 @@ export const typeDefinitions = gql`
         #
         # Internal queries that require system authentication.
         #
+        specimenSpaceReconstructionAsJson(id: String!): PortalReconstructionContainer
+        
         """Returns reconstruction data with support for partial fetching and chunking"""
         reconstructionAsJSON(id: String!, options: PortalReconstructionInput): PortalReconstructionContainer
 
         pendingPrecomputed: [Precomputed!]!
+        specimenSpacePendingPrecomputed: [Precomputed!]!
     }
 
     type Mutation {
@@ -147,8 +150,8 @@ export const typeDefinitions = gql`
         discardReconstruction(reconstructionId: String!): Reconstruction
 
         updateReconstruction(reconstructionId: String!, duration: Float, notes: String, started: Date, completed: Date): Reconstruction
-        uploadJsonData(uploadArgs: JsonUploadArgs!): Reconstruction
-        uploadSwcData(uploadArgs: SwcUploadArgs!): Reconstruction
+        uploadJsonData(uploadArgs: ReconstructionUploadArgs!): Reconstruction
+        uploadSwcData(uploadArgs: ReconstructionUploadArgs!): Reconstruction
 
         openIssue(kind: Int!, description: String!, references: [IssueReferenceInput!]!): Issue
         modifyIssue(id: String!, status: Int!): Issue
@@ -159,6 +162,7 @@ export const typeDefinitions = gql`
         #
 
         updatePrecomputed(id: String!, status: Int!, version: Int!, generatedAt: Date!): Precomputed
+        updateSpecimenSpacePrecomputed(id: String!, status: Int!, version: Int!, generatedAt: Date!): Precomputed
     }
 
     schema {

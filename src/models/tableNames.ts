@@ -31,6 +31,7 @@ export const SpecimenNodeTableName = "SpecimenNode";
 export const AtlasNodeTableName = "AtlasNode";
 export const AtlasReconstructionTableName = "AtlasReconstruction";
 export const QualityControlTableName = "QualityControl";
+export const SpecimenSpacePrecomputedTableName ="SpecimenSpacePrecomputed";
 export const PrecomputedTableName = "Precomputed";
 
 // Search infrastructure

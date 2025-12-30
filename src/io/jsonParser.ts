@@ -1,21 +1,20 @@
-import * as byline from "byline";
 import * as fs from "fs";
 import JSONStream = require("JSONStream");
+
 import {PortalJsonNode} from "./portalJson";
 import {NeuronStructure} from "../models/neuronStructure";
 import {SimpleNeuronStructure} from "./simpleReconstruction";
 
-const debug = require("debug")("nmcp:nmcp-api:json-parser");
 
 export async function jsonChunkParse(fileStream: fs.ReadStream): Promise<[SimpleNeuronStructure, SimpleNeuronStructure]> {
-    const parser = JSONStream.parse('neurons.*'); // Parses each element in an array or root object
+    const parser = JSONStream.parse("neurons.*"); // Parses each element in an array or root object
 
     fileStream.pipe(parser);
 
     return new Promise((resolve, reject) => {
         let axon = null;
         let dendrite = null;
-        parser.on('data', (chunk) => {
+        parser.on("data", (chunk) => {
             if (chunk.axon && chunk.dendrite) {
                 axon = chunk.axon;
                 dendrite = chunk.dendrite;
@@ -24,56 +23,15 @@ export async function jsonChunkParse(fileStream: fs.ReadStream): Promise<[Simple
             }
         });
 
-        parser.on('end', () => {
+        parser.on("end", () => {
             // debug("finished chunk parsing JSON");
             resolve(parseObj({axon: axon, dendrite: dendrite}));
         });
 
-        parser.on('error', (err: any) => {
+        parser.on("error", (err: any) => {
             reject(new Error(`Error parsing JSON: ${err}`));
         });
     });
-}
-
-export async function jsonParse(fileStream: fs.ReadStream): Promise<[SimpleNeuronStructure, SimpleNeuronStructure]> {
-    const stream = byline.createStream(fileStream);
-
-    let data: string = "";
-
-    return new Promise((resolve, reject) => {
-        stream.on("readable", () => {
-            let line: Buffer;
-            while ((line = stream.read()) !== null) {
-                try {
-                    data += line.toString("utf8");
-                } catch (err) {
-                    // console.error("Error reading line from stream:", err);
-                    // Handle the error as needed, e.g., log it or throw an exception
-                    // console.error(line);
-                }
-            }
-        });
-        stream.on("end", () => {
-            oneFileComplete(data, resolve, reject);
-        });
-    });
-}
-
-function oneFileComplete(data: string, resolve, reject) {
-    try {
-        const obj = JSON.parse(data);
-
-        const [axonData, dendriteData] = parseObj(obj.neurons[0]);
-
-        if (obj["comment"]) {
-            axonData.addComment(obj["comment"]);
-            dendriteData.addComment(obj["comment"]);
-        }
-
-        resolve([axonData, dendriteData]);
-    } catch (err) {
-        reject(err);
-    }
 }
 
 function parseObj(obj: any): [SimpleNeuronStructure, SimpleNeuronStructure] {

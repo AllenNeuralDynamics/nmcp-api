@@ -165,7 +165,7 @@ export class AtlasReconstruction extends BaseModel {
 
         // TODO change create to only create if needed for one call.
         // Set up Precomputed
-        let precomputed = await QualityControl.findOne({where:{reconstructionId: this.id}});
+        let precomputed = await Precomputed.findOne({where:{reconstructionId: this.id}});
 
         // Do not need to reset status.  Precomputed status will be set to pending after node structure assigment (after quality control)
         if (!precomputed) {

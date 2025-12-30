@@ -26,6 +26,7 @@ const services = {
 };
 
 function loadDatabaseOptions(options): any {
+    // @ts-ignore
     options.nmcp.host = process.env.NMCP_DB_HOST || options.nmcp.host;
     options.nmcp.port = parseInt(process.env.NMCP_DB_PORT) || options.nmcp.port;
     options.nmcp.username = process.env.NMCP_DATABASE_UN || options.nmcp.username;

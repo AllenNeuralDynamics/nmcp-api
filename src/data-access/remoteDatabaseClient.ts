@@ -9,15 +9,18 @@ import {ServiceOptions} from "../options/serviceOptions";
 import {AtlasStructure, AtlasStructureShape} from "../models/atlasStructure";
 import {NodeStructure} from "../models/nodeStructure";
 import {NeuronStructure} from "../models/neuronStructure";
-import {AtlasReconstruction} from "../models/atlasReconstruction";
 import {AtlasKind, AtlasKindShape} from "../models/atlasKind";
 import {Atlas, AtlasShape} from "../models/atlas";
 import {User} from "../models/user";
 
 export class RemoteDatabaseClient {
-    public static async Start(prepareSearchContents = false, enableLog: boolean = false): Promise<RemoteDatabaseClient> {
+    public static async Start(prepareSearchContents = false, enableLog: boolean = false, forceLocalHost: boolean = false): Promise<RemoteDatabaseClient> {
+        if (forceLocalHost) {
+            SequelizeOptions.host = "localhost";
+        }
         const client = new RemoteDatabaseClient(SequelizeOptions);
         await client.start(prepareSearchContents, enableLog);
+
         return client;
     }
 
@@ -79,9 +82,9 @@ export class RemoteDatabaseClient {
 
         const models = modules.filter(m => m.modelInit).map(m => m.modelInit(this._connection));
 
-        for (const model of modules) {
-            if (model.modelAssociate != null) {
-                model.modelAssociate();
+        for (const module of modules) {
+            if (module.modelAssociate != null) {
+                module.modelAssociate();
             }
         }
 
@@ -164,7 +167,7 @@ export class RemoteDatabaseClient {
 function loadAtlasStructures(when: Date): [AtlasKindShape, AtlasShape, AtlasStructureShape[]] {
     const fixtureDataPath = path.join(ServiceOptions.fixturePath, "ccfv3Atlas.json");
 
-    const fileData = fs.readFileSync(fixtureDataPath, {encoding: "UTF-8"});
+    const fileData = fs.readFileSync(fixtureDataPath, "utf-8");
 
     const atlasInfo = JSON.parse(fileData);
 
@@ -200,7 +203,7 @@ function loadAtlasStructures(when: Date): [AtlasKindShape, AtlasShape, AtlasStru
 function loadNodeStructures(when: Date) {
     const fixtureDataPath = path.join(ServiceOptions.fixturePath, "nodeStructures.json");
 
-    const fileData = fs.readFileSync(fixtureDataPath, {encoding: "UTF-8"});
+    const fileData = fs.readFileSync(fixtureDataPath, "utf-8");
 
     const areas = JSON.parse(fileData);
 
@@ -215,7 +218,7 @@ function loadNodeStructures(when: Date) {
 function loadNeuronStructures(when: Date) {
     const fixtureDataPath = path.join(ServiceOptions.fixturePath, "neuronStructures.json");
 
-    const fileData = fs.readFileSync(fixtureDataPath, {encoding: "UTF-8"});
+    const fileData = fs.readFileSync(fixtureDataPath, "utf-8");
 
     const areas = JSON.parse(fileData);
 

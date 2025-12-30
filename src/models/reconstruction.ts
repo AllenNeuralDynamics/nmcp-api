@@ -15,6 +15,7 @@ import {
 
 import {BaseModel} from "./baseModel";
 
+import {SpecimenSpacePrecomputed} from "./specimenSpacePrecomputed";
 import {mapToSpecimenNodeShape, SpecimenNode, SpecimenNodeShape} from "./specimenNode";
 import {Neuron} from "./neuron";
 import {User} from "./user";
@@ -27,8 +28,15 @@ import {AtlasReconstruction, AtlasReconstructionShape} from "./atlasReconstructi
 import {AtlasReconstructionStatus} from "./atlasReconstructionStatus";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {isNotNullOrUndefined} from "../util/objectUtil";
-import {NodeCounts, parseJsonFile, parseSwcFiles, SimpleReconstruction} from "../io/simpleReconstruction";
+import {NodeCounts, parseJsonFile, parseSwcFile, SimpleReconstruction} from "../io/simpleReconstruction";
 import {NeuronStructure} from "./neuronStructure";
+import {mapSpecimenNodes, PortalJsonReconstruction, PortalJsonReconstructionContainer} from "../io/portalJson";
+import {Injection} from "./injection";
+import {InjectionVirus} from "./injectionVirus";
+import {Fluorophore} from "./fluorophore";
+import {Genotype} from "./genotype";
+import {Collection} from "./collection"
+import {NodeStructure, NodeStructures} from "./nodeStructure";
 
 const debug = require("debug")("nmcp:nmcp-api:reconstruction");
 
@@ -69,19 +77,10 @@ export type ReconstructionMetadataArgs = {
     completed?: Date;
 }
 
-
-type UploadArgs = {
+export type ReconstructionUploadArgs = {
     reconstructionId: string;
-    reconstructionSpace: ReconstructionSpace;
-}
-
-export type JsonUploadArgs = UploadArgs & {
+    reconstructionSpace: ReconstructionSpace
     file: Promise<GqlFile>;
-}
-
-export type SwcUploadArgs = UploadArgs & {
-    axonFile: Promise<GqlFile>;
-    dendriteFile: Promise<GqlFile>;
 }
 
 class UploadError extends Error {
@@ -138,9 +137,11 @@ export class Reconstruction extends BaseModel {
 
     public getNodes!: HasManyGetAssociationsMixin<SpecimenNode>;
     public getNeuron!: BelongsToGetAssociationMixin<Neuron>;
+    public getSoma!: BelongsToGetAssociationMixin<SpecimenNode>;
     public getAnnotator!: BelongsToGetAssociationMixin<User>;
     public getReviewer!: BelongsToGetAssociationMixin<User>;
     public getAtlasReconstruction!: HasOneGetAssociationMixin<AtlasReconstruction>;
+    public getPrecomputed!: HasOneGetAssociationMixin<SpecimenSpacePrecomputed>;
 
     public Neuron?: Neuron;
     public Nodes?: SpecimenNode[];
@@ -620,24 +621,15 @@ export class Reconstruction extends BaseModel {
         });
     }
 
-    private static async validateUploadArgs(args: JsonUploadArgs | SwcUploadArgs): Promise<UploadError | null> {
-        if ("file" in args) {
-            if (!args.file) {
-                return new UploadError("There JSON file is missing.");
-            }
-        } else {
-            if (!args.axonFile) {
-                return new UploadError("There axon file is missing.");
-            }
-            if (!args.dendriteFile) {
-                return new UploadError("There dendrite file is missing.");
-            }
+    private static async validateUploadArgs(args: ReconstructionUploadArgs): Promise<UploadError | null> {
+        if (!args.file) {
+            return new UploadError("The JSON or SWC file is missing.");
         }
 
         return null;
     }
 
-    public static async fromJsonUpload(userOrId: User | string, args: JsonUploadArgs): Promise<Reconstruction> {
+    public static async fromJsonUpload(userOrId: User | string, args: ReconstructionUploadArgs): Promise<Reconstruction> {
         await Reconstruction.validateUploadArgs(args);
 
         const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(args.reconstructionId, userOrId);
@@ -655,21 +647,18 @@ export class Reconstruction extends BaseModel {
         return await Reconstruction.findByPk(args.reconstructionId);
     }
 
-    public static async fromSwcUpload(userOrId: User | string, args: SwcUploadArgs): Promise<Reconstruction> {
+    public static async fromSwcUpload(userOrId: User | string, args: ReconstructionUploadArgs): Promise<Reconstruction> {
         await Reconstruction.validateUploadArgs(args);
 
         const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(args.reconstructionId, userOrId);
 
-        if (user.canUploadReconstructionData(args.reconstructionSpace)) {
+        if (!user.canUploadReconstructionData(args.reconstructionSpace)) {
             throw new UnauthorizedError();
         }
 
-        const file1: any = await args.axonFile;
-        const file2: any = await args.dendriteFile;
+        const file: any = await args.file;
 
-        const source = `${file1.filename} ${file2.filename}`;
-
-        const reconstructionData = await parseSwcFiles(source, file1.createReadStream(), file2.createReadStream());
+        const reconstructionData = await parseSwcFile(file.filename, file.createReadStream());
 
         await reconstruction.fromParsedStructures(user, args.reconstructionSpace, reconstructionData);
 
@@ -682,6 +671,114 @@ export class Reconstruction extends BaseModel {
         const reconstructionData = await parseJsonFile(sourceFile, fs.createReadStream(sourceFile));
 
         await reconstruction.fromParsedStructures(user, space, reconstructionData, substituteUser);
+    }
+
+    public static async fromSwcFile(userOrId: User | string, reconstructionId: string, sourceFile: string, space: ReconstructionSpace, substituteUser: User): Promise<void> {
+        const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(reconstructionId, userOrId);
+
+        const reconstructionData = await parseSwcFile(sourceFile, fs.createReadStream(sourceFile));
+
+        await reconstruction.fromParsedStructures(user, space, reconstructionData, substituteUser);
+    }
+
+    public static async getAsJSON(user: User, id: string): Promise<PortalJsonReconstructionContainer | null> {
+        if (!user?.canRequestReconstructionData()) {
+            throw new UnauthorizedError();
+        }
+
+        const includes = [{
+            model: Neuron,
+            as: "Neuron",
+            include: [{
+                model: Specimen,
+                as: "Specimen",
+                include: [{
+                    model: Injection,
+                    include: [{
+                        model: InjectionVirus,
+                    }, {
+                        model: Fluorophore,
+                    }]
+                }, {
+                    model: Genotype,
+                }, {
+                    model: Collection,
+                }]
+            }]
+        }];
+
+        const reconstruction = await this.findByPk(id, {
+            include: includes.length > 0 ? includes : undefined
+        });
+
+        if (!reconstruction) {
+            return null;
+        }
+        const result: PortalJsonReconstructionContainer = {
+            comment: "",
+            neurons: []
+        };
+
+        let soma = await reconstruction.getSoma();
+
+        const label = reconstruction.Neuron.Specimen.Injections.map(i => ({
+            virus: i.InjectionVirus?.name ?? "",
+            fluorophore: i.Fluorophore?.name ?? ""
+        }));
+
+        const data: PortalJsonReconstruction = {
+            id: reconstruction.Neuron.id,
+            idString: reconstruction.Neuron.label,
+            DOI: null,
+            sample: reconstruction.Neuron.Specimen.toPortalJson(),
+            label: label.length > 0 ? label[0] : null,
+            annotationSpace: null,
+            annotator: null,
+            proofreader: null,
+            peerReviewer: null,
+            soma: soma.toJSON() ?? null,
+            axonId: reconstruction.id,
+            dendriteId: reconstruction.id
+        };
+
+        function nodeWhere(structureId: string) {
+            return {
+                reconstructionId: reconstruction.id,
+                neuronStructureId: {
+                    [Op.in]: [NeuronStructure.SomaNeuronStructureId, structureId]
+                }
+            }
+        }
+
+        let options: FindOptions = {
+            where: nodeWhere(NeuronStructure.AxonStructureId),
+            include: [{
+                model: NodeStructure,
+            }],
+            order: [["index", "ASC"]]
+        };
+
+        const axonNodes = await SpecimenNode.findAll(options);
+
+        data.axon = mapSpecimenNodes(axonNodes, NodeStructures.axon);
+        data.axon[0].structureIdentifier = NodeStructures.soma;
+
+        options = {
+            where: nodeWhere(NeuronStructure.DendriteStructureId),
+            include: [{
+                model: NodeStructure
+            }],
+            order: [["index", "ASC"]]
+        };
+
+        const dendriteNodes = await SpecimenNode.findAll(options);
+
+        data.dendrite = mapSpecimenNodes(dendriteNodes, NodeStructures.basalDendrite);
+        data.dendrite[0].structureIdentifier = NodeStructures.soma;
+
+        result.neurons.push(data);
+
+        return result;
     }
 
     private async fromParsedStructures(user: User, space: ReconstructionSpace, reconstructionData: SimpleReconstruction, substituteUser: User = null): Promise<Reconstruction> {
@@ -697,10 +794,21 @@ export class Reconstruction extends BaseModel {
 
         return await this.sequelize.transaction(async (t) => {
             if (space == ReconstructionSpace.Specimen) {
-                if (this.status != ReconstructionStatus.PeerReview && this.status != ReconstructionStatus.PublishReview) {
+                if (this.status != ReconstructionStatus.PeerReview && this.status != ReconstructionStatus.PublishReview && !user?.isAdmin()) {
                     throw new Error("The reconstruction data can not be modified when not in peer or publish review");
                 }
-                return await this.replaceNodeData(user, reconstructionData, t);
+
+                const updated = await this.replaceNodeData(user, reconstructionData, t);
+
+                let precomputed = await SpecimenSpacePrecomputed.findOne({where:{reconstructionId: this.id}});
+
+                if (!precomputed) {
+                    precomputed = await SpecimenSpacePrecomputed.createForReconstruction(user, this.id, t);
+                }
+
+                await precomputed.requestGeneration(user, t);
+
+                return updated;
             }
 
             if (this.status != ReconstructionStatus.PublishReview) {
@@ -726,35 +834,42 @@ export class Reconstruction extends BaseModel {
     }
 
     private async replaceNodeData(user: User, reconstructionData: SimpleReconstruction, t: Transaction): Promise<Reconstruction> {
-        await SpecimenNode.destroy({
-            where: {reconstructionId: this.id},
-            transaction: t
-        });
+        try {
+            await this.update({specimenSomaNodeId: null, transaction: t});
 
-        for (const s of [reconstructionData.axon, reconstructionData.dendrite]) {
-            const nodeData: SpecimenNodeShape[] = s.getNonSomaNodes().map(node => mapToSpecimenNodeShape(node, s.NeuronStructureId, this.id));
+            await SpecimenNode.destroy({
+                where: {reconstructionId: this.id},
+                transaction: t
+            });
 
-            const chunkSize = AtlasReconstruction.PreferredDatabaseChunkSize;
+            for (const s of [reconstructionData.axon, reconstructionData.dendrite]) {
+                const nodeData: SpecimenNodeShape[] = s.getNonSomaNodes().map(node => mapToSpecimenNodeShape(node, s.NeuronStructureId, this.id));
 
-            for (let idx = 0; idx < nodeData.length; idx += chunkSize) {
-                await SpecimenNode.bulkCreate(nodeData.slice(idx, idx + chunkSize), {transaction: t});
+                const chunkSize = AtlasReconstruction.PreferredDatabaseChunkSize;
+
+                for (let idx = 0; idx < nodeData.length; idx += chunkSize) {
+                    await SpecimenNode.bulkCreate(nodeData.slice(idx, idx + chunkSize), {transaction: t});
+                }
             }
+
+            const somaShape = mapToSpecimenNodeShape(reconstructionData.axon.soma, NeuronStructure.SomaNeuronStructureId, this.id);
+
+            const soma = await SpecimenNode.create(somaShape, {transaction: t});
+
+            const updated = await this.update({
+                sourceUrl: reconstructionData.source,
+                sourceComments: reconstructionData.comments,
+                specimenNodeCounts: {axon: reconstructionData.axon.nodeCounts, dendrite: reconstructionData.dendrite.nodeCounts},
+                specimenSomaNodeId: soma?.id
+            }, {transaction: t});
+
+            await this.recordEvent(EventLogItemKind.ReconstructionUpload, null, user, t);
+
+            return updated;
         }
-
-        const somaShape = mapToSpecimenNodeShape(reconstructionData.axon.soma, NeuronStructure.SomaNeuronStructureId, this.id);
-
-        const soma = await SpecimenNode.create(somaShape, {transaction: t});
-
-        const updated = await this.update({
-            sourceUrl: reconstructionData.source,
-            sourceComments: reconstructionData.comments,
-            specimenNodeCounts: {axon: reconstructionData.axon.nodeCounts, dendrite: reconstructionData.dendrite.nodeCounts},
-            specimenSomaNodeId: soma?.id
-        }, {transaction: t});
-
-        await this.recordEvent(EventLogItemKind.ReconstructionUpload, null, user, t);
-
-        return updated;
+        catch (err) {
+            throw err;
+        }
     }
 }
 
@@ -815,5 +930,6 @@ export const modelAssociate = () => {
     Reconstruction.belongsTo(User, {foreignKey: "reviewerId", as: "Reviewer"});
     Reconstruction.belongsTo(SpecimenNode, {foreignKey: "specimenSomaNodeId", as: "Soma"});
     Reconstruction.hasMany(SpecimenNode, {foreignKey: "reconstructionId"});
+    Reconstruction.hasOne(SpecimenSpacePrecomputed, {foreignKey: "reconstructionId", as: "Precomputed"});
     Reconstruction.hasOne(AtlasReconstruction, {foreignKey: "reconstructionId"});
 };

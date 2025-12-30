@@ -43,8 +43,8 @@ export type SpecimenShape = {
     keywords?: string[];
     genotypeId?: string;
     genotypeName?: string;
-    tomographyUrl?: string;
     somaProperties?: SpecimenSomaProperties;
+    tomography?: SpecimenTomography;
     atlasId?: string;
     collectionId?: string;
 }
@@ -130,7 +130,6 @@ export class Specimen extends BaseModel {
 
         shape.label ??= "";
         shape.notes ??= "";
-        shape.tomographyUrl ??= "";
         // TODO Atlas Should not use a default until officially supporting multiple atlases.
         shape.atlasId ??= Atlas.defaultAtlas.id;
 
@@ -162,12 +161,12 @@ export class Specimen extends BaseModel {
             shape.notes = "";
         }
 
-        if (shape.tomographyUrl === null) {
-            shape.tomographyUrl = "";
-        }
-
         if (shape.collectionId === null) {
             delete shape.collectionId;
+        }
+
+        if (shape.tomography === null) {
+            delete shape.tomography;
         }
 
         return await Specimen.sequelize.transaction(async (t) => {

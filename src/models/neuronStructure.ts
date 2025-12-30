@@ -12,15 +12,15 @@ export class NeuronStructure extends BaseModel {
     private static _somaNeuronStructure: NeuronStructure = null;
 
     public static get AxonStructureId(): string {
-        return this._axonStructure.id;
+        return this._axonStructure?.id;
     }
 
     public static get DendriteStructureId(): string {
-        return this._dendriteStructure.id;
+        return this._dendriteStructure?.id;
     }
 
     public static get SomaNeuronStructureId(): string {
-        return this._somaNeuronStructure.id;
+        return this._somaNeuronStructure?.id;
     }
 
     public static async loadCache() {

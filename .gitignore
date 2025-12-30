@@ -15,7 +15,7 @@ dist/
 *.csv
 *.cl*
 
-.env
+.env.node
 
 .DS_Store
 
