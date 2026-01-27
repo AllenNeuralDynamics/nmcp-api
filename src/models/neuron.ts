@@ -19,7 +19,7 @@ import {PredicateType} from "./queryPredicate";
 import {AtlasReconstruction} from "./atlasReconstruction";
 import {User} from "./user";
 import {UnauthorizedError} from "../graphql/secureResolvers";
-import {isNotNullOrUndefined, isNullOrEmpty} from "../util/objectUtil";
+import {isNullOrEmpty} from "../util/objectUtil";
 import {Reconstruction} from "./reconstruction";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {Atlas} from "./atlas";
@@ -28,40 +28,17 @@ import {publishedCount} from "./systemSettings";
 
 const debug = require("debug")("nmcp:nmcp-api:neuron-model");
 
-function getSequelizeOperator(operator: SomaFilterOperator, value: number) {
-    switch (operator) {
-        case SomaFilterOperator.LessThan:
-            return {[Op.lt]: value};
-        case SomaFilterOperator.GreaterThan:
-            return {[Op.gt]: value};
-        case SomaFilterOperator.Equals:
-        default:
-            return value;
-    }
-}
-
-function isValidSomaFilterOperator(operator: SomaFilterOperator): boolean {
-    return isNotNullOrUndefined(operator) && operator != SomaFilterOperator.None;
-}
-
 export type SomaLocation = {
     x: number;
     y: number;
     z: number;
 }
 
-export enum SomaFilterOperator {
-    None = 0,
-    Equals = 1,
-    LessThan = 2,
-    GreaterThan = 3
-}
-
 export type SomaFilterInput = {
-    brightnessOperator: SomaFilterOperator;
-    brightness: number;
-    volumeOperator: SomaFilterOperator;
-    volume: number;
+    limitBrightness: boolean;
+    brightnessRange: number[];
+    limitVolume: boolean;
+    volumeRange: number[];
 }
 
 export type SomaProperties = {
@@ -108,6 +85,7 @@ export type SearchOutputPage = {
     neurons: Neuron[];
     error: Error;
 }
+
 enum FilterComposition {
     and = 1,
     or = 2,
@@ -200,17 +178,17 @@ export class Neuron extends BaseModel {
         }
 
         if (input.somaProperties) {
-            if (isValidSomaFilterOperator(input.somaProperties.brightnessOperator) && isNotNullOrUndefined(input.somaProperties.brightness)) {
+            if (input.somaProperties.limitBrightness && input.somaProperties.brightnessRange?.length > 1) {
                 options.where["somaProperties"] = {
-                    brightness: getSequelizeOperator(input.somaProperties.brightnessOperator, input.somaProperties.brightness)
+                    brightness:  { [Op.between]: input.somaProperties.brightnessRange.slice(0, 2)}
                 };
             }
 
-            if (isValidSomaFilterOperator(input.somaProperties.volumeOperator) && isNotNullOrUndefined(input.somaProperties.volume)) {
+            if (input.somaProperties.limitVolume && input.somaProperties.volumeRange?.length > 1) {
                 if (!options.where["somaProperties"]) {
                     options.where["somaProperties"] = {};
                 }
-                options.where["somaProperties"]["volume"] = getSequelizeOperator(input.somaProperties.volumeOperator, input.somaProperties.volume);
+                options.where["somaProperties"]["volume"] =  { [Op.between]: input.somaProperties.volumeRange.slice(0, 2)}
             }
         }
 
@@ -431,7 +409,7 @@ export class Neuron extends BaseModel {
         const somaProperties = ["somaX", "somaY", "somaZ"];
 
         // FindOptions per-predicate.
-        const findOptions: FindOptions[] = context.Predicates.map((predicate) => predicate.createFindOptions());
+        const findOptions: FindOptions[] = context.Predicates.map((predicate) => predicate.createFindOptions(context.CollectionIds));
 
         const indicesPerPredicate: (SearchIndex[])[] = [];
 

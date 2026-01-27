@@ -41,7 +41,7 @@ export interface IPredicateAttributes {
 }
 
 export interface IQueryPredicate extends IPredicateAttributes {
-    createFindOptions() : FindOptions;
+    createFindOptions(collectionIds: string[]) : FindOptions;
 }
 
 export class QueryPredicate implements IQueryPredicate {
@@ -101,12 +101,16 @@ export class QueryPredicate implements IQueryPredicate {
         this.amount = source.amount;
     }
 
-    public createFindOptions() : FindOptions {
+    public createFindOptions(collectionIds: string[]) : FindOptions {
         const findOptions: FindOptions = {};
 
         switch (this.predicateType) {
             case PredicateType.AnatomicalRegion:
                 findOptions.where = {};
+
+                if (collectionIds && collectionIds.length > 0) {
+                    findOptions.where["collectionId"] = collectionIds[0];
+                }
 
                 // Zero means any, two is explicitly both types - either way, do not need to filter on structure id
                 if (this.tracingStructureIds?.length === 1) {
@@ -135,6 +139,10 @@ export class QueryPredicate implements IQueryPredicate {
                 break;
             case PredicateType.CustomRegion:
                 findOptions.where = {};
+
+                if (collectionIds && collectionIds.length > 0) {
+                    findOptions.where["collectionId"] = collectionIds[0];
+                }
                 break;
             case PredicateType.IdOrDoi:
                 let where = null;
@@ -192,6 +200,10 @@ export class QueryPredicate implements IQueryPredicate {
                             [Op.or]: ors
                         }
                     }
+                }
+
+                if (collectionIds && collectionIds.length > 0) {
+                    findOptions.where["collectionId"] = collectionIds[0];
                 }
 
                 findOptions.where = where;

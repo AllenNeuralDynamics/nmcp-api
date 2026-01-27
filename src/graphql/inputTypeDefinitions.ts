@@ -40,10 +40,10 @@ export const inputTypeDefinitions = gql`
     }
 
     input SomaPropertyInput {
-        brightnessOperator: Int
-        brightness: Float
-        volumeOperator: Int
-        volume: Float
+        limitBrightness: Boolean
+        brightnessRange: [Float!]
+        limitVolume: Boolean
+        volumeRange: [Float!]
     }
 
     input NeuronQueryInput {
@@ -154,7 +154,7 @@ export const inputTypeDefinitions = gql`
 
     input SearchContext {
         nonce: String
-        scope: Int
+        collectionIds: [String!]
         predicates: [Predicate!]
     }
 

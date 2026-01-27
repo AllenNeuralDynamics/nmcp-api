@@ -2,7 +2,7 @@ import {Kind} from "graphql/language";
 import {GraphQLScalarType} from "graphql/type";
 
 import {IQueryOperator, operators} from "../models/queryOperator";
-import {NearestNodeOutput, AtlasReconstruction} from "../models/atlasReconstruction";
+import {NearestNodeOutput, AtlasReconstruction, JsonParts} from "../models/atlasReconstruction";
 import {PredicateType} from "../models/queryPredicate";
 import {AtlasStructure, AtlasStructureQueryInput} from "../models/atlasStructure";
 import {User} from "../models/user";
@@ -20,30 +20,7 @@ import {Fluorophore} from "../models/fluorophore";
 import {Reconstruction, PublishedReconstructionQueryResponse} from "../models/reconstruction";
 import {getSystemSettings, SystemSettings} from "../models/systemSettings";
 import {AccessRequest, AccessRequestShape, RequestAccessResponse} from "../models/accessRequest";
-
-// const debug = require("debug")("nmcp:api:open-resolvers");
-
-export type IdArgs = {
-    id: string;
-}
-
-type AtlasQueryArgs = {
-    input: AtlasStructureQueryInput;
-}
-
-type CandidateQueryArgs = {
-    input: NeuronQueryInput;
-    includeInProgress: boolean;
-}
-
-type NearestNodeArgs = {
-    id: string;         // reconstruction id
-    location: number[]; // expected distance [x, y, z]
-}
-
-type SearchNeuronsArguments = {
-    context: SearchContextInput;
-}
+import {PortalJsonReconstructionContainer} from "../io/portalJson";
 
 // noinspection JSUnusedGlobalSymbols
 /**
@@ -74,13 +51,13 @@ export const openResolvers = {
             return NeuronStructure.findAll({});
         },
 
-        async atlasStructures(_: any, args: AtlasQueryArgs): Promise<AtlasStructure[]> {
+        async atlasStructures(_: any, args: { input: AtlasStructureQueryInput }): Promise<AtlasStructure[]> {
             const output = await AtlasStructure.getAll(args.input);
 
             return output.items;
         },
 
-        atlasStructure(_: any, args: IdArgs): Promise<AtlasStructure> {
+        atlasStructure(_: any, args: {id: string}): Promise<AtlasStructure> {
             return AtlasStructure.findByPk(args.id);
         },
 
@@ -104,15 +81,15 @@ export const openResolvers = {
             return Specimen.getAll(args.queryArgs);
         },
 
-        neuron(_: any, args: IdArgs): Promise<Neuron> {
+        neuron(_: any, args: {id: string}): Promise<Neuron> {
             return Neuron.findByPk(args.id);
         },
 
-        candidateNeurons(_: any, args: CandidateQueryArgs): Promise<EntityQueryOutput<Neuron>> {
+        candidateNeurons(_: any, args: { input: NeuronQueryInput, includeInProgress: boolean }): Promise<EntityQueryOutput<Neuron>> {
             return Neuron.getCandidateNeurons(args.input, args.includeInProgress);
         },
 
-        nearestNode(_: any, args: NearestNodeArgs, __: User): Promise<NearestNodeOutput> {
+        nearestNode(_: any, args: { id: string, location: number[] }, __: User): Promise<NearestNodeOutput> {
             return AtlasReconstruction.nearestNode(args.id, args.location);
         },
 
@@ -120,12 +97,12 @@ export const openResolvers = {
             return Reconstruction.getAllPublished(user, args.offset, args.limit);
         },
 
-        searchNeurons(_: any, args: SearchNeuronsArguments, __: User): Promise<SearchOutputPage> {
+        searchNeurons(_: any, args: { context: SearchContextInput }, __: User): Promise<SearchOutputPage> {
             return Neuron.getNeuronsWithPredicates(new SearchContext(args.context));
         }
     },
     Mutation: {
-        requestAccess(_: any, args: {request: AccessRequestShape}, user: User): Promise<RequestAccessResponse> {
+        requestAccess(_: any, args: { request: AccessRequestShape }, user: User): Promise<RequestAccessResponse> {
             return AccessRequest.createRequest(user, args.request);
         }
     },

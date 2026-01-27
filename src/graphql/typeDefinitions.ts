@@ -91,15 +91,15 @@ export const typeDefinitions = gql`
         issueCount: Int!
 
         openIssues: [Issue!]!
-
-        #
-        # Internal queries that require system authentication.
-        #
+        
         specimenSpaceReconstructionAsJson(id: String!): PortalReconstructionContainer
         
         """Returns reconstruction data with support for partial fetching and chunking"""
-        reconstructionAsJSON(id: String!, options: PortalReconstructionInput): PortalReconstructionContainer
-
+        reconstructionAsJson(id: String!, options: PortalReconstructionInput): PortalReconstructionContainer
+        
+        #
+        # Internal queries that require system authentication.
+        #
         pendingPrecomputed: [Precomputed!]!
         specimenSpacePendingPrecomputed: [Precomputed!]!
     }

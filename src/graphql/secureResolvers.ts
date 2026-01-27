@@ -1,4 +1,3 @@
-import {IdArgs} from "./openResolvers";
 import {Neuron, NeuronShape, NeuronQueryInput} from "../models/neuron";
 
 import {Genotype} from "../models/genotype";
@@ -65,7 +64,7 @@ export const secureResolvers = {
             throw new UnauthorizedError();
         },
 
-        genotype(_: any, args: IdArgs, context: User): Promise<Genotype> {
+        genotype(_: any, args: { id: string }, context: User): Promise<Genotype> {
             if (context.permissions & UserPermissions.ViewAll) {
                 return Genotype.findByPk(args.id);
             }
@@ -73,7 +72,7 @@ export const secureResolvers = {
             throw new UnauthorizedError();
         },
 
-        injection(_: any, args: IdArgs, context: User): Promise<Injection> {
+        injection(_: any, args: { id: string }, context: User): Promise<Injection> {
             if (context.permissions & UserPermissions.ViewAll) {
                 return Injection.findByPk(args.id);
             }
@@ -89,7 +88,7 @@ export const secureResolvers = {
             throw new UnauthorizedError();
         },
 
-        specimen(_: any, args: IdArgs, context: User): Promise<Specimen> {
+        specimen(_: any, args: { id: string }, context: User): Promise<Specimen> {
             if (context.permissions & UserPermissions.ViewAll) {
                 return Specimen.findByPk(args.id);
             }
@@ -148,7 +147,7 @@ export const secureResolvers = {
             return Injection.createOrUpdateForShape(user, args.injectionInput, false);
         },
 
-        deleteInjection(_: any, args: IdArgs, user: User): Promise<string> {
+        deleteInjection(_: any, args: { id: string }, user: User): Promise<string> {
             return Injection.deleteByPk(user, args.id);
         },
 
@@ -172,7 +171,7 @@ export const secureResolvers = {
             return Neuron.createOrUpdateForShape(args.neuron, user);
         },
 
-        deleteNeuron(_: any, args: IdArgs, user: User): Promise<string> {
+        deleteNeuron(_: any, args: { id: string }, user: User): Promise<string> {
             return Neuron.deleteByPk(args.id, user);
         },
 
