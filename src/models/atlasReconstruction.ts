@@ -245,6 +245,7 @@ export class AtlasReconstruction extends BaseModel {
             const updated = await this.update({
                 sourceUrl: reconstructionData.source,
                 sourceComments: reconstructionData.comments,
+                status: AtlasReconstructionStatus.ReadyToProcess,
                 nodeCounts: {axon: reconstructionData.axon.nodeCounts, dendrite: reconstructionData.dendrite.nodeCounts},
                 somaNodeId: soma?.id
             }, {transaction: t});
