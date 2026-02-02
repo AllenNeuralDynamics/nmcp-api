@@ -180,7 +180,7 @@ export class Neuron extends BaseModel {
         if (input.somaProperties) {
             if (input.somaProperties.limitBrightness && input.somaProperties.brightnessRange?.length > 1) {
                 options.where["somaProperties"] = {
-                    brightness:  { [Op.between]: input.somaProperties.brightnessRange.slice(0, 2)}
+                    brightness: {[Op.between]: input.somaProperties.brightnessRange.slice(0, 2)}
                 };
             }
 
@@ -188,7 +188,7 @@ export class Neuron extends BaseModel {
                 if (!options.where["somaProperties"]) {
                     options.where["somaProperties"] = {};
                 }
-                options.where["somaProperties"]["volume"] =  { [Op.between]: input.somaProperties.volumeRange.slice(0, 2)}
+                options.where["somaProperties"]["volume"] = {[Op.between]: input.somaProperties.volumeRange.slice(0, 2)}
             }
         }
 
@@ -459,7 +459,9 @@ export class Neuron extends BaseModel {
             throw new UnauthorizedError();
         }
 
-        return Reconstruction.openReconstruction(neuronId, user);
+        const [reconstruction, _] = await Reconstruction.openReconstruction(neuronId, user);
+
+        return reconstruction;
     }
 
     public static async findNextAvailableLabel(specimen: string): Promise<number> {
@@ -508,7 +510,7 @@ export class Neuron extends BaseModel {
     public async published(): Promise<AtlasReconstruction> {
         const reconstruction = await Reconstruction.findOne({where: {neuronId: this.id, status: ReconstructionStatus.Published}});
 
-        return await reconstruction?.getAtlasReconstruction();
+        return reconstruction?.getAtlasReconstruction();
     }
 }
 

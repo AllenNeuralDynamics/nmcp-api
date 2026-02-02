@@ -15,7 +15,7 @@ import {
     ReconstructionsQueryArgs,
     ReviewRequestArgs,
     Reconstruction,
-    ReconstructionMetadataArgs
+    ReconstructionMetadataArgs, ReconstructionRevisionKind
 } from "../models/reconstruction";
 import GraphQLUpload = require("graphql-upload/GraphQLUpload.js");
 import {QualityControl} from "../models/qualityControl";
@@ -207,8 +207,8 @@ export const secureResolvers = {
             return Reconstruction.approveReconstruction(args.reconstructionId, args.targetStatus, user);
         },
 
-        publish(_: any, args: { reconstructionId: string }, user: User): Promise<Reconstruction> {
-            return Reconstruction.publish(user, args.reconstructionId);
+        publish(_: any, args: { reconstructionId: string, replaceExisting: boolean }, user: User): Promise<Reconstruction> {
+            return Reconstruction.publish(user, args.reconstructionId, args.replaceExisting);
         },
 
         publishAll(_: any, args: { reconstructionIds: string[] }, user: User): Promise<Reconstruction[]> {
@@ -225,6 +225,10 @@ export const secureResolvers = {
 
         updateReconstruction(_: any, args: ReconstructionMetadataArgs, user: User): Promise<Reconstruction> {
             return Reconstruction.updateMetadata(user, args);
+        },
+
+        openReconstructionRevision(_: any, args: { reconstructionId: string, revisionKind: ReconstructionRevisionKind }, user: User): Promise<Reconstruction> {
+            return Reconstruction.openReconstructionRevision(user, args.reconstructionId, args.revisionKind);
         },
 
         uploadJsonData(_: any, {uploadArgs}: { uploadArgs: ReconstructionUploadArgs }, user: User): Promise<Reconstruction> {

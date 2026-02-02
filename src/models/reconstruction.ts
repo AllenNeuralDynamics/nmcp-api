@@ -37,6 +37,9 @@ import {Fluorophore} from "./fluorophore";
 import {Genotype} from "./genotype";
 import {Collection} from "./collection"
 import {NodeStructure, NodeStructures} from "./nodeStructure";
+import {GraphQLError} from "graphql/error";
+import * as repl from "node:repl";
+import {SearchIndex} from "./searchIndex";
 
 const debug = require("debug")("nmcp:nmcp-api:reconstruction");
 
@@ -83,6 +86,11 @@ export type ReconstructionUploadArgs = {
     file: Promise<GqlFile>;
 }
 
+export enum ReconstructionRevisionKind {
+    SpecimenSpace = 0,
+    AtlasSpace = 1
+}
+
 class UploadError extends Error {
     public constructor(message: string) {
         super(message);
@@ -126,8 +134,8 @@ export class Reconstruction extends BaseModel {
     public specimenNodeCounts: NodeCounts;
     public startedAt: Date;
     public completedAt: Date;
-    public reviewedAt: Date;
-    public approvedAt: Date;
+    public reviewedAt: Date;    // Peer review timestamp (specimen-space data)
+    public approvedAt: Date;    // Publish review timestamp (atlas-space data)
     public publishedAt: Date;
     public archivedAt: Date;
     public specimenSomaNodeId: string;
@@ -242,14 +250,20 @@ export class Reconstruction extends BaseModel {
             throw new UnauthorizedError();
         }
 
-        const reconstruction = await Reconstruction.findOne({
+        const existing = await Reconstruction.findOne({
             where: {
                 annotatorId: user.id,
                 neuronId: neuronId,
             }
         });
 
-        return reconstruction ?? await this.openReconstruction(neuronId, user, substituteUser);
+        if (existing) {
+            return existing;
+        }
+
+        const [reconstruction, _] = await this.openReconstruction(neuronId, user, null, substituteUser);
+
+        return reconstruction;
     }
 
     public static async updateMetadata(userOrId: User | string, args: ReconstructionMetadataArgs): Promise<Reconstruction> {
@@ -286,6 +300,31 @@ export class Reconstruction extends BaseModel {
         });
     }
 
+    public static async openReconstructionRevision(userOrId: User | string, reconstructionId: string, revisionKind: ReconstructionRevisionKind): Promise<Reconstruction> {
+        const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(reconstructionId, userOrId);
+
+        if (!user?.canReviseReconstruction()) {
+            throw new UnauthorizedError();
+        }
+
+        return await this.sequelize.transaction(async (t) => {
+            debug(`creating revision for ${reconstruction.id}`);
+
+            const [revision, isExisting] = await this.openReconstruction(reconstruction.neuronId, user, t);
+
+            if (isExisting) {
+                return null;
+            }
+
+            if (revisionKind == ReconstructionRevisionKind.AtlasSpace) {
+                debug(`applying specimen-space data from ${reconstruction.id} to ${revision.id}`);
+                await revision.copyFrom(reconstruction, user, t);
+            }
+
+            return revision;
+        });
+    }
+
     public async onAtlasReconstructionStatusChanged(user: User, status: AtlasReconstructionStatus, t: Transaction) {
         if (status == AtlasReconstructionStatus.ReadyToPublish) {
             if (this.status == ReconstructionStatus.WaitingForAtlasReconstruction) {
@@ -308,14 +347,18 @@ export class Reconstruction extends BaseModel {
         }
     }
 
-    public static async openReconstruction(neuronId: string, userOrId: string | User, substituteUser: User = null): Promise<Reconstruction> {
+    public static async openReconstruction(neuronId: string, userOrId: string | User, transaction: Transaction = null, substituteUser: User = null): Promise<[Reconstruction, boolean]> {
         const user = await User.findUserOrId(userOrId);
 
         if (!user?.canAnnotate()) {
             throw new UnauthorizedError();
         }
 
-        return await Reconstruction.sequelize.transaction(async (t) => {
+        const ownTransaction = transaction == null;
+
+        const t = ownTransaction ? await Reconstruction.sequelize.transaction() : transaction;
+
+        try {
             // A user cannot open a new reconstruction if they have one that is not in a finalized state such as published or archived.
             const whereStatus = {status: {[Op.notIn]: [ReconstructionStatus.Published, ReconstructionStatus.Archived, ReconstructionStatus.Discarded]}};
 
@@ -328,7 +371,7 @@ export class Reconstruction extends BaseModel {
             });
 
             if (existingReconstruction) {
-                return existingReconstruction;
+                return [existingReconstruction, true];
             }
 
             const shape: ReconstructionShape = {
@@ -347,8 +390,18 @@ export class Reconstruction extends BaseModel {
 
             await AtlasReconstruction.createForShape(user, atlasShape, t, substituteUser);
 
-            return reconstruction;
-        });
+            if (ownTransaction) {
+                await t.commit();
+            }
+
+            return [reconstruction, false];
+        } catch (err) {
+            if (ownTransaction) {
+                await t.rollback();
+            }
+
+            throw err;
+        }
     }
 
     private static async findReconstructionAndUser(id: string, userOrId: User | string, include: FindOptions["include"] = [], allowNoUser: boolean = false): Promise<[Reconstruction, User]> {
@@ -467,7 +520,8 @@ export class Reconstruction extends BaseModel {
 
         return await this.sequelize.transaction(async (t) => {
             if (targetStatus == ReconstructionStatus.PublishReview) {
-                const update = {status: ReconstructionStatus.PublishReview, reviewerId: user.id};
+                // Peer review is being approved.
+                const update = {status: ReconstructionStatus.PublishReview, reviewerId: user.id, reviewedAt: new Date()};
 
                 const r = await reconstruction.update(update, {transaction: t});
 
@@ -475,7 +529,9 @@ export class Reconstruction extends BaseModel {
 
                 return r;
             } else {
-                const update = {status: ReconstructionStatus.Approved};
+                // Publish review is being approved.
+                const update = {status: ReconstructionStatus.Approved, approvedAt: new Date()};
+
                 let r = await reconstruction.update(update, {transaction: t});
 
                 await r.recordEvent(EventLogItemKind.ReconstructionApprovePublishReview, update, user, t, substituteUser);
@@ -485,6 +541,7 @@ export class Reconstruction extends BaseModel {
 
                 if (await atlasReconstruction.approve(user, t, substituteUser)) {
                     const update = {status: ReconstructionStatus.WaitingForAtlasReconstruction};
+
                     r = await reconstruction.update(update, {transaction: t});
                 }
 
@@ -526,7 +583,7 @@ export class Reconstruction extends BaseModel {
         });
     }
 
-    public static async publish(userOrId: User, reconstructionId: string): Promise<Reconstruction> {
+    public static async publish(userOrId: User, reconstructionId: string, replaceExisting: boolean = false): Promise<Reconstruction> {
         const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(reconstructionId, userOrId, [{model: AtlasReconstruction}]);
 
         if (!user?.canPublish()) {
@@ -542,11 +599,21 @@ export class Reconstruction extends BaseModel {
         }
 
         return await this.sequelize.transaction(async (t) => {
-            return await reconstruction.publishWithTransaction(user, t);
+            return await reconstruction.publishWithTransaction(user, replaceExisting, t);
         });
     }
 
-    private async publishWithTransaction(user: User, t: Transaction): Promise<Reconstruction> {
+    private async publishWithTransaction(user: User, replaceExisting: boolean, t: Transaction): Promise<Reconstruction> {
+        const existingPublished = await Reconstruction.findOne({where: {neuronId: this.neuronId, status: ReconstructionStatus.Published}});
+
+        if (existingPublished) {
+            if (!replaceExisting) {
+                throw new GraphQLError("This neuron has an existing published reconstruction.", {extensions: {code: 1001}});
+            }
+
+            await existingPublished.archivePublished(user, t);
+        }
+
         if (!(await this.AtlasReconstruction.tryStartPublishing(user, t))) {
             throw new Error("The associated atlas reconstruction is not in a publishable state");
         }
@@ -580,7 +647,7 @@ export class Reconstruction extends BaseModel {
             const updated = [];
 
             for (const r of reconstructions) {
-                updated.push(await r.publishWithTransaction(user, t));
+                updated.push(await r.publishWithTransaction(user, false, t));
             }
 
             return updated;
@@ -781,6 +848,79 @@ export class Reconstruction extends BaseModel {
         return result;
     }
 
+    private async archivePublished(user: User, t: Transaction): Promise<void> {
+        const shape = {
+            status: ReconstructionStatus.Archived,
+            archivedAt: new Date(),
+        };
+
+        await this.update(shape, {transaction: t});
+
+
+        const atlasReconstruction = await this.getAtlasReconstruction();
+
+        if (atlasReconstruction) {
+            await SearchIndex.destroy({
+                where: {reconstructionId: atlasReconstruction.id},
+                transaction: t
+            });
+        }
+
+        await this.recordEvent(EventLogItemKind.ReconstructionArchive, shape, user, t);
+    }
+
+    /*
+     * Copies the specimen-space properties from the source reconstruction to this reconstruction instance.  This is primarily for creating revisions to
+     * neuron reconstructions that will only change the atlas-space reconstruction information and saves the user the step of re-uploading or applying
+     * specimen-space metadata and reconstruction data.
+     */
+    private async copyFrom(source: Reconstruction, user: User, t: Transaction): Promise<void> {
+        const nodes = await SpecimenNode.findAll({
+            where: {
+                reconstructionId: source.id
+            },
+            transaction: t
+        });
+
+        const chunkSize = AtlasReconstruction.PreferredDatabaseChunkSize;
+
+        for (let idx = 0; idx < nodes.length; idx += chunkSize) {
+            const nodeData = nodes.slice(idx, idx + chunkSize).map(n => {
+                const obj = n.toJSON();
+                obj.id = undefined;
+                obj.reconstructionId = this.id;
+                return obj;
+            });
+
+            await SpecimenNode.bulkCreate(nodeData, {transaction: t});
+        }
+
+        const soma = await SpecimenNode.findOne({
+            where: {
+                reconstructionId: this.id,
+                index: 1
+            },
+            transaction: t
+        });
+
+        const shape = {
+            status: ReconstructionStatus.InProgress,
+            sourceUrl: source.sourceUrl,
+            sourceComments: source.sourceComments,
+            notes: source.notes,
+            durationHours: source.durationHours,
+            specimenLengthMillimeters: source.specimenLengthMillimeters,
+            specimenNodeCounts: source.specimenNodeCounts,
+            specimenSomaNodeId: soma?.id
+        };
+
+        await this.update(shape, {transaction: t});
+
+        const precomputed = await SpecimenSpacePrecomputed.createForReconstruction(user, this.id, t);
+
+        await precomputed.requestGeneration(user, t);
+    }
+
     private async fromParsedStructures(user: User, space: ReconstructionSpace, reconstructionData: SimpleReconstruction, substituteUser: User = null): Promise<Reconstruction> {
         // TODO allow for soma in axon or dendrite.  replaceNodes in both reconstruction types would need to be updated.
         const soma = reconstructionData.axon.soma ?? reconstructionData.dendrite.soma;
@@ -800,7 +940,7 @@ export class Reconstruction extends BaseModel {
 
                 const updated = await this.replaceNodeData(user, reconstructionData, t);
 
-                let precomputed = await SpecimenSpacePrecomputed.findOne({where:{reconstructionId: this.id}});
+                let precomputed = await SpecimenSpacePrecomputed.findOne({where: {reconstructionId: this.id}});
 
                 if (!precomputed) {
                     precomputed = await SpecimenSpacePrecomputed.createForReconstruction(user, this.id, t);
@@ -866,8 +1006,7 @@ export class Reconstruction extends BaseModel {
             await this.recordEvent(EventLogItemKind.ReconstructionUpload, null, user, t);
 
             return updated;
-        }
-        catch (err) {
+        } catch (err) {
             throw err;
         }
     }

@@ -333,6 +333,10 @@ export class User extends BaseModel {
         return this.isAdmin() || annotatorId == this.id;
     }
 
+    public canReviseReconstruction(): boolean {
+        return (this.permissions & UserPermissions.ViewReconstructions) != 0;
+    }
+
     public canRejectReconstruction(status: ReconstructionStatus): boolean {
         if (this.isAdmin()) {
             return true;

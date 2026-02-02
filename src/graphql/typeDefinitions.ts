@@ -142,9 +142,10 @@ export const typeDefinitions = gql`
         resumeReconstruction(reconstructionId: String!): Reconstruction
         requestReview(reconstructionId: String!, targetStatus: Int!, duration: Float, notes: String): Reconstruction
         approveReconstruction(reconstructionId: String!, targetStatus: Int!): Reconstruction
+        openReconstructionRevision(reconstructionId: String!, revisionKind: Int!): Reconstruction
 
         """Requests the reconstruction be queued for publishing.  May not be immediately available as published."""
-        publish(reconstructionId: String!): Reconstruction
+        publish(reconstructionId: String!, replaceExisting: Boolean): Reconstruction
         publishAll(reconstructionIds: [String!]!): [Reconstruction!]!
         rejectReconstruction(reconstructionId: String!): Reconstruction
         discardReconstruction(reconstructionId: String!): Reconstruction

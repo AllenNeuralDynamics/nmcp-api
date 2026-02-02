@@ -104,13 +104,21 @@ export class QueryPredicate implements IQueryPredicate {
     public createFindOptions(collectionIds: string[]) : FindOptions {
         const findOptions: FindOptions = {};
 
+        function applyCollectionFilter(options: FindOptions) {
+            if (collectionIds && collectionIds.length > 0) {
+                if (collectionIds.length == 1) {
+                    options.where["collectionId"] = collectionIds[0];
+                } else {
+                    options.where["collectionId"] = {[Op.in]: collectionIds};
+                }
+            }
+        }
+
         switch (this.predicateType) {
             case PredicateType.AnatomicalRegion:
                 findOptions.where = {};
 
-                if (collectionIds && collectionIds.length > 0) {
-                    findOptions.where["collectionId"] = collectionIds[0];
-                }
+                applyCollectionFilter(findOptions);
 
                 // Zero means any, two is explicitly both types - either way, do not need to filter on structure id
                 if (this.tracingStructureIds?.length === 1) {
@@ -140,9 +148,7 @@ export class QueryPredicate implements IQueryPredicate {
             case PredicateType.CustomRegion:
                 findOptions.where = {};
 
-                if (collectionIds && collectionIds.length > 0) {
-                    findOptions.where["collectionId"] = collectionIds[0];
-                }
+                applyCollectionFilter(findOptions);
                 break;
             case PredicateType.IdOrDoi:
                 let where = null;
@@ -202,9 +208,7 @@ export class QueryPredicate implements IQueryPredicate {
                     }
                 }
 
-                if (collectionIds && collectionIds.length > 0) {
-                    findOptions.where["collectionId"] = collectionIds[0];
-                }
+                applyCollectionFilter(findOptions);
 
                 findOptions.where = where;
 

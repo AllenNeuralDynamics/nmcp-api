@@ -98,16 +98,21 @@ export function mapNodes(nodes: AtlasNode[], structureIdentifier: NodeStructures
 }
 
 export function mapSpecimenNodes(nodes: SpecimenNode[], structureIdentifier: NodeStructures = null): PortalJsonNode[] {
-    return nodes.map(n => {
+    const sorted = [...nodes].sort((a, b) => a.index - b.index);
+
+    const indexMap = new Map<number, number>();
+    sorted.forEach((n, i) => indexMap.set(n.index, i + 1));
+
+    return sorted.map(n => {
         return {
-            sampleNumber: n.index,
+            sampleNumber: indexMap.get(n.index),
             structureIdentifier: structureIdentifier ?? n.NodeStructure.swcValue,
             x: n.x,
             y: n.y,
             z: n.z,
             radius: n.radius,
             lengthToParent: n.lengthToParent,
-            parentNumber: n.parentIndex,
+            parentNumber: n.parentIndex < 0 ? n.parentIndex : indexMap.get(n.parentIndex) ?? n.parentIndex,
             allenId: null
         }
     });
