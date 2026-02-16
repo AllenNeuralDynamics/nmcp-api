@@ -40,6 +40,7 @@ import {NodeStructure, NodeStructures} from "./nodeStructure";
 import {GraphQLError} from "graphql/error";
 import * as repl from "node:repl";
 import {SearchIndex} from "./searchIndex";
+import {Precomputed} from "./precomputed";
 
 const debug = require("debug")("nmcp:nmcp-api:reconstruction");
 
@@ -234,7 +235,7 @@ export class Reconstruction extends BaseModel {
     }
 
     public static async getAllPublished(user: User, offset: number = 0, limit: number = null): Promise<PublishedReconstructionQueryResponse> {
-        const include = [{model: AtlasReconstruction}];
+        const include = [{model: AtlasReconstruction, include: [{model: Precomputed}]}];
 
         const response = await Reconstruction.getAll(user, {offset: offset, limit: limit, status: [ReconstructionStatus.Published]}, include, true);
 

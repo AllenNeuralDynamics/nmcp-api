@@ -57,7 +57,7 @@ export const openResolvers = {
             return output.items;
         },
 
-        atlasStructure(_: any, args: {id: string}): Promise<AtlasStructure> {
+        atlasStructure(_: any, args: { id: string }): Promise<AtlasStructure> {
             return AtlasStructure.findByPk(args.id);
         },
 
@@ -81,7 +81,7 @@ export const openResolvers = {
             return Specimen.getAll(args.queryArgs);
         },
 
-        neuron(_: any, args: {id: string}): Promise<Neuron> {
+        neuron(_: any, args: { id: string }): Promise<Neuron> {
             return Neuron.findByPk(args.id);
         },
 
@@ -152,6 +152,17 @@ export const openResolvers = {
         },
         published(neuron: Neuron): Promise<AtlasReconstruction> {
             return neuron.published();
+        }
+    },
+    AtlasReconstruction: {
+        async neuron(reconstruction: AtlasReconstruction): Promise<Neuron> {
+            const r = await Reconstruction.findByPk(reconstruction.reconstructionId);
+
+            if (r) {
+                return await Neuron.findByPk(r.neuronId);
+            }
+
+            return null;
         }
     },
     Date: new GraphQLScalarType({

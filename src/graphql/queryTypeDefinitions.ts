@@ -6,6 +6,12 @@ export const queryTypeDefinitions = gql`
         offset: Int!
         reconstructions: [Reconstruction!]!
     }
+    
+    type AtlasReconstructionsResponse {
+        total: Int!
+        offset: Int!
+        reconstructions: [AtlasReconstruction!]!
+    }
 
     type QueryUsers {
         totalCount: Int!

@@ -227,6 +227,7 @@ export const coreTypeDefinitions = gql`
         reconstruction: Reconstruction
         reconstructionId: String
         qualityControl: QualityControl
+        neuron: Neuron
         precomputed: Precomputed
         reviewerId: String
         reviewer: User

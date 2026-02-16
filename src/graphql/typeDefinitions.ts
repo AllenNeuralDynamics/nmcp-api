@@ -67,7 +67,7 @@ export const typeDefinitions = gql`
         # The following are not used by any of the services themselves at this time.  They are open/public for use by scripts/tools that may want to access
         # the data.
         """Returns all or subset of published reconstruction details"""
-        publishedReconstructions(offset: Int, limit: Int): ReconstructionsResponse!
+        publishedReconstructions(offset: Int, limit: Int): AtlasReconstructionsResponse!
 
         #
         # Secure queries that require user-level authentication.
