@@ -748,7 +748,7 @@ export class Reconstruction extends BaseModel {
         await reconstruction.fromParsedStructures(user, space, reconstructionData, substituteUser);
     }
 
-    public static async getAsJSON(user: User, id: string): Promise<PortalJsonReconstructionContainer | null> {
+    public static async getAsJSONForAtlasId(user: User, atlasId: string): Promise<PortalJsonReconstructionContainer | null> {
         if (!user?.canRequestReconstructionData()) {
             throw new UnauthorizedError();
         }
@@ -774,7 +774,13 @@ export class Reconstruction extends BaseModel {
             }]
         }];
 
-        const reconstruction = await this.findByPk(id, {
+        const atlas = await AtlasReconstruction.findByPk(atlasId);
+
+        if (!atlas) {
+            return null;
+        }
+
+        const reconstruction = await this.findByPk(atlas.reconstructionId, {
             include: includes.length > 0 ? includes : undefined
         });
 
