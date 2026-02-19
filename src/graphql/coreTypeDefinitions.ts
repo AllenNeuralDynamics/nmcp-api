@@ -115,9 +115,25 @@ export const coreTypeDefinitions = gql`
         window: [Float!]!
     }
 
+    type LinearTransformVector {
+        x: Float
+        y: Float
+        z: Float
+    }
+
+    type LinearTransform {
+        scale: LinearTransformVector
+        translate: LinearTransformVector
+    }
+
     type TomographyReference {
         url: String
         options: TomographyOptions
+        linearTransform: LinearTransform
+    }
+
+    type ReferenceDataset {
+        url: String
     }
 
     type Specimen {
@@ -127,6 +143,7 @@ export const coreTypeDefinitions = gql`
         referenceDate: Date
         somaProperties: SomaFeatures
         tomography: TomographyReference
+        referenceDataset: ReferenceDataset
         genotype: Genotype
         injections: [Injection!]!
         collectionId: String
@@ -221,6 +238,7 @@ export const coreTypeDefinitions = gql`
         sourceUrl: String
         sourceComments: String
         status: Int
+        doi: String
         lengthMillimeters: Float
         nodeCounts: NodeCounts
         soma: AtlasNode
@@ -242,18 +260,30 @@ export const coreTypeDefinitions = gql`
     type QualityControl {
         id: String!
         status: Int
+        current: QualityOutput
+        history: [QualityOutput!]
     }
 
-    type QualityError {
-        testName: String!
-        testDescription: String!
-        affectedNodes: [Int!]!
+    type QualityControlTest {
+        name: String!
+        description: String!
+        nodes: [Int!]!
     }
 
-    type QualityCheck {
-        warnings:[QualityError!]!
-        errors: [QualityError!]!
-        standardMorphVersion: String!
+    type QualityControlToolError {
+        kind: String
+        description: String
+        info: String
+    }
+
+    type QualityOutput {
+        serviceVersion: Int!
+        toolVersion: String!
+        score: Int!
+        warnings: [QualityControlTest!]!
+        errors: [QualityControlTest!]!
+        toolError: QualityControlToolError
+        when: Date
     }
 
     type Precomputed {
@@ -263,6 +293,15 @@ export const coreTypeDefinitions = gql`
         version: Int
         reconstructionId: String!
         generatedAt: Date
+        createdAt: Date
+        updatedAt: Date
+    }
+
+    type ApiKey {
+        id: String!
+        permissions: Int!
+        expiration: Date
+        description: String
         createdAt: Date
         updatedAt: Date
     }
@@ -416,5 +455,29 @@ export const coreTypeDefinitions = gql`
     type PortalReconstructionContainer {
         comment: String!
         neurons: [PortalReconstruction]!
+    }
+
+    type VersionHistoryEvent {
+        id: String!
+        kind: Int!
+        name: String!
+        details: String
+        userId: String
+        user: User
+        createdAt: Date!
+    }
+
+    type VersionHistoryBranch {
+        reconstructionId: String!
+        status: Int!
+        startedAt: Date
+        events: [VersionHistoryEvent!]!
+    }
+
+    type NeuronVersionHistory {
+        neuronId: String!
+        specimen: [VersionHistoryEvent!]!
+        trunk: [VersionHistoryEvent!]!
+        branches: [VersionHistoryBranch!]!
     }
 `;

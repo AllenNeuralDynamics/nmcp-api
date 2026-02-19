@@ -85,6 +85,12 @@ export class User extends BaseModel {
         return this.isSystemUser ? "" : [this.firstName, this.lastName].join(" ");
     }
 
+    public get AffiliatedDisplayName(): string {
+        const components = this.affiliation ? [this.DisplayName, this.affiliation] : [this.DisplayName];
+
+        return this.isSystemUser ? "" : [components].join(",");
+    }
+
     public static async findOrCreateUser(authId: string, firstName: string, lastName: string, email: string, substituteUser: User = null): Promise<User> {
         // TODO Reorganize this mess.
         // TODO Also, determine why the front end is calling so much that caching seems needed.
@@ -387,6 +393,10 @@ export class User extends BaseModel {
 
     public canPublish(): boolean {
         return this.isAdmin() || (this.permissions & UserPermissions.PublishReview) != 0;
+    }
+
+    public canValidateDois(): boolean {
+        return this.isAdmin();
     }
 
     public canUploadReconstructionData(space: ReconstructionSpace): boolean {

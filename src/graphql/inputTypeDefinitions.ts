@@ -78,9 +78,30 @@ export const inputTypeDefinitions = gql`
         window: [Float!]!
     }
 
+    input LinearTransformVectorInput {
+        x: Float
+        y: Float
+        z: Float
+    }
+
+    input LinearTransformInput {
+        scale: LinearTransformVectorInput
+        translate: LinearTransformVectorInput
+    }
+
     input TomographyReferenceInput {
         url: String
         options: TomographyOptionsInput
+        linearTransform: LinearTransformInput
+    }
+
+    input SomaFeaturesInput {
+        defaultBrightness: Float
+        defaultVolume: Float
+    }
+
+    input ReferenceDatasetInput {
+        url: String
     }
 
     input SpecimenInput {
@@ -90,7 +111,9 @@ export const inputTypeDefinitions = gql`
         referenceDate: Date
         genotypeId: String
         genotypeName: String
+        somaProperties: SomaFeaturesInput
         tomography: TomographyReferenceInput
+        referenceDataset: ReferenceDatasetInput
         collectionId: String
     }
 
@@ -108,6 +131,18 @@ export const inputTypeDefinitions = gql`
         atlasSoma: SomaLocationInput
         atlasStructureId: String
         specimenId: String
+    }
+
+    input NeuronBulkUpdateInput {
+        ids: [String!]!
+        keywords: [String!]
+        atlasStructureId: String
+    }
+
+    input NeuronBulkUpdateByQueryInput {
+        query: NeuronQueryInput!
+        keywords: [String!]
+        atlasStructureId: String
     }
 
     input CollectionInput {

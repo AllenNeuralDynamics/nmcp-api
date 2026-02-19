@@ -16,6 +16,7 @@ import {RemoteDatabaseClient} from "./data-access/remoteDatabaseClient";
 
 import {synchronizationManagerStart} from "./synchronization/synchonizationManager";
 import {User} from "./models/user";
+import {ApiKey} from "./models/apiKey";
 import {typeDefinitions} from "./graphql/typeDefinitions";
 import {merge} from "lodash";
 import {openResolvers} from "./graphql/openResolvers";
@@ -59,14 +60,14 @@ async function start() {
                 let user = null;
 
                 if (requireAuthentication) {
-                    if (ServiceOptions.serverAuthenticationKey != null && token == ServiceOptions.serverAuthenticationKey) {
-                        return User.SystemInternalUser;
-                    }
-
                     let [scopes, tokenUser] = await validateToken(token);
 
                     if (scopes != null) {
                         user = tokenUser;
+                    }
+
+                    if (!user) {
+                        user = await ApiKey.authenticateKey(token);
                     }
                 }
 

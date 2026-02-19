@@ -26,7 +26,7 @@ import {Specimen} from "./specimen";
 import {ReconstructionStatus} from "./reconstructionStatus";
 import {AtlasReconstruction, AtlasReconstructionShape} from "./atlasReconstruction";
 import {AtlasReconstructionStatus} from "./atlasReconstructionStatus";
-import {EventLogItemKind, recordEvent} from "./eventLogItem";
+import {EventLogItem, EventLogItemKind, recordEvent} from "./eventLogItem";
 import {isNotNullOrUndefined} from "../util/objectUtil";
 import {NodeCounts, parseJsonFile, parseSwcFile, SimpleReconstruction} from "../io/simpleReconstruction";
 import {NeuronStructure} from "./neuronStructure";
@@ -38,9 +38,10 @@ import {Genotype} from "./genotype";
 import {Collection} from "./collection"
 import {NodeStructure, NodeStructures} from "./nodeStructure";
 import {GraphQLError} from "graphql/error";
-import * as repl from "node:repl";
 import {SearchIndex} from "./searchIndex";
 import {Precomputed} from "./precomputed";
+import {DataCiteService, DataCiteServiceStatus} from "../data-access/doi/dataCiteService";
+import {CoreServiceOptions} from "../options/coreServicesOptions";
 
 const debug = require("debug")("nmcp:nmcp-api:reconstruction");
 
@@ -625,7 +626,74 @@ export class Reconstruction extends BaseModel {
 
         await updated.recordEvent(EventLogItemKind.ReconstructionPublishing, update, user, t);
 
+        await updated.assignDoi(user, t);
+
         return updated;
+    }
+
+    private async assignDoi(user: User, t: Transaction): Promise<void> {
+        const options = CoreServiceOptions.rest.doiGeneration;
+
+        const atlasReconstruction = this.AtlasReconstruction ?? await this.getAtlasReconstruction({transaction: t});
+        const neuron = this.Neuron ?? await this.getNeuron({include: [{model: Specimen, as: "Specimen", include: [{model: Collection}]}], transaction: t});
+        const specimen = neuron.Specimen ?? await neuron.getSpecimen({include: [{model: Collection}], transaction: t});
+        const collection = specimen.Collection ?? await specimen.getCollection({transaction: t});
+        const annotator = this.Annotator ?? await this.getAnnotator({transaction: t});
+        const peerReviewer = this.reviewerId ? (this.Reviewer ?? await this.getReviewer({transaction: t})) : null;
+        const reviewer = atlasReconstruction.reviewerId ? (atlasReconstruction.Reviewer ?? await atlasReconstruction.getReviewer({transaction: t})) : null;
+
+        const publishEvent = await EventLogItem.findOne({
+            where: {targetId: this.id, kind: EventLogItemKind.ReconstructionPublishing},
+            order: [["createdAt", "DESC"]],
+            transaction: t
+        });
+
+        const contributors = [];
+
+        if (reviewer) {
+            if (!reviewer.isSystemUser) {
+                contributors.push({name: reviewer.DisplayName, affiliation: reviewer.affiliation, contributorType: "Other"});
+            }
+        }
+
+        if (peerReviewer) {
+            if (!peerReviewer.isSystemUser) {
+                contributors.push({name: peerReviewer.DisplayName, affiliation: peerReviewer.affiliation, contributorType: "Other"});
+            }
+        }
+
+        const version = 1;
+
+        const doiResult = await DataCiteService.createDoi({
+            data: {
+                type: "dois",
+                attributes: {
+                    event: "publish",
+                    prefix: options.prefix,
+                    creators: [{name: annotator.DisplayName}],
+                    titles: [{title: `Neuron reconstruction ${neuron.label} version ${version} in the ${collection?.name ?? ""}`}],
+                    publisher: "Neuron Morphology Community Portal",
+                    publicationYear: publishEvent.createdAt.getFullYear(),
+                    types: {resourceTypeGeneral: "Dataset"},
+                    url: `${options.url}/neuron/${neuron.id}/${this.id}`,
+                    subjects: [{subject: "Neuron reconstruction"}],
+                    contributors,
+                    alternateIdentifiers: [{alternateIdentifier: neuron.label, alternateIdentifierType: "Neuron Label"}],
+                    version,
+                    rights: "CC-BY-4.0"
+                }
+            }
+        });
+
+        if (doiResult.serviceStatus !== DataCiteServiceStatus.Success) {
+            throw new Error(`DOI creation failed: ${doiResult.serviceError ?? "unknown error"}`);
+        }
+
+        await atlasReconstruction.update({doi: doiResult.doi}, {transaction: t});
+
+        await this.recordEvent(EventLogItemKind.ReconstructionAssignDoi, {doi: doiResult.doi} as any, user, t);
+
+        debug(`doi assigned to ${specimen.label}-${neuron.label}: ${doiResult.doi}`);
     }
 
     public static async publishAll(user: User, reconstructionIds: string[]): Promise<Reconstruction[]> {
@@ -653,6 +721,28 @@ export class Reconstruction extends BaseModel {
 
             return updated;
         });
+    }
+
+    public static async validateDois(user: User): Promise<number> {
+        if (!user?.canValidateDois()) {
+            throw new UnauthorizedError();
+        }
+
+        const reconstructions = await this.findAll({
+            where: {status: ReconstructionStatus.Published},
+            include: [{
+                model: AtlasReconstruction,
+                where: {doi: {[Op.or]: [null, ""]}}
+            }]
+        });
+
+        for (const reconstruction of reconstructions) {
+            await this.sequelize.transaction(async (t) => {
+                await reconstruction.assignDoi(user, t);
+            });
+        }
+
+        return reconstructions.length;
     }
 
     public static async discardReconstruction(id: string, userOrId: User | string, substituteUser: User = null): Promise<Reconstruction> {

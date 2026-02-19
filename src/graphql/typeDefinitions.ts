@@ -64,6 +64,8 @@ export const typeDefinitions = gql`
         """Returns the closest node in the reconstruction graph to the given location."""
         nearestNode(id: String!, location: [Float!]!): NearestNodeOutput
 
+        neuronVersionHistory(neuronId: String!): NeuronVersionHistory
+
         # The following are not used by any of the services themselves at this time.  They are open/public for use by scripts/tools that may want to access
         # the data.
         """Returns all or subset of published reconstruction details"""
@@ -88,9 +90,15 @@ export const typeDefinitions = gql`
 
         reconstructions(queryArgs: ReconstructionQueryArgs!): ReconstructionsResponse
 
+        """Returns a specific quality control instance."""
+        qualityControl(id: String!): QualityControl
+
         issueCount: Int!
 
         openIssues: [Issue!]!
+
+        """Returns all API keys for the authenticated user."""
+        apiKeys: [ApiKey!]!
         
         specimenSpaceReconstructionAsJson(id: String!): PortalReconstructionContainer
         
@@ -127,6 +135,8 @@ export const typeDefinitions = gql`
         createNeuron(neuron: NeuronInput): Neuron!
         updateNeuron(neuron: NeuronInput): Neuron!
         deleteNeuron(id: String!): String!
+        updateNeurons(input: NeuronBulkUpdateInput!): [Neuron!]!
+        updateNeuronsByQuery(input: NeuronBulkUpdateByQueryInput!): [Neuron!]!
 
         createCollection(collection: CollectionInput!): Collection!
         updateCollection(collection: CollectionInput!): Collection!
@@ -149,10 +159,16 @@ export const typeDefinitions = gql`
         publishAll(reconstructionIds: [String!]!): [Reconstruction!]!
         rejectReconstruction(reconstructionId: String!): Reconstruction
         discardReconstruction(reconstructionId: String!): Reconstruction
+        validateDois: Int!
+        requestSpecimenSpaceRegeneration(reconstructionId: String!): Precomputed
+        requestQualityControlReassessment(reconstructionId: String!): QualityControl
 
         updateReconstruction(reconstructionId: String!, duration: Float, notes: String, started: Date, completed: Date): Reconstruction
         uploadJsonData(uploadArgs: ReconstructionUploadArgs!): Reconstruction
         uploadSwcData(uploadArgs: ReconstructionUploadArgs!): Reconstruction
+
+        createApiKey(key: String!, description: String, durationDays: Int, permissions: Int): ApiKey!
+        deleteApiKey(id: String!): Boolean!
 
         openIssue(kind: Int!, description: String!, references: [IssueReferenceInput!]!): Issue
         modifyIssue(id: String!, status: Int!): Issue

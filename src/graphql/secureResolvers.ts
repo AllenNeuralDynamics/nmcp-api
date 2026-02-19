@@ -1,4 +1,4 @@
-import {Neuron, NeuronShape, NeuronQueryInput} from "../models/neuron";
+import {Neuron, NeuronBulkUpdateShape, NeuronQueryInput, NeuronShape} from "../models/neuron";
 
 import {Genotype} from "../models/genotype";
 import {CandidateImportOptions, Specimen, SpecimenShape} from "../models/specimen";
@@ -23,6 +23,8 @@ import {AtlasNode} from "../models/atlasNode";
 import {Precomputed} from "../models/precomputed";
 import {NodeStructure} from "../models/nodeStructure";
 import {SpecimenSpacePrecomputed} from "../models/specimenSpacePrecomputed";
+import {EventLogItem} from "../models/eventLogItem";
+import {ApiKey} from "../models/apiKey";
 
 export class UnauthorizedError extends GraphQLError {
     public constructor() {
@@ -128,6 +130,22 @@ export const secureResolvers = {
             }
 
             throw new UnauthorizedError();
+        },
+
+        qualityControl(_: any, args: { id: string }, context: User): Promise<QualityControl> {
+            if (!context?.canViewReconstructions()) {
+                throw new UnauthorizedError();
+            }
+
+            return QualityControl.findByPk(args.id);
+        },
+
+        apiKeys(_: any, __: any, context: User): Promise<ApiKey[]> {
+            if (!(context.permissions & UserPermissions.Admin)) {
+                throw new UnauthorizedError();
+            }
+
+            return ApiKey.findByUserId(context.id);
         }
     },
     Mutation: {
@@ -173,6 +191,14 @@ export const secureResolvers = {
 
         deleteNeuron(_: any, args: { id: string }, user: User): Promise<string> {
             return Neuron.deleteByPk(args.id, user);
+        },
+
+        updateNeurons(_: any, args: { input: { ids: string[] } & NeuronBulkUpdateShape }, user: User): Promise<Neuron[]> {
+            return Neuron.updateMany(args.input.ids, {keywords: args.input.keywords, atlasStructureId: args.input.atlasStructureId}, user);
+        },
+
+        updateNeuronsByQuery(_: any, args: { input: { query: NeuronQueryInput } & NeuronBulkUpdateShape }, user: User): Promise<Neuron[]> {
+            return Neuron.updateManyByQuery(args.input.query, {keywords: args.input.keywords, atlasStructureId: args.input.atlasStructureId}, user);
         },
 
         createCollection(_: any, args: { collection: CollectionShape }, user: User): Promise<Collection> {
@@ -223,6 +249,18 @@ export const secureResolvers = {
             return Reconstruction.discardReconstruction(args.reconstructionId, user);
         },
 
+        validateDois(_: any, __: any, user: User): Promise<number> {
+            return Reconstruction.validateDois(user);
+        },
+
+        requestSpecimenSpaceRegeneration(_: any, args: { reconstructionId: string }, user: User): Promise<SpecimenSpacePrecomputed> {
+            return SpecimenSpacePrecomputed.requestRegenerationForReconstruction(user, args.reconstructionId);
+        },
+
+        requestQualityControlReassessment(_: any, args: { reconstructionId: string }, user: User): Promise<QualityControl> {
+            return QualityControl.requestReassessment(user, args.reconstructionId);
+        },
+
         updateReconstruction(_: any, args: ReconstructionMetadataArgs, user: User): Promise<Reconstruction> {
             return Reconstruction.updateMetadata(user, args);
         },
@@ -237,6 +275,22 @@ export const secureResolvers = {
 
         uploadSwcData(_: any, {uploadArgs}: { uploadArgs: ReconstructionUploadArgs }, user: User): Promise<Reconstruction> {
             return Reconstruction.fromSwcUpload(user, uploadArgs);
+        },
+
+        createApiKey(_: any, args: { key: string, description: string, durationDays?: number, permissions?: number }, user: User): Promise<ApiKey> {
+            if (!(user.permissions & UserPermissions.Admin)) {
+                throw new UnauthorizedError();
+            }
+
+            return ApiKey.createApiKey(user, args.key, args.description, args.durationDays, args.permissions);
+        },
+
+        deleteApiKey(_: any, args: { id: string }, user: User): Promise<boolean> {
+            if (!(user.permissions & UserPermissions.Admin)) {
+                throw new UnauthorizedError();
+            }
+
+            return ApiKey.deleteApiKey(args.id, user.id);
         },
 
         openIssue(_: any, args: { kind: number, description: string, references: IssueReference[] }, user: User): Promise<Issue> {
@@ -303,6 +357,14 @@ export const secureResolvers = {
         },
         responder(issue: Issue): Promise<User> {
             return User.findByPk(issue.responderId);
+        }
+    },
+    VersionHistoryEvent: {
+        details(event: EventLogItem): string | null {
+            return event.details ? JSON.stringify(event.details) : null;
+        },
+        user(event: EventLogItem): Promise<User> {
+            return event.getUser();
         }
     }
 };

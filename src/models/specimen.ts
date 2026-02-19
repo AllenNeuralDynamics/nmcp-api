@@ -45,6 +45,7 @@ export type SpecimenShape = {
     genotypeName?: string;
     somaProperties?: SpecimenSomaProperties;
     tomography?: SpecimenTomography;
+    referenceDataset?: ReferenceDataset;
     atlasId?: string;
     collectionId?: string;
 }
@@ -68,12 +69,28 @@ type CandidateImportShape = CandidateImportOptions & {
     count: number;
 }
 
+type LinearTransformVector = {
+    x: number;
+    y: number;
+    z: number;
+}
+
+type LinearTransform = {
+    scale: LinearTransformVector;
+    translate: LinearTransformVector;
+}
+
+export type ReferenceDataset = {
+    url: string;
+}
+
 type SpecimenTomography = {
     url: string;
     options: {
         range: number[];
         window: number[];
     }
+    linearTransform?: LinearTransform;
 }
 
 export class Specimen extends BaseModel {
@@ -82,6 +99,7 @@ export class Specimen extends BaseModel {
     public notes: string;
     public keywords?: string[];
     public tomography?: SpecimenTomography;
+    public referenceDataset?: ReferenceDataset;
     public somaProperties?: SpecimenSomaProperties;
     public collectionId?: string;
     public atlasId?: string;
@@ -304,7 +322,7 @@ export class Specimen extends BaseModel {
                 }
 
                 if (needsUpdate) {
-                    await specimen.update("somaProperties", properties);
+                    await specimen.update({somaProperties: properties}, {transaction: t});
                 }
 
                 if (count > 0) {
@@ -371,6 +389,10 @@ export const modelInit = (sequelize: Sequelize) => {
             defaultValue: null
         },
         tomography: {
+            type: DataTypes.JSONB,
+            defaultValue: null
+        },
+        referenceDataset: {
             type: DataTypes.JSONB,
             defaultValue: null
         },

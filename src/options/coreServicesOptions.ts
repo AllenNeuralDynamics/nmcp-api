@@ -17,6 +17,15 @@ const restServices = {
         host: "quality-api",
         port: 5000,
         endpoint: "/performqc"
+    },
+    doiGeneration: {
+        url: "https://morphology.allenneuraldynamics-test.org/",
+        host: "api.test.datacite.org",
+        port: 443,
+        endpoint: "/dois",
+        prefix: "10.83594",
+        user: "",
+        password: ""
     }
 }
 
@@ -39,6 +48,13 @@ function loadRestOptions(options): any {
     options.qualityCheck.host = process.env.QUALITY_API_HOST || options.qualityCheck.host;
     options.qualityCheck.port = parseInt(process.env.QUALITY_API_PORT) || options.qualityCheck.port;
     options.qualityCheck.endpoint = process.env.QUALITY_API_ENDPOINT || options.qualityCheck.endpoint;
+
+    options.doiGeneration.url = process.env.DOI_API_URL || options.doiGeneration.url;
+    options.doiGeneration.host = process.env.DOI_API_HOST || options.doiGeneration.host;
+    options.doiGeneration.endpoint = process.env.DOI_API_ENDPOINT || options.doiGeneration.endpoint;
+    options.doiGeneration.prefix = process.env.DOI_API_PREFIX || options.doiGeneration.prefix;
+    options.doiGeneration.user = process.env.DOI_API_USER || options.doiGeneration.user;
+    options.doiGeneration.password = process.env.DOI_API_PASSWORD || options.doiGeneration.password;
 
     return options;
 }

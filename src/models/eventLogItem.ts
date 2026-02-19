@@ -19,7 +19,8 @@ export enum EventLogItemKind {
     AccessRequestApprove = 1220,
     AccessRequestDeny = 1230,
 
-    // ApiKey 1300
+    ApiKeyCreate = 1300,
+    ApiKeyDelete = 1350,
 
     AtlasKindCreate = 2000,
     AtlasKindUpdate = 2010,
@@ -70,6 +71,7 @@ export enum EventLogItemKind {
 
     ReconstructionPublishing = 5300,
     ReconstructionPublished = 5305,
+    ReconstructionAssignDoi = 5310,
 
     ReconstructionArchive = 5900,
 

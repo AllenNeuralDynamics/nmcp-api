@@ -56,13 +56,19 @@ export type QualityControlTest = {
     nodes: number[]
 }
 
+export type QualityControlToolError = {
+    kind: string;
+    description: string;
+    info: string;
+}
+
 export type QualityOutputShape = {
     serviceVersion: QualityControlServiceVersion;
     toolVersion: string;
     score: QualityControlScore;
     warnings: QualityControlTest[];
     errors: QualityControlTest[];
-    toolError: string;
+    toolError: QualityControlToolError;
     when: Date
 }
 
@@ -72,10 +78,10 @@ export class QualityControlOutput {
     public score: QualityControlScore = QualityControlScore.Error;
     public warnings: QualityControlTest[] = [];
     public errors: QualityControlTest[] = [];
-    public toolError: string;
+    public toolError: QualityControlToolError;
     when: Date
 
-    public constructor(standardMorph: StandardMorphOutput, toolError: string) {
+    public constructor(standardMorph: StandardMorphOutput, toolError: QualityControlToolError) {
         this.when = new Date();
 
         if (standardMorph) {
@@ -107,12 +113,12 @@ export class QualityControlOutput {
 }
 
 export class QualityCheckService {
-    public static async performQualityCheck(reconstructionId: string): Promise<QualityCheckServiceResult> {
+    public static async performQualityCheck(id: string): Promise<QualityCheckServiceResult> {
         const url = `http://${CoreServiceOptions.rest.qualityCheck.host}:${CoreServiceOptions.rest.qualityCheck.port}${CoreServiceOptions.rest.qualityCheck.endpoint}`;
 
-        debug(`calling quality check service ${url} for reconstruction ${reconstructionId}`);
+        debug(`calling quality check service ${url} for reconstruction ${id}`);
 
-        const data = await AtlasReconstruction.getAsJSON(User.SystemInternalUser, reconstructionId);
+        const data = await AtlasReconstruction.getAsJSON(User.SystemInternalUser, id);
 
         try {
             const response = await fetch(url, {
@@ -120,7 +126,7 @@ export class QualityCheckService {
                 headers: {
                     "Content-Type": "application/json",
                 },
-                body: JSON.stringify({id: reconstructionId, data: data})
+                body: JSON.stringify({id: id, data: data})
             });
 
             if (!response.ok) {
@@ -128,26 +134,28 @@ export class QualityCheckService {
                 debug(`bad response status: ${response.status}`);
 
                 return {
-                    reconstructionId,
+                    reconstructionId: id,
                     serviceStatus: QualityCheckServiceStatus.Error,
                     output: null,
                     serviceError: response.status.toString()
                 };
             }
 
-            const {id, result, error} = await response.json();
+            const {reconstructionId, result, errorKind, errorDescription, errorInfo} = await response.json();
+
+            const toolError = errorKind ? {kind: errorKind, description: errorDescription, info: errorInfo} : null;
 
             return {
-                reconstructionId: id,
+                reconstructionId: reconstructionId,
                 serviceStatus: QualityCheckServiceStatus.Success,
-                output: new QualityControlOutput(result, error),
+                output: new QualityControlOutput(result, toolError),
                 serviceError: null
             }
         } catch (err) {
             // TODO ServiceHistory
             debug(`exception: ${err}`);
             return {
-                reconstructionId,
+                reconstructionId: id,
                 serviceStatus: QualityCheckServiceStatus.Unavailable,
                 output: null,
                 serviceError: err.message

@@ -3,10 +3,14 @@ import {BelongsToGetAssociationMixin, DataTypes, Sequelize, Transaction} from "s
 import {BaseModel} from "./baseModel";
 import {QualityControlTableName} from "./tableNames";
 import {AtlasReconstruction} from "./atlasReconstruction";
+import {AtlasReconstructionStatus} from "./atlasReconstructionStatus";
 import {QualityControlStatus} from "./qualityControlStatus";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {User} from "./user";
 import {QualityCheckService, QualityCheckServiceStatus, QualityControlScore, QualityOutputShape} from "../data-access/qualityCheckService";
+import {Reconstruction} from "./reconstruction";
+import {ReconstructionStatus} from "./reconstructionStatus";
+import {UnauthorizedError} from "../graphql/secureResolvers";
 
 function statusForScore(status: QualityControlScore): QualityControlStatus {
     switch (status) {
@@ -129,6 +133,57 @@ export class QualityControl extends BaseModel {
         });
 
         return true;
+    }
+
+    public static async requestReassessment(user: User, reconstructionId: string): Promise<QualityControl> {
+        if (!user?.canModifyReconstruction()) {
+            throw new UnauthorizedError();
+        }
+
+        const reconstruction = await Reconstruction.findByPk(reconstructionId);
+
+        if (!reconstruction) {
+            throw new Error("Reconstruction not found");
+        }
+
+        if (reconstruction.status === ReconstructionStatus.Published || reconstruction.status === ReconstructionStatus.Archived) {
+            throw new Error("Cannot reassess quality control for a published or archived reconstruction");
+        }
+
+        const atlasReconstruction = await AtlasReconstruction.findOne({
+            where: {
+                reconstructionId: reconstructionId
+            }
+        });
+
+        if (!atlasReconstruction) {
+            throw new Error("No atlas reconstruction found for this reconstruction");
+        }
+
+        const qc = await this.findOne({where: {reconstructionId: atlasReconstruction.id}});
+
+        if (!qc) {
+            throw new Error("No quality control record found");
+        }
+
+        return await this.sequelize.transaction(async (t) => {
+            await qc.makePending(user, t);
+
+            await atlasReconstruction.update(
+                {status: AtlasReconstructionStatus.PendingQualityControl},
+                {transaction: t}
+            );
+
+            await recordEvent({
+                kind: EventLogItemKind.AtlasReconstructionQualityControlRequest,
+                targetId: atlasReconstruction.id,
+                parentId: reconstructionId,
+                details: {status: AtlasReconstructionStatus.PendingQualityControl},
+                userId: user.id
+            }, t);
+
+            return qc;
+        });
     }
 }
 

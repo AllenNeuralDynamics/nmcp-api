@@ -21,6 +21,9 @@ import {Reconstruction, PublishedReconstructionQueryResponse} from "../models/re
 import {getSystemSettings, SystemSettings} from "../models/systemSettings";
 import {AccessRequest, AccessRequestShape, RequestAccessResponse} from "../models/accessRequest";
 import {PortalJsonReconstructionContainer} from "../io/portalJson";
+import {QualityControl} from "../models/qualityControl";
+import {UnauthorizedError} from "./secureResolvers";
+import {getNeuronVersionHistory} from "../models/neuronVersionHistory";
 
 // noinspection JSUnusedGlobalSymbols
 /**
@@ -77,8 +80,8 @@ export const openResolvers = {
             return InjectionVirus.findAll();
         },
 
-        specimens(_: any, args: { queryArgs: SpecimenQueryArgs }): Promise<EntityQueryOutput<Specimen>> {
-            return Specimen.getAll(args.queryArgs);
+        specimens(_: any, args: { input: SpecimenQueryArgs }): Promise<EntityQueryOutput<Specimen>> {
+            return Specimen.getAll(args.input);
         },
 
         neuron(_: any, args: { id: string }): Promise<Neuron> {
@@ -99,7 +102,11 @@ export const openResolvers = {
 
         searchNeurons(_: any, args: { context: SearchContextInput }, __: User): Promise<SearchOutputPage> {
             return Neuron.getNeuronsWithPredicates(new SearchContext(args.context));
-        }
+        },
+
+        neuronVersionHistory(_: any, args: { neuronId: string }, __: User) {
+            return getNeuronVersionHistory(args.neuronId);
+        },
     },
     Mutation: {
         requestAccess(_: any, args: { request: AccessRequestShape }, user: User): Promise<RequestAccessResponse> {
@@ -171,8 +178,9 @@ export const openResolvers = {
         parseValue: (value: number) => {
             return new Date(value); // value from the client
         },
-        serialize: (value: Date) => {
-            return value.getTime(); // value sent to the client
+        serialize: (value: Date | string) => {
+            const ms = typeof value === "string" ? Date.parse(value) : value?.getTime();
+            return isNaN(ms) ? 0 : ms;
         },
         parseLiteral: (ast) => {
             if (ast.kind === Kind.INT) {

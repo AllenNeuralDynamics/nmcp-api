@@ -72,6 +72,11 @@ export type NeuronShape = {
     specimenId?: string;
 }
 
+export type NeuronBulkUpdateShape = {
+    keywords?: string[];
+    atlasStructureId?: string;
+}
+
 export type NeuronCreateOrUpdateOptions = {
     allowCreate?: boolean;
     allowMatchLabel?: boolean;
@@ -123,11 +128,46 @@ export class Neuron extends BaseModel {
         return await Reconstruction.count({where: {status: ReconstructionStatus.Published}, distinct: true, col: "neuronId"});
     }
 
+    private static applyNeuronFilters(options: FindOptions, input: NeuronQueryInput): void {
+        const keywords = input?.keywords?.filter(k => k && k.trim().length > 0) ?? [];
+
+        if (keywords.length > 0) {
+            if (!options.where) {
+                options.where = {};
+            }
+            options.where["keywords"] = literal(`EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements_text("Neuron"."keywords") AS elem
+            WHERE elem ILIKE '%${keywords[0]}%'
+          )`);
+        }
+
+        if (input?.somaProperties) {
+            if (!options.where) {
+                options.where = {};
+            }
+            if (input.somaProperties.limitBrightness && input.somaProperties.brightnessRange?.length > 1) {
+                options.where["somaProperties"] = {
+                    brightness: {[Op.between]: input.somaProperties.brightnessRange.slice(0, 2)}
+                };
+            }
+
+            if (input.somaProperties.limitVolume && input.somaProperties.volumeRange?.length > 1) {
+                if (!options.where["somaProperties"]) {
+                    options.where["somaProperties"] = {};
+                }
+                options.where["somaProperties"]["volume"] = {[Op.between]: input.somaProperties.volumeRange.slice(0, 2)};
+            }
+        }
+    }
+
     public static async getAll(input: NeuronQueryInput): Promise<EntityQueryOutput<Neuron>> {
         let options: FindOptions = optionsWhereIds(input, {where: null, include: [{model: Specimen, as: "Specimen"}]});
 
         options = optionsWhereSpecimenIds(input, options);
         options = optionsWhereAtlasStructureIds(input, options);
+
+        this.applyNeuronFilters(options, input);
 
         const count = await this.setSortAndLimiting(options, input);
 
@@ -155,15 +195,7 @@ export class Neuron extends BaseModel {
 
         const options = {where: {id: {[Op.in]: candidateNeuronIds}}, include: [], offset: 0};
 
-        const keywords = input.keywords?.filter(k => k && k.trim().length > 0) ?? [];
-
-        if (keywords.length > 0) {
-            options.where["keywords"] = literal(`EXISTS (
-            SELECT 1
-            FROM jsonb_array_elements_text("Neuron"."keywords") AS elem
-            WHERE elem ILIKE '%${input.keywords[0]}%'
-          )`); //{[Op.iLike]: `%${input.keywords[0]}%`};
-        }
+        this.applyNeuronFilters(options, input);
 
         if (input.atlasStructureIds && input.atlasStructureIds.length > 0) {
             // TODO Atlas for multiple atlases to be supported, input.atlasStructureIds will have to have been selected from a specific atlas, which will need
@@ -177,45 +209,20 @@ export class Neuron extends BaseModel {
             };
         }
 
-        if (input.somaProperties) {
-            if (input.somaProperties.limitBrightness && input.somaProperties.brightnessRange?.length > 1) {
-                options.where["somaProperties"] = {
-                    brightness: {[Op.between]: input.somaProperties.brightnessRange.slice(0, 2)}
-                };
-            }
-
-            if (input.somaProperties.limitVolume && input.somaProperties.volumeRange?.length > 1) {
-                if (!options.where["somaProperties"]) {
-                    options.where["somaProperties"] = {};
-                }
-                options.where["somaProperties"]["volume"] = {[Op.between]: input.somaProperties.volumeRange.slice(0, 2)}
-            }
-        }
-
         options.include.push({model: Specimen, as: "Specimen", attributes: ["id", "label"]});
 
         if (input.specimenIds && input.specimenIds.length > 0) {
             options.where["$Specimen.id$"] = {[Op.in]: input.specimenIds}
         }
 
-        const totalCount = await Neuron.count(options);
+        const totalCount = await this.setSortAndLimiting(options, input);
 
         options["order"] = [["Specimen", "label", "ASC"], ["label", "ASC"]];
-
-        if (input) {
-            if (input.offset) {
-                options["offset"] = Math.max(0, Math.min(input.offset, totalCount - (input.limit ? (totalCount % input.limit) : 0)));
-            }
-
-            if (input.limit) {
-                options["limit"] = input.limit;
-            }
-        }
 
         try {
             const candidateNeurons = await Neuron.findAll(options);
 
-            return {totalCount, offset: options.offset, items: candidateNeurons};
+            return {totalCount, offset: options.offset ?? 0, items: candidateNeurons};
         } catch (e) {
             return {totalCount: 0, offset: 0, items: []}
         }
@@ -505,6 +512,83 @@ export class Neuron extends BaseModel {
         }
 
         return shapes.length;
+    }
+
+    private static validateBulkUpdateShape(shape: NeuronBulkUpdateShape): void {
+        if (shape.atlasStructureId !== undefined && shape.atlasStructureId !== null && shape.atlasStructureId.length === 0) {
+            shape.atlasStructureId = null;
+        }
+
+        if (shape.keywords === null) {
+            shape.keywords = [];
+        }
+    }
+
+    private static async applyBulkUpdate(neurons: Neuron[], shape: NeuronBulkUpdateShape, user: User): Promise<Neuron[]> {
+        if (!user?.canEditNeurons()) {
+            throw new UnauthorizedError();
+        }
+
+        this.validateBulkUpdateShape(shape);
+
+        if (shape.atlasStructureId) {
+            const atlasStructure = await AtlasStructure.findByPk(shape.atlasStructureId);
+
+            if (!atlasStructure) {
+                throw new Error("The atlas structure cannot be found");
+            }
+        }
+
+        const ids = neurons.map(n => n.id);
+
+        return await Neuron.sequelize.transaction(async (t) => {
+            await Neuron.update(shape, {where: {id: {[Op.in]: ids}}, transaction: t});
+
+            for (const neuron of neurons) {
+                await recordEvent({
+                    kind: EventLogItemKind.NeuronUpdate,
+                    targetId: neuron.id,
+                    parentId: neuron.specimenId,
+                    details: shape as unknown as NeuronShape,
+                    userId: user.id
+                }, t);
+            }
+
+            return await Neuron.findAll({where: {id: {[Op.in]: ids}}, transaction: t});
+        });
+    }
+
+    public static async updateMany(ids: string[], shape: NeuronBulkUpdateShape, user: User): Promise<Neuron[]> {
+        if (!user?.canEditNeurons()) {
+            throw new UnauthorizedError();
+        }
+
+        const neurons = await Neuron.findAll({where: {id: {[Op.in]: ids}}});
+
+        if (neurons.length !== ids.length) {
+            const foundIds = new Set(neurons.map(n => n.id));
+            const missingIds = ids.filter(id => !foundIds.has(id));
+            throw new Error(`Neurons not found: ${missingIds.join(", ")}`);
+        }
+
+        return this.applyBulkUpdate(neurons, shape, user);
+    }
+
+    public static async updateManyByQuery(input: NeuronQueryInput, shape: NeuronBulkUpdateShape, user: User): Promise<Neuron[]> {
+        if (!user?.canEditNeurons()) {
+            throw new UnauthorizedError();
+        }
+
+        let options: FindOptions = optionsWhereIds(input, {where: null, include: [{model: Specimen, as: "Specimen"}]});
+
+        options = optionsWhereSpecimenIds(input, options);
+        options = optionsWhereAtlasStructureIds(input, options);
+
+        this.applyNeuronFilters(options, input);
+
+        const neurons = await Neuron.findAll(options);
+
+        return this.applyBulkUpdate(neurons, shape, user);
     }
 
     public async published(): Promise<AtlasReconstruction> {
