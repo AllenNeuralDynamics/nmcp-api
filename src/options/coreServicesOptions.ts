@@ -17,6 +17,11 @@ const restServices = {
         host: "quality-api",
         port: 5000,
         endpoint: "/performqc"
+    },
+    doiGeneration: {
+        host: "api.test.datacite.org",
+        port: 443,
+        endpoint: "/dois"
     }
 }
 
@@ -39,6 +44,10 @@ function loadRestOptions(options): any {
     options.qualityCheck.host = process.env.QUALITY_API_HOST || options.qualityCheck.host;
     options.qualityCheck.port = parseInt(process.env.QUALITY_API_PORT) || options.qualityCheck.port;
     options.qualityCheck.endpoint = process.env.QUALITY_API_ENDPOINT || options.qualityCheck.endpoint;
+
+    options.doiGeneration.host = process.env.DOI_API_HOST || options.doiGeneration.host;
+    options.doiGeneration.port = parseInt(process.env.DOI_API_PORT) || options.doiGeneration.port;
+    options.doiGeneration.endpoint = process.env.DOI_API_ENDPOINT || options.doiGeneration.endpoint;
 
     return options;
 }

@@ -223,6 +223,10 @@ export const secureResolvers = {
             return Reconstruction.discardReconstruction(args.reconstructionId, user);
         },
 
+        validateDois(_: any, __: any, user: User): Promise<number> {
+            return Reconstruction.validateDois(user);
+        },
+
         updateReconstruction(_: any, args: ReconstructionMetadataArgs, user: User): Promise<Reconstruction> {
             return Reconstruction.updateMetadata(user, args);
         },

@@ -389,6 +389,10 @@ export class User extends BaseModel {
         return this.isAdmin() || (this.permissions & UserPermissions.PublishReview) != 0;
     }
 
+    public canValidateDois(): boolean {
+        return this.isAdmin();
+    }
+
     public canUploadReconstructionData(space: ReconstructionSpace): boolean {
         if (this.isAdmin()) {
             return true;

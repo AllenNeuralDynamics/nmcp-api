@@ -70,6 +70,7 @@ export enum EventLogItemKind {
 
     ReconstructionPublishing = 5300,
     ReconstructionPublished = 5305,
+    ReconstructionAssignDoi = 5310,
 
     ReconstructionArchive = 5900,
 

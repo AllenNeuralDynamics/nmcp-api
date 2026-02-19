@@ -149,6 +149,7 @@ export const typeDefinitions = gql`
         publishAll(reconstructionIds: [String!]!): [Reconstruction!]!
         rejectReconstruction(reconstructionId: String!): Reconstruction
         discardReconstruction(reconstructionId: String!): Reconstruction
+        validateDois: Int!
 
         updateReconstruction(reconstructionId: String!, duration: Float, notes: String, started: Date, completed: Date): Reconstruction
         uploadJsonData(uploadArgs: ReconstructionUploadArgs!): Reconstruction
