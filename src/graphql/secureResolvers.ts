@@ -227,6 +227,10 @@ export const secureResolvers = {
             return Reconstruction.validateDois(user);
         },
 
+        requestSpecimenSpaceRegeneration(_: any, args: { reconstructionId: string }, user: User): Promise<SpecimenSpacePrecomputed> {
+            return SpecimenSpacePrecomputed.requestRegenerationForReconstruction(user, args.reconstructionId);
+        },
+
         updateReconstruction(_: any, args: ReconstructionMetadataArgs, user: User): Promise<Reconstruction> {
             return Reconstruction.updateMetadata(user, args);
         },

@@ -150,6 +150,7 @@ export const typeDefinitions = gql`
         rejectReconstruction(reconstructionId: String!): Reconstruction
         discardReconstruction(reconstructionId: String!): Reconstruction
         validateDois: Int!
+        requestSpecimenSpaceRegeneration(reconstructionId: String!): Precomputed
 
         updateReconstruction(reconstructionId: String!, duration: Float, notes: String, started: Date, completed: Date): Reconstruction
         uploadJsonData(uploadArgs: ReconstructionUploadArgs!): Reconstruction

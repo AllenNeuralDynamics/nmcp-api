@@ -94,6 +94,22 @@ export class SpecimenSpacePrecomputed extends BaseModel {
         return updated;
     }
 
+    public static async requestRegenerationForReconstruction(user: User, reconstructionId: string): Promise<SpecimenSpacePrecomputed> {
+        if (!user?.isAdmin()) {
+            throw new UnauthorizedError();
+        }
+
+        const precomputed = await this.findOne({where: {reconstructionId}});
+
+        if (!precomputed) {
+            throw new Error(`No specimen space precomputed found for reconstruction ${reconstructionId}`);
+        }
+
+        return await this.sequelize.transaction(async (t) => {
+            return await precomputed.requestGeneration(user, t);
+        });
+    }
+
     public static async updateGeneration(user: User, id: string, status: PrecomputedGenerationStatus, version: number, generatedAt: number): Promise<SpecimenSpacePrecomputed> {
         if (!user?.canUpdatePrecomputed()) {
             throw new UnauthorizedError();
