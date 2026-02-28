@@ -115,9 +115,21 @@ export const coreTypeDefinitions = gql`
         window: [Float!]!
     }
 
+    type LinearTransformVector {
+        x: Float
+        y: Float
+        z: Float
+    }
+
+    type LinearTransform {
+        scale: LinearTransformVector
+        translate: LinearTransformVector
+    }
+
     type TomographyReference {
         url: String
         options: TomographyOptions
+        linearTransform: LinearTransform
     }
 
     type Specimen {

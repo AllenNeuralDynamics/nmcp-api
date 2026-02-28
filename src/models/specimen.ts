@@ -68,12 +68,24 @@ type CandidateImportShape = CandidateImportOptions & {
     count: number;
 }
 
+type LinearTransformVector = {
+    x: number;
+    y: number;
+    z: number;
+}
+
+type LinearTransform = {
+    scale: LinearTransformVector;
+    translate: LinearTransformVector;
+}
+
 type SpecimenTomography = {
     url: string;
     options: {
         range: number[];
         window: number[];
     }
+    linearTransform?: LinearTransform;
 }
 
 export class Specimen extends BaseModel {

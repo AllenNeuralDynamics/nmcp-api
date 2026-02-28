@@ -78,9 +78,26 @@ export const inputTypeDefinitions = gql`
         window: [Float!]!
     }
 
+    input LinearTransformVectorInput {
+        x: Float
+        y: Float
+        z: Float
+    }
+
+    input LinearTransformInput {
+        scale: LinearTransformVectorInput
+        translate: LinearTransformVectorInput
+    }
+
     input TomographyReferenceInput {
         url: String
         options: TomographyOptionsInput
+        linearTransform: LinearTransformInput
+    }
+
+    input SomaFeaturesInput {
+        defaultBrightness: Float
+        defaultVolume: Float
     }
 
     input SpecimenInput {
@@ -90,6 +107,7 @@ export const inputTypeDefinitions = gql`
         referenceDate: Date
         genotypeId: String
         genotypeName: String
+        somaProperties: SomaFeaturesInput
         tomography: TomographyReferenceInput
         collectionId: String
     }
