@@ -88,6 +88,8 @@ export const typeDefinitions = gql`
 
         reconstructions(queryArgs: ReconstructionQueryArgs!): ReconstructionsResponse
 
+        neuronVersionHistory(neuronId: String!): NeuronVersionHistory
+
         issueCount: Int!
 
         openIssues: [Issue!]!

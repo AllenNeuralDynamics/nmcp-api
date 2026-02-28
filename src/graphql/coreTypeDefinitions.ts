@@ -417,4 +417,27 @@ export const coreTypeDefinitions = gql`
         comment: String!
         neurons: [PortalReconstruction]!
     }
+
+    type VersionHistoryEvent {
+        id: String!
+        kind: Int!
+        name: String!
+        details: String
+        userId: String
+        user: User
+        createdAt: Date!
+    }
+
+    type VersionHistoryBranch {
+        reconstructionId: String!
+        status: Int!
+        startedAt: Date
+        events: [VersionHistoryEvent!]!
+    }
+
+    type NeuronVersionHistory {
+        neuronId: String!
+        trunk: [VersionHistoryEvent!]!
+        branches: [VersionHistoryBranch!]!
+    }
 `;

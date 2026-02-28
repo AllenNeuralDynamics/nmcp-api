@@ -23,6 +23,8 @@ import {AtlasNode} from "../models/atlasNode";
 import {Precomputed} from "../models/precomputed";
 import {NodeStructure} from "../models/nodeStructure";
 import {SpecimenSpacePrecomputed} from "../models/specimenSpacePrecomputed";
+import {EventLogItem} from "../models/eventLogItem";
+import {getNeuronVersionHistory} from "../models/neuronVersionHistory";
 
 export class UnauthorizedError extends GraphQLError {
     public constructor() {
@@ -128,6 +130,14 @@ export const secureResolvers = {
             }
 
             throw new UnauthorizedError();
+        },
+
+        neuronVersionHistory(_: any, args: { neuronId: string }, context: User) {
+            if (!context?.canViewReconstructions()) {
+                throw new UnauthorizedError();
+            }
+
+            return getNeuronVersionHistory(args.neuronId);
         }
     },
     Mutation: {
@@ -311,6 +321,14 @@ export const secureResolvers = {
         },
         responder(issue: Issue): Promise<User> {
             return User.findByPk(issue.responderId);
+        }
+    },
+    VersionHistoryEvent: {
+        details(event: EventLogItem): string | null {
+            return event.details ? JSON.stringify(event.details) : null;
+        },
+        user(event: EventLogItem): Promise<User> {
+            return event.getUser();
         }
     }
 };
