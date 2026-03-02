@@ -316,7 +316,7 @@ export class Specimen extends BaseModel {
                 }
 
                 if (needsUpdate) {
-                    await specimen.update("somaProperties", properties);
+                    await specimen.update({somaProperties: properties}, {transaction: t});
                 }
 
                 if (count > 0) {

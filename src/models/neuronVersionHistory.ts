@@ -16,6 +16,7 @@ export type NeuronVersionHistoryBranch = {
 
 export type NeuronVersionHistory = {
     neuronId: string;
+    specimen: VersionHistoryEvent[];
     trunk: VersionHistoryEvent[];
     branches: NeuronVersionHistoryBranch[];
 }
@@ -50,7 +51,21 @@ export async function getNeuronVersionHistory(neuronId: string): Promise<NeuronV
         reconstructionToAtlasMap.set(atlasRec.reconstructionId, existing);
     }
 
-    const [trunkEvents, reconstructionEvents, reconstructionChildEvents, atlasChildEvents] = await Promise.all([
+    const [specimenEvents, trunkEvents, reconstructionEvents, reconstructionChildEvents, atlasChildEvents] = await Promise.all([
+        EventLogItem.findAll({
+            where: {
+                targetId: neuron.specimenId,
+                kind: {[Op.in]: [
+                    EventLogItemKind.SpecimenCreate,
+                    EventLogItemKind.SpecimenUpdate,
+                    EventLogItemKind.SpecimenUpdateSomaProperties,
+                    EventLogItemKind.SpecimenDelete,
+                    EventLogItemKind.CandidatesInsert
+                ]}
+            },
+            order: [["createdAt", "ASC"]]
+        }),
+
         EventLogItem.findAll({
             where: {
                 targetId: neuronId,
@@ -147,6 +162,7 @@ export async function getNeuronVersionHistory(neuronId: string): Promise<NeuronV
 
     return {
         neuronId,
+        specimen: specimenEvents,
         trunk: trunkEvents,
         branches
     };

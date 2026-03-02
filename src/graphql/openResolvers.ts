@@ -77,8 +77,8 @@ export const openResolvers = {
             return InjectionVirus.findAll();
         },
 
-        specimens(_: any, args: { queryArgs: SpecimenQueryArgs }): Promise<EntityQueryOutput<Specimen>> {
-            return Specimen.getAll(args.queryArgs);
+        specimens(_: any, args: { input: SpecimenQueryArgs }): Promise<EntityQueryOutput<Specimen>> {
+            return Specimen.getAll(args.input);
         },
 
         neuron(_: any, args: { id: string }): Promise<Neuron> {

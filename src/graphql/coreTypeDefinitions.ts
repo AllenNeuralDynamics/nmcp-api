@@ -449,6 +449,7 @@ export const coreTypeDefinitions = gql`
 
     type NeuronVersionHistory {
         neuronId: String!
+        specimen: [VersionHistoryEvent!]!
         trunk: [VersionHistoryEvent!]!
         branches: [VersionHistoryBranch!]!
     }
