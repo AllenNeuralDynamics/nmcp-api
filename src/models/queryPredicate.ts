@@ -208,9 +208,9 @@ export class QueryPredicate implements IQueryPredicate {
                     }
                 }
 
-                applyCollectionFilter(findOptions);
-
                 findOptions.where = where;
+
+                applyCollectionFilter(findOptions);
 
                 break;
         }

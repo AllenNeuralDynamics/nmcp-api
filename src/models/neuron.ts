@@ -442,12 +442,12 @@ export class Neuron extends BaseModel {
 
         const neuronIds = neuronIdsPerPredicate.length == 1 ? neuronIdsPerPredicate[0] : neuronIdsPerPredicate.reduce((prev, curr, index) => {
             if (index === 0 || context.Predicates[index].composition === FilterComposition.or) {
-                return _.uniqBy(prev.concat(curr), "id");
+                return _.union(prev, curr);
             } else if (context.Predicates[index].composition === FilterComposition.and) {
-                return _.uniqBy(_.intersectionBy(prev, curr, "id"), "id");
+                return _.intersection(prev, curr);
             } else {
                 // Not
-                return _.uniqBy(_.differenceBy(prev, curr, "id"), "id");
+                return _.difference(prev, curr);
             }
         }, []);
 
