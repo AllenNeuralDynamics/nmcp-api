@@ -839,7 +839,7 @@ export class Reconstruction extends BaseModel {
         await reconstruction.fromParsedStructures(user, space, reconstructionData, substituteUser);
     }
 
-    public static async getAsJSONForAtlasId(user: User, atlasId: string): Promise<PortalJsonReconstructionContainer | null> {
+    public static async getAsJSON(user: User, idOrAtlasId: string): Promise<PortalJsonReconstructionContainer | null> {
         if (!user?.canRequestReconstructionData()) {
             throw new UnauthorizedError();
         }
@@ -865,19 +865,29 @@ export class Reconstruction extends BaseModel {
             }]
         }];
 
-        const atlas = await AtlasReconstruction.findByPk(atlasId);
-
-        if (!atlas) {
-            return null;
-        }
-
-        const reconstruction = await this.findByPk(atlas.reconstructionId, {
+        // Assume it is direct reference.
+        let reconstruction = await this.findByPk(idOrAtlasId, {
             include: includes.length > 0 ? includes : undefined
         });
+
+
+        if (!reconstruction) {
+            // Some context, such as the current Export service, only have access to the associated Atlas reconstruction id.  Allow it to be a fallback.
+            const atlas = await AtlasReconstruction.findByPk(idOrAtlasId);
+
+            if (!atlas) {
+                return null;
+            }
+
+            reconstruction = await this.findByPk(atlas.reconstructionId, {
+                include: includes.length > 0 ? includes : undefined
+            });
+        }
 
         if (!reconstruction) {
             return null;
         }
+
         const result: PortalJsonReconstructionContainer = {
             comment: "",
             neurons: []

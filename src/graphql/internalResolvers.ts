@@ -17,7 +17,7 @@ export const internalResolvers = {
         },
 
         specimenSpaceReconstructionAsJson(_: any, args: { id: string }, user: User): Promise<PortalJsonReconstructionContainer | null> {
-            return Reconstruction.getAsJSONForAtlasId(user, args.id);
+            return Reconstruction.getAsJSON(user, args.id);
         },
 
         // Used by precomputed worker service

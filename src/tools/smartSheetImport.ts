@@ -152,7 +152,7 @@ function smartSheetImport(sheetId: number, importQualifier: ImportQualifier, pat
         // untouched.  This generally only changed to false in order to speed testing of other parts of the bulk sheet import process.
         const testFlightInsertion = true;
 
-        await s.updateDatabase(pathToReconstructions, insertReconstructions, testFlightInsertion);
+        await s.updateDatabase(insertReconstructions, testFlightInsertion);
 
         s.print();
 
@@ -204,7 +204,7 @@ function findBrainCompartment(atlas: Atlas, primaryLabel: string, secondaryLabel
 
 const immutableReconstructionStatus = [ReconstructionStatus.Published, ReconstructionStatus.Archived, ReconstructionStatus.Discarded];
 
-async function specimenDataFromRow(s: SpecimenRowContents, reconstructionLocation: string, insertReconstructions: boolean, testFlightInsertion: boolean = true) {
+async function specimenDataFromRow(s: SpecimenRowContents, insertReconstructions: boolean, testFlightInsertion: boolean = true) {
     const collection = await Collection.findByName(s.collectionName);
 
     if (!collection) {
@@ -383,7 +383,7 @@ async function loadSpecimenReconstruction(reconstruction: Reconstruction, subjec
     const filePrefix = `${neuronLabel}-${subjectId}`;
 
     try {
-        const swcPath = await findSpecimenReconstructionFile(`${reconstructionLocation}`, filePrefix);
+        const swcPath = await findSpecimenReconstructionFile(`${reconstructionLocation}`, subjectId, filePrefix);
 
         if (swcPath) {
             debug(`\tupdating or adding specimen reconstruction data for ${reconstruction.id} (${subjectId}-${neuronLabel})`);
@@ -408,7 +408,7 @@ async function loadAtlasReconstruction(reconstruction: Reconstruction, subjectId
     const filePrefix = `${neuronLabel}-${subjectId}`;
 
     try {
-        const jsonPath = await findAtlasReconstructionFile(reconstructionLocation, filePrefix);
+        const jsonPath = await findAtlasReconstructionFile(reconstructionLocation, subjectId, filePrefix);
 
         if (jsonPath) {
             debug(`\tupdating or adding atlas reconstruction data for ${reconstruction.id} (${subjectId}-${neuronLabel})`)
@@ -439,15 +439,22 @@ async function loadAtlasReconstruction(reconstruction: Reconstruction, subjectId
     }
 }
 
-async function findSpecimenReconstructionFile(baseLocation: string, file_prefix: string): Promise<string> {
-    debug(`${baseLocation}/**/*-image-space/${file_prefix}*.swc`);
-    const sources = await glob(`${baseLocation}/**/*-image-space/${file_prefix}*.swc`);
+async function findSpecimenReconstructionFile(baseLocation: string, subjectId: string, file_prefix: string): Promise<string> {
+    const filePattern = `${baseLocation}/**/${subjectId}_raw/${file_prefix}*.swc`;
+
+    debug(filePattern);
+
+    const sources = await glob(filePattern);
 
     return sources?.length > 0 ? sources[0] : null;
 }
 
-async function findAtlasReconstructionFile(baseLocation: string, file_prefix: string): Promise<string> {
-    const sources = await glob(`${baseLocation}/**/${file_prefix}*.json`);
+async function findAtlasReconstructionFile(baseLocation: string, subjectId: string, file_prefix: string): Promise<string> {
+    const filePattern = `${baseLocation}/**/${subjectId}_ccf_space_reconstructions/jsons/${file_prefix}*.json`;
+
+    const sources = await glob(filePattern);
+
+    debug(filePattern);
 
     return sources?.length > 0 ? sources[0] : null;
 }
@@ -497,7 +504,7 @@ class SmartSheetImport {
         }
     }
 
-    public async updateDatabase(reconstructionLocation: string, insertReconstructions: boolean, testFlightInsertion: boolean = true) {
+    public async updateDatabase(insertReconstructions: boolean, testFlightInsertion: boolean = true) {
         let ordered = Array.from(this._specimens.values()).sort((a, b) => a.subjectId.localeCompare(b.subjectId));
 
         if (specimenSubset.length > 0) {
@@ -505,7 +512,7 @@ class SmartSheetImport {
         }
 
         for (const s of ordered) {
-            await specimenDataFromRow(s, reconstructionLocation, insertReconstructions, testFlightInsertion);
+            await specimenDataFromRow(s, insertReconstructions, testFlightInsertion);
         }
     }
 
@@ -888,4 +895,4 @@ if (fs.existsSync("./defaultUsers.json")) {
 
 const start = performance.now();
 
-smartSheetImport(parseInt(process.argv[2]), importQualifier, reconstructionLocation, defaultUsers).then((count) => debug(`synchronize: ${((performance.now() - start) / 1000).toFixed(3)}s`));
+smartSheetImport(parseInt(process.argv[2]), importQualifier, reconstructionLocation, defaultUsers).then((count) => debug(`synchronize ${count}: ${((performance.now() - start) / 1000).toFixed(3)}s`));
