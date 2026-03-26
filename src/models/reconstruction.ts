@@ -879,12 +879,18 @@ export class Reconstruction extends BaseModel {
                 return null;
             }
 
+            debug(`getAsJSON found atlas reconstruction ${idOrAtlasId}`);
+
             reconstruction = await this.findByPk(atlas.reconstructionId, {
                 include: includes.length > 0 ? includes : undefined
             });
+        } else {
+            debug(`getAsJSON found reconstruction ${idOrAtlasId}`);
         }
 
         if (!reconstruction) {
+
+            debug(`getAsJSON ${idOrAtlasId} not found as specimen or atlas reconstruction`);
             return null;
         }
 
