@@ -30,7 +30,7 @@ import {EventLogItem, EventLogItemKind, recordEvent} from "./eventLogItem";
 import {isNotNullOrUndefined} from "../util/objectUtil";
 import {NodeCounts, parseJsonFile, parseSwcFile, SimpleReconstruction} from "../io/simpleReconstruction";
 import {NeuronStructure} from "./neuronStructure";
-import {mapSpecimenNodes, PortalJsonReconstruction, PortalJsonReconstructionContainer} from "../io/portalJson";
+import {PortalJsonNode, PortalJsonReconstruction, PortalJsonReconstructionContainer} from "../io/portalJson";
 import {Injection} from "./injection";
 import {InjectionVirus} from "./injectionVirus";
 import {Fluorophore} from "./fluorophore";
@@ -839,7 +839,7 @@ export class Reconstruction extends BaseModel {
         await reconstruction.fromParsedStructures(user, space, reconstructionData, substituteUser);
     }
 
-    public static async getAsJSON(user: User, idOrAtlasId: string): Promise<PortalJsonReconstructionContainer | null> {
+    public static async getAsJSON(user: User, idOrAtlasId: string, renumberNodes: boolean = false): Promise<PortalJsonReconstructionContainer | null> {
         if (!user?.canRequestReconstructionData()) {
             throw new UnauthorizedError();
         }
@@ -940,8 +940,7 @@ export class Reconstruction extends BaseModel {
 
         const axonNodes = await SpecimenNode.findAll(options);
 
-        data.axon = mapSpecimenNodes(axonNodes, NodeStructures.axon);
-        data.axon[0].structureIdentifier = NodeStructures.soma;
+        data.axon = this.mapSpecimenNodes(axonNodes, NodeStructures.axon, renumberNodes);
 
         options = {
             where: nodeWhere(NeuronStructure.DendriteStructureId),
@@ -953,12 +952,41 @@ export class Reconstruction extends BaseModel {
 
         const dendriteNodes = await SpecimenNode.findAll(options);
 
-        data.dendrite = mapSpecimenNodes(dendriteNodes, NodeStructures.basalDendrite);
-        data.dendrite[0].structureIdentifier = NodeStructures.soma;
+        data.dendrite = this.mapSpecimenNodes(dendriteNodes, NodeStructures.basalDendrite, renumberNodes);
 
         result.neurons.push(data);
 
         return result;
+    }
+
+    private static mapSpecimenNodes(nodes: SpecimenNode[], structureIdentifier: NodeStructures, renumberNodes: boolean): PortalJsonNode[] {
+        const sorted = [...nodes].sort((a, b) => a.index - b.index);
+
+        const indexMap = new Map<number, number>();
+
+        if (renumberNodes) {
+            sorted.forEach((n, i) => indexMap.set(n.index, i + 1));
+        } else {
+            sorted.forEach((n, i) => indexMap.set(n.index, n.index));
+        }
+
+        return sorted.map(n => {
+            const parentNumber = n.parentIndex < 0 ? n.parentIndex : indexMap.get(n.parentIndex) ?? n.parentIndex;
+
+            const structure = parentNumber == -1 ? NodeStructures.soma : structureIdentifier ?? n.NodeStructure.swcValue;
+
+            return {
+                sampleNumber: indexMap.get(n.index),
+                structureIdentifier: structure,
+                x: n.x,
+                y: n.y,
+                z: n.z,
+                radius: n.radius,
+                lengthToParent: n.lengthToParent,
+                parentNumber: parentNumber,
+                allenId: null
+            }
+        });
     }
 
     private async archivePublished(user: User, t: Transaction): Promise<void> {

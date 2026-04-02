@@ -96,7 +96,7 @@ export class SimpleNeuronStructure {
     public addNode(node: PortalJsonNode): void {
         if (node.parentNumber == -1) {
             if (this._soma) {
-                debug("already have soma for this neuron structure");
+                debug("already have a soma for this neuron structure");
             }
             this._soma = node;
         } else {
@@ -105,26 +105,11 @@ export class SimpleNeuronStructure {
     }
 
     public finalize(): void {
-        const nodes = Array.from(this._nodes.values()).filter(n => n.parentNumber != -1).sort((a, b) => a.sampleNumber - b.sampleNumber);
-
-        if (nodes.length > 0) {
-            const offset = nodes[0].sampleNumber - 2;
-
-            if (offset > 0) {
-                nodes.forEach((node: PortalJsonNode) => {
-                    node.sampleNumber -= offset;
-                    if (node.parentNumber != 1) {
-                        node.parentNumber -= offset;
-                    }
-                });
-            }
-        }
-
-        this.mapChildren();
+        this.countChildren();
         this.countNodeTypes();
     }
 
-    private mapChildren(): void {
+    private countChildren(): void {
         this._nodes.forEach(node => {
             if (node.parentNumber != -1) {
                 if (!this._nodeChildCount.has(node.parentNumber)) {
