@@ -280,6 +280,7 @@ export const coreTypeDefinitions = gql`
         serviceVersion: Int!
         toolVersion: String!
         score: Int!
+        passed: [QualityControlTest!]!
         warnings: [QualityControlTest!]!
         errors: [QualityControlTest!]!
         toolError: QualityControlToolError

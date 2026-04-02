@@ -100,7 +100,7 @@ export const typeDefinitions = gql`
         """Returns all API keys for the authenticated user."""
         apiKeys: [ApiKey!]!
         
-        specimenSpaceReconstructionAsJson(id: String!): PortalReconstructionContainer
+        specimenSpaceReconstructionAsJson(id: String!, renumberNodes: Boolean): PortalReconstructionContainer
         
         """Returns reconstruction data with support for partial fetching and chunking"""
         reconstructionAsJson(id: String!, options: PortalReconstructionInput): PortalReconstructionContainer

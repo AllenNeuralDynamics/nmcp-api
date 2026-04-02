@@ -7,7 +7,7 @@ const debug = require("debug")("nmcp:nmcp-api:quality-service");
 //
 // StandardMorph-specific.
 //
-type StandardMorphError = {
+type StandardMorphTest = {
     testName: string;
     testDescription: string;
     affectedNodes: number[];
@@ -15,8 +15,9 @@ type StandardMorphError = {
 
 type StandardMorphOutput = {
     standardMorphVersion: string;
-    warnings: StandardMorphError[];
-    errors: StandardMorphError[];
+    passed: StandardMorphTest[];
+    warnings: StandardMorphTest[];
+    errors: StandardMorphTest[];
 }
 
 //
@@ -47,7 +48,8 @@ export enum QualityControlScore {
 
 export enum QualityControlServiceVersion {
     // To note substantial differences in tool
-    v01 = 1 // Initial StandardMorph deployment
+    v01 = 1, // Initial StandardMorph deployment
+    v02 = 2  // StandardMorph updated to include name/description for test that pass
 }
 
 export type QualityControlTest = {
@@ -66,6 +68,7 @@ export type QualityOutputShape = {
     serviceVersion: QualityControlServiceVersion;
     toolVersion: string;
     score: QualityControlScore;
+    passed: QualityControlTest[];
     warnings: QualityControlTest[];
     errors: QualityControlTest[];
     toolError: QualityControlToolError;
@@ -73,9 +76,10 @@ export type QualityOutputShape = {
 }
 
 export class QualityControlOutput {
-    public serviceVersion: QualityControlServiceVersion = QualityControlServiceVersion.v01;
+    public serviceVersion: QualityControlServiceVersion = QualityControlServiceVersion.v02;
     public toolVersion: string = "";
     public score: QualityControlScore = QualityControlScore.Error;
+    public passed: QualityControlTest[] = [];
     public warnings: QualityControlTest[] = [];
     public errors: QualityControlTest[] = [];
     public toolError: QualityControlToolError;
@@ -86,6 +90,14 @@ export class QualityControlOutput {
 
         if (standardMorph) {
             this.toolVersion = standardMorph.standardMorphVersion;
+
+            this.passed = standardMorph.passed?.map(item => {
+                return {
+                    name: item.testName,
+                    description: item.testDescription,
+                    nodes: item.affectedNodes
+                }
+            }) ?? [];
 
             this.warnings = standardMorph.warnings?.map(w => {
                 return {
