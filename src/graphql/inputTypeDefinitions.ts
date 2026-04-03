@@ -102,6 +102,7 @@ export const inputTypeDefinitions = gql`
 
     input ReferenceDatasetInput {
         url: String
+        segmentationUrl: String
     }
 
     input SpecimenInput {

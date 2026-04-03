@@ -82,6 +82,7 @@ type LinearTransform = {
 
 export type ReferenceDataset = {
     url: string;
+    segmentationUrl: string;
 }
 
 type SpecimenTomography = {

@@ -134,6 +134,7 @@ export const coreTypeDefinitions = gql`
 
     type ReferenceDataset {
         url: String
+        segmentationUrl: String
     }
 
     type Specimen {
