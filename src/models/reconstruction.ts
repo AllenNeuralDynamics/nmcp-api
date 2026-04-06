@@ -42,6 +42,8 @@ import {SearchIndex} from "./searchIndex";
 import {Precomputed} from "./precomputed";
 import {DataCiteService, DataCiteServiceStatus} from "../data-access/doi/dataCiteService";
 import {CoreServiceOptions} from "../options/coreServicesOptions";
+import {PortalAnnotationSpace, PortalNode, PortalReconstruction} from "../io/portalFormats";
+import {AtlasStructure} from "./atlasStructure";
 
 const debug = require("debug")("nmcp:nmcp-api:reconstruction");
 
@@ -839,7 +841,7 @@ export class Reconstruction extends BaseModel {
         await reconstruction.fromParsedStructures(user, space, reconstructionData, substituteUser);
     }
 
-    public static async getAsJSON(user: User, idOrAtlasId: string, renumberNodes: boolean = false): Promise<PortalJsonReconstructionContainer | null> {
+    public static async toPortalFormat(user: User, idOrAtlasId: string): Promise<PortalReconstruction> {
         if (!user?.canRequestReconstructionData()) {
             throw new UnauthorizedError();
         }
@@ -870,7 +872,6 @@ export class Reconstruction extends BaseModel {
             include: includes.length > 0 ? includes : undefined
         });
 
-
         if (!reconstruction) {
             // Some context, such as the current Export service, only have access to the associated Atlas reconstruction id.  Allow it to be a fallback.
             const atlas = await AtlasReconstruction.findByPk(idOrAtlasId);
@@ -879,112 +880,57 @@ export class Reconstruction extends BaseModel {
                 return null;
             }
 
-            debug(`getAsJSON found atlas reconstruction ${idOrAtlasId}`);
+            debug(`toPortalFormat found atlas reconstruction ${idOrAtlasId}`);
 
             reconstruction = await this.findByPk(atlas.reconstructionId, {
                 include: includes.length > 0 ? includes : undefined
             });
         } else {
-            debug(`getAsJSON found reconstruction ${idOrAtlasId}`);
+            debug(`toPortalFormat found reconstruction ${idOrAtlasId}`);
         }
 
         if (!reconstruction) {
-
-            debug(`getAsJSON ${idOrAtlasId} not found as specimen or atlas reconstruction`);
+            debug(`toPortalFormat ${idOrAtlasId} not found as specimen or atlas reconstruction`);
             return null;
         }
 
-        const result: PortalJsonReconstructionContainer = {
-            comment: "",
-            neurons: []
-        };
+        const nodes = await this.serializeNodes(user, reconstruction.id);
 
-        let soma = await reconstruction.getSoma();
-
-        const label = reconstruction.Neuron.Specimen.Injections.map(i => ({
-            virus: i.InjectionVirus?.name ?? "",
-            fluorophore: i.Fluorophore?.name ?? ""
-        }));
-
-        const data: PortalJsonReconstruction = {
-            id: reconstruction.Neuron.id,
-            idString: reconstruction.Neuron.label,
-            DOI: null,
-            sample: reconstruction.Neuron.Specimen.toPortalJson(),
-            label: label.length > 0 ? label[0] : null,
-            annotationSpace: null,
-            annotator: null,
+        return {
+            id: reconstruction.id,
+            annotationSpace: PortalAnnotationSpace.Atlas,
+            neuron: reconstruction.Neuron.toPortalFormat(),
+            annotator: reconstruction.Annotator?.toPortalFormat() ?? null,
+            peerReviewer: reconstruction.Reviewer?.toPortalFormat() ?? null,
             proofreader: null,
-            peerReviewer: null,
-            soma: soma.toJSON() ?? null,
-            axonId: reconstruction.id,
-            dendriteId: reconstruction.id
-        };
+            nodes: nodes
+        }
+    }
 
-        function nodeWhere(structureId: string) {
-            return {
-                reconstructionId: reconstruction.id,
-                neuronStructureId: {
-                    [Op.in]: [NeuronStructure.SomaNeuronStructureId, structureId]
-                }
-            }
+    public static async serializeNodes(user: User, reconstructionId: string): Promise<PortalNode[]> {
+        if (!user?.canRequestReconstructionData()) {
+            throw new UnauthorizedError();
         }
 
-        let options: FindOptions = {
-            where: nodeWhere(NeuronStructure.AxonStructureId),
+        const options: FindOptions = {
+            where: {reconstructionId: reconstructionId},
             include: [{
                 model: NodeStructure,
             }],
             order: [["index", "ASC"]]
         };
 
-        const axonNodes = await SpecimenNode.findAll(options);
+        const nodes = await SpecimenNode.findAll(options);
 
-        data.axon = this.mapSpecimenNodes(axonNodes, NodeStructures.axon, renumberNodes);
-
-        options = {
-            where: nodeWhere(NeuronStructure.DendriteStructureId),
-            include: [{
-                model: NodeStructure
-            }],
-            order: [["index", "ASC"]]
-        };
-
-        const dendriteNodes = await SpecimenNode.findAll(options);
-
-        data.dendrite = this.mapSpecimenNodes(dendriteNodes, NodeStructures.basalDendrite, renumberNodes);
-
-        result.neurons.push(data);
-
-        return result;
-    }
-
-    private static mapSpecimenNodes(nodes: SpecimenNode[], structureIdentifier: NodeStructures, renumberNodes: boolean): PortalJsonNode[] {
-        const sorted = [...nodes].sort((a, b) => a.index - b.index);
-
-        const indexMap = new Map<number, number>();
-
-        if (renumberNodes) {
-            sorted.forEach((n, i) => indexMap.set(n.index, i + 1));
-        } else {
-            sorted.forEach((n, i) => indexMap.set(n.index, n.index));
-        }
-
-        return sorted.map(n => {
-            const parentNumber = n.parentIndex < 0 ? n.parentIndex : indexMap.get(n.parentIndex) ?? n.parentIndex;
-
-            const structure = parentNumber == -1 ? NodeStructures.soma : structureIdentifier ?? n.NodeStructure.swcValue;
-
+        return nodes.map(n => {
             return {
-                sampleNumber: indexMap.get(n.index),
-                structureIdentifier: structure,
+                index: n.index,
+                structure: NeuronStructure.swcStructureValue(n.neuronStructureId),
                 x: n.x,
                 y: n.y,
                 z: n.z,
                 radius: n.radius,
-                lengthToParent: n.lengthToParent,
-                parentNumber: parentNumber,
-                allenId: null
+                parentIndex: n.parentIndex,
             }
         });
     }

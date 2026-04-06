@@ -111,7 +111,7 @@ export = {
                 },
                 aliases: {
                     type: Sequelize.JSONB,
-                    defaultValue: []
+                    defaultValue: null
                 },
                 structureIdPath: {
                     type: Sequelize.TEXT,

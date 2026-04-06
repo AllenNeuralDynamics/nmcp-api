@@ -23,6 +23,7 @@ import {UnauthorizedError} from "../graphql/secureResolvers";
 import {Atlas} from "./atlas";
 import {PortalJsonSpecimen} from "../io/portalJson";
 import {parseSomaPropertySteam} from "../io/somaPropertyParser";
+import {PortalSpecimen} from "../io/portalFormats";
 
 const debug = require("debug")("nmcp:nmcp-api:specimen-model");
 
@@ -85,7 +86,7 @@ export type ReferenceDataset = {
     segmentationUrl: string;
 }
 
-type SpecimenTomography = {
+export type SpecimenTomography = {
     url: string;
     options: {
         range: number[];
@@ -360,6 +361,23 @@ export class Specimen extends BaseModel {
             subject: this.label,
             genotype: this.Genotype?.name ?? "",
             collection: this.Collection?.toPortalJson() ?? null
+        };
+    }
+
+    public toPortalFormat(): PortalSpecimen {
+        // Assumes/requires relationships have been eager-loaded.
+
+        const injections = this.Injections.map(i => ({
+            virus: i.InjectionVirus?.name ?? "",
+            fluorophore: i.Fluorophore?.name ?? ""
+        }));
+
+        return {
+            label: this.label,
+            date: this.referenceDate?.valueOf(),
+            genotype: this.Genotype?.name ?? "",
+            injections: injections,
+            collection: this.Collection?.toPortalFormat() ?? null
         };
     }
 }

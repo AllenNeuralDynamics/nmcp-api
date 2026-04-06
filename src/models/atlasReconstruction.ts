@@ -27,6 +27,7 @@ import {UnauthorizedError} from "../graphql/secureResolvers";
 import {SearchIndexOperation} from "../transform/searchIndexOperation";
 import {KDTree} from "../util/kdtree";
 import {FiniteMap} from "../util/finiteMap";
+import {PortalAnnotationSpace, PortalNode, PortalReconstruction} from "../io/portalFormats";
 
 const debug = require("debug")("nmcp:nmcp-api:atlas-reconstruction");
 
@@ -149,7 +150,7 @@ export class AtlasReconstruction extends BaseModel {
 
         // Set up next step: QC if needed.
         // TODO change create to only create if needed for one call.
-        let qc = await QualityControl.findOne({where:{reconstructionId: this.id}});
+        let qc = await QualityControl.findOne({where: {reconstructionId: this.id}});
 
         if (!qc) {
             await QualityControl.createForReconstruction(user, this.id, t);
@@ -165,7 +166,7 @@ export class AtlasReconstruction extends BaseModel {
 
         // TODO change create to only create if needed for one call.
         // Set up Precomputed
-        let precomputed = await Precomputed.findOne({where:{reconstructionId: this.id}});
+        let precomputed = await Precomputed.findOne({where: {reconstructionId: this.id}});
 
         // Do not need to reset status.  Precomputed status will be set to pending after node structure assigment (after quality control)
         if (!precomputed) {
@@ -483,18 +484,11 @@ export class AtlasReconstruction extends BaseModel {
         return output;
     }
 
-    public static async getAsJSON(user: User, id: string, options: JsonParts = defaultJsonParts): Promise<PortalJsonReconstructionContainer | null> {
+    public static async toPortalFormat(user: User, atlasOrReconstructionId: string): Promise<PortalReconstruction> {
         if (!user?.canRequestReconstructionData()) {
             throw new UnauthorizedError();
         }
-
-        const axonOffset = options.axonOffset ?? 0;
-        const axonLimit = options.axonLimit ?? null;
-        const dendriteOffset = options.dendriteOffset ?? 0;
-        const dendriteLimit = options.dendriteLimit ?? null;
-
-        const needsAxon = axonLimit == null || axonLimit > 0;
-        const needsDendrite = dendriteLimit == null || dendriteLimit > 0;
+        debug(`searching for atlas reconstruction ${atlasOrReconstructionId}`);
 
         const includes: any[] = [{
             model: User,
@@ -531,152 +525,79 @@ export class AtlasReconstruction extends BaseModel {
             }]
         });
 
-        const reconstruction = await AtlasReconstruction.findByPk(id, {
+        let reconstruction = await AtlasReconstruction.findByPk(atlasOrReconstructionId, {
             include: includes.length > 0 ? includes : undefined
         });
 
         if (!reconstruction) {
+            // Some context, such as the current Export service, only have access to the associated Atlas reconstruction id.  Allow it to be a fallback.
+            debug(`toPortalFormat looking for specimen reconstruction ${atlasOrReconstructionId}`);
+            const specimen = await Reconstruction.findByPk(atlasOrReconstructionId);
+
+            if (!specimen) {
+                debug(`not found`);
+                return null;
+            }
+
+            debug(`toPortalFormat found specimen reconstruction ${atlasOrReconstructionId} as possible parent reconstruction`);
+
+            reconstruction = await this.findOne({
+                where: {
+                    reconstructionId: specimen.id
+                },
+                include: includes.length > 0 ? includes : undefined
+            });
+        } else {
+            debug(`toPortalFormat found atlas reconstruction ${atlasOrReconstructionId}`);
+        }
+
+        if (!reconstruction) {
+            debug(`failed to find atlas reconstruction ${atlasOrReconstructionId}`);
             return null;
         }
 
-        const result: PortalJsonReconstructionContainer = {
-            comment: reconstruction.Reconstruction.sourceComments || reconstruction.sourceComments,
-            neurons: []
-        };
+        const nodes = await this.serializeNodes(user, reconstruction.id);
 
-        let soma = await reconstruction.getSoma({include: [{model: AtlasStructure}]});
+        return {
+            id: reconstruction.id,
+            annotationSpace: PortalAnnotationSpace.Atlas,
+            neuron: reconstruction.Reconstruction.Neuron.toPortalFormat(),
+            annotator: reconstruction.Reconstruction.Annotator?.toPortalFormat() ?? null,
+            proofreader: reconstruction.Reviewer?.toPortalFormat() ?? null,
+            peerReviewer: reconstruction.Reconstruction.Reviewer?.toPortalFormat() ?? null,
+            nodes: nodes
+        }
+    }
 
-        const label = reconstruction.Reconstruction.Neuron.Specimen.Injections.map(i => ({
-            virus: i.InjectionVirus?.name ?? "",
-            fluorophore: i.Fluorophore?.name ?? ""
-        }));
-
-        const data: PortalJsonReconstruction = {
-            id: reconstruction.Reconstruction.Neuron.id,
-            idString: reconstruction.Reconstruction.Neuron.label,
-            DOI: reconstruction.doi,
-            sample: reconstruction.Reconstruction.Neuron.Specimen.toPortalJson(),
-            label: label.length > 0 ? label[0] : null,
-            annotationSpace: {
-                version: 3,
-                description: "Annotation Space: CCFv3.0 Axes> X: Anterior-Posterior; Y: Inferior-Superior; Z:Left-Right"
-            },
-            annotator: reconstruction.Reconstruction.Annotator?.DisplayName ?? null,
-            proofreader: reconstruction.Reviewer?.DisplayName ?? null,
-            peerReviewer: reconstruction.Reconstruction.Reviewer?.DisplayName ?? null,
-            soma: soma.toJSON() ?? null,
-            axonId: reconstruction.id,
-            dendriteId: reconstruction.id
-        };
-
-        if (data.soma) {
-            data.soma.allenId = soma?.AtlasStructure?.structureId ?? null;
+    public static async serializeNodes(user: User, reconstructionId: string): Promise<PortalNode[]> {
+        if (!user?.canRequestReconstructionData()) {
+            throw new UnauthorizedError();
         }
 
-        function nodeWhere(structureId: string) {
+        const options: FindOptions = {
+            where: {reconstructionId: reconstructionId},
+            include: [{
+                model: NodeStructure,
+            }, {
+                model: AtlasStructure,
+            }],
+            order: [["index", "ASC"]]
+        };
+
+        const nodes = await AtlasNode.findAll(options);
+
+        return nodes.map(n => {
             return {
-                reconstructionId: reconstruction.id,
-                neuronStructureId: {
-                    [Op.in]: [NeuronStructure.SomaNeuronStructureId, structureId]
-                }
+                index: n.index,
+                structure: NeuronStructure.swcStructureValue(n.neuronStructureId),
+                x: n.x,
+                y: n.y,
+                z: n.z,
+                radius: n.radius,
+                parentIndex: n.parentIndex,
+                atlasStructure: n.AtlasStructure?.structureId ?? null
             }
-        }
-
-        if (needsAxon) {
-            const totalAxonCount = await AtlasNode.count({
-                where: nodeWhere(NeuronStructure.AxonStructureId)
-            });
-
-            const options: FindOptions = {
-                where: nodeWhere(NeuronStructure.AxonStructureId),
-                include: [{
-                    model: NodeStructure,
-                }, {
-                    model: AtlasStructure,
-                }],
-                order: [["index", "ASC"]],
-                offset: axonOffset
-            };
-
-            if (axonLimit != null) {
-                options["limit"] = axonLimit;
-            }
-
-            const axonNodes = await AtlasNode.findAll(options);
-
-            data.axon = mapNodes(axonNodes, NodeStructures.axon);
-            data.axon[0].structureIdentifier = NodeStructures.soma;
-            data.axonChunkInfo = {
-                totalCount: totalAxonCount,
-                offset: axonOffset,
-                limit: axonLimit ?? totalAxonCount,
-                hasMore: axonOffset + (axonLimit ?? totalAxonCount) < totalAxonCount
-            };
-        }
-
-        if (needsDendrite) {
-            const totalDendriteCount = await AtlasNode.count({
-                where: nodeWhere(NeuronStructure.DendriteStructureId)
-            });
-
-            const options: FindOptions = {
-                where: nodeWhere(NeuronStructure.DendriteStructureId),
-                include: [{
-                    model: NodeStructure
-                }, {
-                    model: AtlasStructure
-                }],
-                order: [["index", "ASC"]],
-                offset: dendriteOffset
-            };
-
-            if (dendriteLimit != null) {
-                options["limit"] = dendriteLimit;
-            }
-
-            const dendriteNodes = await AtlasNode.findAll(options);
-
-            data.dendrite = mapNodes(dendriteNodes, NodeStructures.basalDendrite);
-            data.dendrite[0].structureIdentifier = NodeStructures.soma;
-            data.dendriteChunkInfo = {
-                totalCount: totalDendriteCount,
-                offset: dendriteOffset,
-                limit: dendriteLimit ?? totalDendriteCount,
-                hasMore: dendriteOffset + (dendriteLimit ?? totalDendriteCount) < totalDendriteCount
-            };
-        }
-
-        if (needsAxon || needsDendrite) {
-            const atlasStructures = await AtlasNode.findAll({
-                where: {
-                    reconstructionId: {[Op.in]: [reconstruction.id]},
-                    atlasStructureId: {[Op.ne]: null}
-                },
-                attributes: [],
-                include: [{
-                    model: AtlasStructure,
-                    attributes: ["id", "structureId", "name", "safeName", "acronym", "structureIdPath", "defaultColor"]
-                }],
-                group: ["AtlasStructure.id"],
-                raw: true
-            });
-
-            const unique = uniqBy(atlasStructures, "AtlasStructure.id");
-
-            data.allenInformation = unique.map(s => ({
-                allenId: s["AtlasStructure.structureId"],
-                name: s["AtlasStructure.name"],
-                safeName: s["AtlasStructure.safeName"],
-                acronym: s["AtlasStructure.acronym"],
-                structurePath: s["AtlasStructure.structureIdPath"],
-                graphOrder: 0,
-                colorHex: s["AtlasStructure.defaultColor"]
-            }));
-        }
-
-        result.neurons.push(data);
-
-        return result;
+        });
     }
 }
 

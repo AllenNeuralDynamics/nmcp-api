@@ -125,12 +125,12 @@ export class QualityControlOutput {
 }
 
 export class QualityCheckService {
-    public static async performQualityCheck(id: string): Promise<QualityCheckServiceResult> {
+    public static async performQualityCheck(atlasReconstructionId: string): Promise<QualityCheckServiceResult> {
         const url = `http://${CoreServiceOptions.rest.qualityCheck.host}:${CoreServiceOptions.rest.qualityCheck.port}${CoreServiceOptions.rest.qualityCheck.endpoint}`;
 
-        debug(`calling quality check service ${url} for reconstruction ${id}`);
+        debug(`calling quality check service ${url} for reconstruction ${atlasReconstructionId}`);
 
-        const data = await AtlasReconstruction.getAsJSON(User.SystemInternalUser, id);
+        const data = await AtlasReconstruction.serializeNodes(User.SystemInternalUser, atlasReconstructionId);
 
         try {
             const response = await fetch(url, {
@@ -138,7 +138,7 @@ export class QualityCheckService {
                 headers: {
                     "Content-Type": "application/json",
                 },
-                body: JSON.stringify({id: id, data: data})
+                body: JSON.stringify({id: atlasReconstructionId, data: data})
             });
 
             if (!response.ok) {
@@ -146,7 +146,7 @@ export class QualityCheckService {
                 debug(`bad response status: ${response.status}`);
 
                 return {
-                    reconstructionId: id,
+                    reconstructionId: atlasReconstructionId,
                     serviceStatus: QualityCheckServiceStatus.Error,
                     output: null,
                     serviceError: response.status.toString()
@@ -167,7 +167,7 @@ export class QualityCheckService {
             // TODO ServiceHistory
             debug(`exception: ${err}`);
             return {
-                reconstructionId: id,
+                reconstructionId: atlasReconstructionId,
                 serviceStatus: QualityCheckServiceStatus.Unavailable,
                 output: null,
                 serviceError: err.message

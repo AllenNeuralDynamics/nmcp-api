@@ -5,7 +5,7 @@ import {Cell, Client, createClient, Row, Sheet} from "smartsheet";
 import {RemoteDatabaseClient} from "../data-access/remoteDatabaseClient";
 import {AtlasStructure} from "../models/atlasStructure";
 import {Neuron, NeuronShape} from "../models/neuron";
-import {Specimen, SpecimenShape} from "../models/specimen";
+import {ReferenceDataset, Specimen, SpecimenShape, SpecimenTomography} from "../models/specimen";
 import {Collection} from "../models/collection";
 import {User} from "../models/user";
 import {Reconstruction} from "../models/reconstruction";
@@ -16,6 +16,9 @@ import {isNullOrEmpty} from "../util/objectUtil";
 import moment = require("moment");
 
 const debug = require("debug")("nmcp:api:smartsheet");
+
+const specimenSpaceDirectorySuffix = "-specimen-space";
+const atlasSpaceDirectorySuffix = "-ccf";
 
 enum ColumnName {
     CCFCoordinates = "CCF Coordinates",
@@ -66,12 +69,16 @@ type SpecimenRowContents = {
 type NeuronRowContents = {
     id?: string;
     idString: string;
-    x: number;
-    y: number;
-    z: number;
-    specimenX: number;
-    specimenY: number
-    specimenZ: number;
+    atlasSoma: {
+        x: number;
+        y: number;
+        z: number;
+    };
+    specimenSoma: {
+        x: number;
+        y: number;
+        z: number;
+    };
     manualBrainStructureAcronym: string;
     ccfBrainStructureAcronym: string;
     annotator: string;
@@ -115,7 +122,7 @@ const ccfLookupFailed = [];
 const failedToApprove = [];
 
 const neuronSelection = {
-    // "685221": ["N003", "N004"]
+    // "648434": ["N004"]
 };
 
 const specimenSubset = [...new Set(Object.keys(neuronSelection))];
@@ -220,6 +227,13 @@ async function specimenDataFromRow(s: SpecimenRowContents, insertReconstructions
         collectionId: collection.id
     };
 
+    const metadata = specimenMetadata.find(m => m.subject == s.subjectId);
+
+    if (metadata) {
+        shape.tomography = metadata.tomography;
+        shape.referenceDataset = metadata.referenceDataset;
+    }
+
     let specimen: Specimen;
 
     try {
@@ -249,16 +263,8 @@ async function specimenDataFromRow(s: SpecimenRowContents, insertReconstructions
         const shape: NeuronShape = {
             specimenId: specimen.id,
             label: n.idString,
-            specimenSoma: {
-                x: n.specimenX,
-                y: n.specimenY,
-                z: n.specimenZ,
-            },
-            atlasSoma: {
-                x: n.x,
-                y: n.y,
-                z: n.z,
-            },
+            atlasSoma: n.atlasSoma,
+            specimenSoma: n.specimenSoma,
             atlasStructureId: somaAtlasStructure,
             keywords: assigned.length > 0 ? [assigned] : []
         };
@@ -413,7 +419,7 @@ async function loadAtlasReconstruction(reconstruction: Reconstruction, subjectId
         if (jsonPath) {
             debug(`\tupdating or adding atlas reconstruction data for ${reconstruction.id} (${subjectId}-${neuronLabel})`)
             try {
-                await Reconstruction.fromJsonFile(proofreader ?? User.SystemAutomationUser, reconstruction.id, jsonPath, ReconstructionSpace.Atlas, User.SystemAutomationUser);
+                await Reconstruction.fromSwcFile(proofreader ?? User.SystemAutomationUser, reconstruction.id, jsonPath, ReconstructionSpace.Atlas, User.SystemAutomationUser);
 
                 if (targetStatus == ReconstructionStatus.Approved) {
                     reconstruction = await Reconstruction.approveReconstruction(reconstruction.id, ReconstructionStatus.Approved, proofreader ?? User.SystemAutomationUser, User.SystemAutomationUser, true);
@@ -440,7 +446,7 @@ async function loadAtlasReconstruction(reconstruction: Reconstruction, subjectId
 }
 
 async function findSpecimenReconstructionFile(baseLocation: string, subjectId: string, file_prefix: string): Promise<string> {
-    const filePattern = `${baseLocation}/**/${subjectId}_raw/${file_prefix}*.swc`;
+    const filePattern = `${baseLocation}/**/${subjectId}${specimenSpaceDirectorySuffix}/${file_prefix}*.swc`;
 
     debug(filePattern);
 
@@ -450,7 +456,7 @@ async function findSpecimenReconstructionFile(baseLocation: string, subjectId: s
 }
 
 async function findAtlasReconstructionFile(baseLocation: string, subjectId: string, file_prefix: string): Promise<string> {
-    const filePattern = `${baseLocation}/**/${subjectId}_ccf_space_reconstructions/jsons/${file_prefix}*.json`;
+    const filePattern = `${baseLocation}/**/${subjectId}${atlasSpaceDirectorySuffix}/${file_prefix}*.swc`;
 
     const sources = await glob(filePattern);
 
@@ -663,6 +669,10 @@ class SmartSheetImport {
             }
         }
 
+        let horta = this.getCell(row, ColumnName.HortaCoordinates).value as string;
+
+        const specimenSoma = this.parseCoordinates(horta ?? "[0.0, 0.0, 0.0]");
+
         let ccf = this.getCell(row, ColumnName.CCFCoordinates).value as string;
 
         // Only processing rows that have a registered soma location.
@@ -676,27 +686,9 @@ class SmartSheetImport {
             ccf = "[0.0, 0.0, 0,0]";
         }
 
-        const horta = this.getCell(row, ColumnName.HortaCoordinates).value as string;
+        const atlasSoma = this.parseCoordinates(ccf);
 
-        let hortaParts = [0, 0, 0];
-
-        if (horta) {
-            try {
-                const parts = horta.replace("[", "").replace("]", "").split(",").map((c: string) => parseFloat(c.replace(",", "")));
-                if (parts.every(p => !isNaN(p))) {
-                    hortaParts = parts
-                }
-            } catch {
-            }
-        }
-
-        let ccfParts = ccf.replace("(", "").replace(")", "").split(" ").map((c: string) => parseFloat(c.replace(",", "")));
-
-        if (ccfParts.some(p => isNaN(p))) {
-            ccfParts = ccf.replace("[", "").replace("]", "").split(" ").map((c: string) => parseFloat(c.replace(",", "")));
-        }
-
-        if (ccfParts.some(p => isNaN(p))) {
+        if (!atlasSoma) {
             ccfCoordinatesParseFailed.push({subject: specimen.subjectId, neuron: id});
             debug(`could not parse CCF coordinates ${this.getStringValue(row, ColumnName.Id)} (row ${row.rowNumber})`);
         }
@@ -706,12 +698,8 @@ class SmartSheetImport {
 
         const neuron: NeuronRowContents = {
             idString: id,
-            x: ccfParts[0],
-            y: ccfParts[1],
-            z: ccfParts[2],
-            specimenX: hortaParts[0],
-            specimenY: hortaParts[1],
-            specimenZ: hortaParts[2],
+            atlasSoma: atlasSoma,
+            specimenSoma: specimenSoma,
             manualBrainStructureAcronym,
             ccfBrainStructureAcronym,
             annotator: this.getDisplayValue(row, ColumnName.Annotator1),
@@ -840,6 +828,22 @@ class SmartSheetImport {
             }
         });
     }
+
+    private parseCoordinates(coordinates: string): { x: number, y: number, z: number } | null {
+        if (!coordinates) {
+            return null;
+        }
+
+        const parts = coordinates.replace(/[()[\]]/g, "").replace(/,/g, " ").split(/\s+/).map(s => s.trim());
+
+        if (parts.length != 3) {
+            return null;
+        }
+
+        const coords = parts.map(p => parseFloat(p));
+
+        return coords.some(v => isNaN(v)) ? null : {x: coords[0], y: coords[1], z: coords[2]};
+    }
 }
 
 const exaSPIMCollection = {
@@ -886,12 +890,24 @@ if (process.argv.length > 4 && process.argv[4]) {
     }
 }
 
+type SpecimenMetadata = {
+    subject: string;
+    tomography: SpecimenTomography | null;
+    referenceDataset: ReferenceDataset | null;
+}
+
 let defaultUsers: DefaultUser[] = [];
+let specimenMetadata: SpecimenMetadata[] = [];
 
 if (fs.existsSync("./defaultUsers.json")) {
     const obj = JSON.parse(fs.readFileSync("./defaultUsers.json", "utf8"));
     defaultUsers = obj.users;
 }
+
+if (fs.existsSync("./specimenMetadata.json")) {
+    specimenMetadata = JSON.parse(fs.readFileSync("./specimenMetadata.json", "utf8"));
+}
+
 
 const start = performance.now();
 

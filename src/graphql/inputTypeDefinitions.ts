@@ -52,6 +52,7 @@ export const inputTypeDefinitions = gql`
         atlasStructureIds: [String!]
         keywords: [String!]
         somaProperties: SomaPropertyInput
+        status: Int
         offset: Int
         limit: Int
     }

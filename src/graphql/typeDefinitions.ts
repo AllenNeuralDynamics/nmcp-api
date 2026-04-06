@@ -52,7 +52,7 @@ export const typeDefinitions = gql`
         """ Returns details for all specimens, subject to any input filtering."""
         specimens(input: SpecimenQueryInput): QuerySpecimens
 
-        """Returns details for a single aneuron."""
+        """Returns details for a single a neuron."""
         neuron(id: String!): Neuron
 
         """Returns a filtered list of candidate neurons."""
@@ -99,12 +99,11 @@ export const typeDefinitions = gql`
 
         """Returns all API keys for the authenticated user."""
         apiKeys: [ApiKey!]!
-        
-        specimenSpaceReconstructionAsJson(id: String!, renumberNodes: Boolean): PortalReconstructionContainer
-        
-        """Returns reconstruction data with support for partial fetching and chunking"""
-        reconstructionAsJson(id: String!, options: PortalReconstructionInput): PortalReconstructionContainer
-        
+
+        exportedSpecimenReconstruction(id: String!): PortalReconstruction
+
+        exportedAtlasReconstruction(id: String!): PortalReconstruction
+
         #
         # Internal queries that require system authentication.
         #

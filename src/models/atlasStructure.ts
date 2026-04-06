@@ -90,7 +90,7 @@ export const modelInit = (sequelize: Sequelize) => {
         acronym: DataTypes.TEXT,
         aliases:  {
             type: DataTypes.JSONB,
-            defaultValue: []
+            defaultValue: null
         },
         structureIdPath: DataTypes.TEXT,
         depth: DataTypes.INTEGER,

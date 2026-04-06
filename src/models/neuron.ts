@@ -1,4 +1,4 @@
-import {BelongsToGetAssociationMixin, DataTypes, FindOptions, HasManyGetAssociationsMixin, literal, Op, Sequelize, Transaction} from "sequelize";
+import {BelongsToGetAssociationMixin, DataTypes, FindOptions, HasManyGetAssociationsMixin, Includeable, literal, Op, Sequelize, Transaction} from "sequelize";
 import "fs";
 import * as _ from "lodash";
 
@@ -25,6 +25,7 @@ import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {Atlas} from "./atlas";
 import {ReconstructionStatus} from "./reconstructionStatus";
 import {publishedCount} from "./systemSettings";
+import {PortalNeuron} from "../io/portalFormats";
 
 const debug = require("debug")("nmcp:nmcp-api:neuron-model");
 
@@ -52,6 +53,11 @@ export type SomaImportResponse = {
     error: Error;
 }
 
+export enum NeuronStatusFilter {
+    Unpublished = 100,
+    Published = 200,
+}
+
 export type NeuronQueryInput =
     EntityQueryInput
     & WithSpecimensQueryInput
@@ -59,6 +65,7 @@ export type NeuronQueryInput =
     & {
     keywords?: string[];
     somaProperties?: SomaFilterInput;
+    status: NeuronStatusFilter;
 };
 
 export type NeuronShape = {
@@ -131,6 +138,10 @@ export class Neuron extends BaseModel {
     private static applyNeuronFilters(options: FindOptions, input: NeuronQueryInput): void {
         const keywords = input?.keywords?.filter(k => k && k.trim().length > 0) ?? [];
 
+        if (!options) {
+            options = {};
+        }
+
         if (keywords.length > 0) {
             if (!options.where) {
                 options.where = {};
@@ -159,15 +170,38 @@ export class Neuron extends BaseModel {
                 options.where["somaProperties"]["volume"] = {[Op.between]: input.somaProperties.volumeRange.slice(0, 2)};
             }
         }
+
+        if (input?.status) {
+            if (!options.include) {
+                options.include = [];
+            }
+
+            if (input.status == NeuronStatusFilter.Published) {
+                (options.include as Includeable[]).push({
+                    model: Reconstruction,
+                    as: "SpecimenReconstruction",
+                    where: {status: ReconstructionStatus.Published},
+                    attributes: [],
+                    required: true
+                });
+            } else if (input.status == NeuronStatusFilter.Unpublished) {
+                (options.include as Includeable[]).push({
+                    model: Reconstruction,
+                    as: "SpecimenReconstruction",
+                    where: {
+                        status: {
+                            [Op.ne]: ReconstructionStatus.Published
+                        }
+                    },
+                    attributes: [],
+                    required: true
+                });
+            }
+        }
     }
 
     public static async getAll(input: NeuronQueryInput): Promise<EntityQueryOutput<Neuron>> {
-        let options: FindOptions = optionsWhereIds(input, {where: null, include: [{model: Specimen, as: "Specimen"}]});
-
-        options = optionsWhereSpecimenIds(input, options);
-        options = optionsWhereAtlasStructureIds(input, options);
-
-        this.applyNeuronFilters(options, input);
+        const options = this.constructFindOptions(input);
 
         const count = await this.setSortAndLimiting(options, input);
 
@@ -193,23 +227,15 @@ export class Neuron extends BaseModel {
 
         const candidateNeuronIds = _.difference(neuronIds, neuronsWithCompletedReconstruction);
 
-        const options = {where: {id: {[Op.in]: candidateNeuronIds}}, include: [], offset: 0};
+        let options: FindOptions = {where: {id: {[Op.in]: candidateNeuronIds}}, include: [], offset: 0};
 
         this.applyNeuronFilters(options, input);
 
-        if (input.atlasStructureIds && input.atlasStructureIds.length > 0) {
-            // TODO Atlas for multiple atlases to be supported, input.atlasStructureIds will have to have been selected from a specific atlas, which will need
-            //  to have been added to the input args, and will be used for this step instead of hard-coded defaultAtlas.
-            const comprehensiveBrainAreas = input.atlasStructureIds.map(id => Atlas.defaultAtlas.getComprehensiveBrainArea(id)).reduce((prev, curr) => {
-                return prev.concat(curr);
-            }, []);
+        // TODO Atlas for multiple atlases to be supported, input.atlasStructureIds will have to have been selected from a specific atlas, which will need
+        //  to have been added to the input args, and will be used for this step instead of hard-coded defaultAtlas.
+        options = optionsWhereAtlasStructureIds(input, Atlas.defaultAtlas, options);
 
-            options.where["atlasStructureId"] = {
-                [Op.in]: comprehensiveBrainAreas
-            };
-        }
-
-        options.include.push({model: Specimen, as: "Specimen", attributes: ["id", "label"]});
+        (options.include as Includeable[]).push({model: Specimen, as: "Specimen", attributes: ["id", "label"]});
 
         if (input.specimenIds && input.specimenIds.length > 0) {
             options.where["$Specimen.id$"] = {[Op.in]: input.specimenIds}
@@ -579,12 +605,7 @@ export class Neuron extends BaseModel {
             throw new UnauthorizedError();
         }
 
-        let options: FindOptions = optionsWhereIds(input, {where: null, include: [{model: Specimen, as: "Specimen"}]});
-
-        options = optionsWhereSpecimenIds(input, options);
-        options = optionsWhereAtlasStructureIds(input, options);
-
-        this.applyNeuronFilters(options, input);
+        const options = this.constructFindOptions(input);
 
         const neurons = await Neuron.findAll(options);
 
@@ -595,6 +616,28 @@ export class Neuron extends BaseModel {
         const reconstruction = await Reconstruction.findOne({where: {neuronId: this.id, status: ReconstructionStatus.Published}});
 
         return reconstruction?.getAtlasReconstruction();
+    }
+
+    private static constructFindOptions(input: NeuronQueryInput): FindOptions {
+        let options: FindOptions = optionsWhereIds(input, {where: null, include: [{model: Specimen, as: "Specimen"}]});
+
+        options = optionsWhereSpecimenIds(input, options);
+
+        // TODO Atlas for multiple atlases to be supported, input.atlasStructureIds will have to have been selected from a specific atlas, which will need
+        //  to have been added to the input args, and will be used for this step instead of hard-coded defaultAtlas.
+        options = optionsWhereAtlasStructureIds(input, Atlas.defaultAtlas, options);
+
+        this.applyNeuronFilters(options, input);
+
+        return options;
+    }
+
+    public toPortalFormat(): PortalNeuron {
+        // Assumes/requires relationships have been eager-loaded.
+        return {
+            label: this.label,
+            specimen: this.Specimen.toPortalFormat()
+        }
     }
 }
 

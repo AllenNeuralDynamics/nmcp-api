@@ -7,6 +7,7 @@ import {User} from "./user";
 import {UnauthorizedError} from "../graphql/secureResolvers";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {PortalJsonCollection} from "../io/portalJson";
+import {PortalCollection} from "../io/portalFormats";
 
 export type CollectionShape = {
     id?: string;
@@ -84,7 +85,7 @@ export class Collection extends BaseModel {
             const existing = await this.findAll({where: {name: {[Op.eq]: shape.name}}});
 
             if (existing.length > 0) {
-                return collection.updateForShape(shape, user, substituteUser);
+                return existing[0].updateForShape(shape, user, substituteUser);
             }
         }
 
@@ -102,6 +103,14 @@ export class Collection extends BaseModel {
     public toPortalJson(): PortalJsonCollection {
         return {
             id: this.id,
+            name: this.name,
+            description: this.description,
+            reference: this.reference
+        };
+    }
+
+    public toPortalFormat(): PortalCollection {
+        return {
             name: this.name,
             description: this.description,
             reference: this.reference

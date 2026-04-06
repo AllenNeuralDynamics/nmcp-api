@@ -10,6 +10,7 @@ import {Reconstruction} from "./reconstruction";
 import {ReconstructionStatus} from "./reconstructionStatus";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {UnauthorizedError} from "../graphql/secureResolvers";
+import {PortalUser} from "../io/portalFormats";
 
 const debug = require("debug")("mnb:nmcp-api:user");
 
@@ -462,6 +463,14 @@ export class User extends BaseModel {
         this._systemAutomationUser = await this.verifySystemUser(SystemAutomationId, UserPermissions.InternalSystem, "System", "Automation");
 
         this._systemInternalUser = await this.verifySystemUser(SystemInternalId, UserPermissions.InternalSystem, "System", "Internal");
+    }
+
+    public toPortalFormat(): PortalUser {
+        return  {
+            displayName: this.DisplayName,
+            affiliation: this.affiliation,
+            email: this.emailAddress
+        }
     }
 }
 

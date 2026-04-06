@@ -1,9 +1,10 @@
 import {FindOptions, Op} from "sequelize";
 
 import {Neuron} from "./neuron";
+import {EntityQueryInput} from "./baseModel";
 import {Specimen} from "./specimen";
 import {Injection} from "./injection";
-import {EntityQueryInput} from "./baseModel";
+import {Atlas} from "./atlas";
 
 export type WithAtlasStructureQueryInput = {
     atlasStructureIds?: string[];
@@ -85,6 +86,23 @@ export function optionsWhereSpecimenIds(input: WithSpecimensQueryInput, options:
     return optionsWherePropertyIds(input, "specimenId", options);
 }
 
-export function optionsWhereAtlasStructureIds(input: WithAtlasStructureQueryInput, options: FindOptions = null): FindOptions {
-    return optionsWherePropertyIds(input, "atlasStructureId", options);
+export function optionsWhereAtlasStructureIds(input: WithAtlasStructureQueryInput, atlas: Atlas, options: FindOptions = null): FindOptions {
+    if (input?.atlasStructureIds && input.atlasStructureIds.length > 0) {
+        if (!options) {
+            options = {};
+        }
+
+        if (!options.where) {
+            options.where = {};
+        }
+
+        const comprehensiveBrainAreas = input.atlasStructureIds.map(id => atlas.getComprehensiveBrainArea(id)).reduce((prev, curr) => {
+            return prev.concat(curr);
+        }, []);
+
+        options.where["atlasStructureId"] = {
+            [Op.in]: comprehensiveBrainAreas
+        };
+    }
+    return options;
 }

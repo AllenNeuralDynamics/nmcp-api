@@ -1,4 +1,5 @@
 import {gql} from "graphql-tag";
+import {PortalAnnotationSpace, PortalNeuron, PortalNode, PortalSpecimen, PortalUser} from "../io/portalFormats";
 
 export const coreTypeDefinitions = gql`
     scalar Upload
@@ -64,7 +65,7 @@ export const coreTypeDefinitions = gql`
         structureIdPath: String
         safeName: String
         acronym: String
-        aliasList: [String]
+        aliases: [String!]
         internalId: Int
         defaultColor: String
         hasGeometry: Boolean
@@ -109,7 +110,7 @@ export const coreTypeDefinitions = gql`
         defaultBrightness: Float
         defaultVolume: Float
     }
-    
+
     type TomographyOptions {
         range: [Float!]!
         window: [Float!]!
@@ -345,6 +346,58 @@ export const coreTypeDefinitions = gql`
         JSON
     }
 
+    type PortalNode {
+        index: Int!
+        structure: Int!
+        x: Float!
+        y: Float!
+        z: Float!
+        radius: Float!
+        parentIndex: Int!
+        atlasStructure: Int
+    }
+
+    type PortalInjection {
+        virus: String!
+        fluorophore: String!
+    }
+
+    type PortalCollection {
+        name: String
+        description: String
+        reference: String
+    }
+
+    type PortalSpecimen {
+        label: String
+        date: String
+        subject: String
+        genotype: String
+        injections: [PortalInjection!]!
+        collection: PortalCollection
+    }
+
+    type PortalNeuron {
+        label: String
+        specimen: PortalSpecimen
+    }
+
+    type PortalUser  {
+        displayName: String
+        affiliation: String
+        email: String
+    }
+
+    type PortalReconstruction {
+        id: String!
+        annotationSpace: Int
+        neuron: PortalNeuron
+        annotator: PortalUser
+        peerReviewer: PortalUser
+        proofreader: PortalUser
+        nodes: [PortalNode!]!
+    }
+
     """
     Node structure for reconstruction data
     """
@@ -431,7 +484,7 @@ export const coreTypeDefinitions = gql`
     """
     Chunked reconstruction data response
     """
-    type PortalReconstruction {
+    type PortalJsonReconstruction {
         id: String!
         idString: String!
         DOI: String
@@ -454,9 +507,9 @@ export const coreTypeDefinitions = gql`
     """
     Chunked reconstruction data response
     """
-    type PortalReconstructionContainer {
+    type PortalJsonReconstructionContainer {
         comment: String!
-        neurons: [PortalReconstruction]!
+        neurons: [PortalJsonReconstruction]!
     }
 
     type VersionHistoryEvent {
