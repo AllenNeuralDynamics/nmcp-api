@@ -1,9 +1,9 @@
 import * as fs from "fs";
 import JSONStream = require("JSONStream");
 
-import {PortalJsonNode} from "./portalJson";
 import {NeuronStructure} from "../models/neuronStructure";
 import {SimpleNeuronStructure} from "./simpleReconstruction";
+import {PortalNode} from "./portalFormat";
 
 
 export async function jsonChunkParse(fileStream: fs.ReadStream): Promise<[SimpleNeuronStructure, SimpleNeuronStructure]> {
@@ -65,19 +65,18 @@ function createNeuronStructure(neuronStructureId: string, jsonNodes: any[]): Sim
     return data;
 }
 
-function parseNodes(nodes: any[]): PortalJsonNode[] {
+function parseNodes(nodes: any[]): PortalNode[] {
     return nodes.map((n: any) => {
         return {
-            sampleNumber: n.sampleNumber,
-            parentNumber: n.parentNumber,
-            structureIdentifier: n.structureIdentifier,
+            index: n.sampleNumber,
+            parentIndex: n.parentNumber,
+            structure: n.structureIdentifier,
             x: n.x,
             y: n.y,
             z: n.z,
             radius: n.radius,
             lengthToParent: n.lengthToParent ?? 0,
-            // TODO Atlas should not be hard-coded, but too lazy to properly propagate until the while JSON-representation code is cleaned up
-            allenId: n.allenId
+            atlasStructureId: n.allenId
         };
     });
 }

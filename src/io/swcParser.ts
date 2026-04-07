@@ -4,6 +4,7 @@ import {NodeStructures} from "../models/nodeStructure";
 
 import {SimpleNeuronStructure, SimpleReconstruction} from "./simpleReconstruction";
 import {NeuronStructure} from "../models/neuronStructure";
+import {PortalNode} from "./portalFormat";
 
 const debug = require("debug")("nmcp:nmcp-api:swc-parser");
 
@@ -70,16 +71,16 @@ function parseNode(reconstruction: SimpleReconstruction, lineContent: string) {
         }
     }
 
-    const node = {
-        sampleNumber: index,
-        parentNumber: parentIndex,
-        structureIdentifier: structure,
+    const node: PortalNode = {
+        index: index,
+        parentIndex: parentIndex,
+        structure: structure,
         x: parseFloat(data[2]),
         y: parseFloat(data[3]),
         z: parseFloat(data[4]),
         radius: parseFloat(data[5]),
         lengthToParent: 0,
-        allenId: null
+        atlasStructure: null
     };
 
     if (structure == NodeStructures.soma) {

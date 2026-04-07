@@ -25,7 +25,7 @@ import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {Atlas} from "./atlas";
 import {ReconstructionStatus} from "./reconstructionStatus";
 import {publishedCount} from "./systemSettings";
-import {PortalNeuron} from "../io/portalFormats";
+import {PortalNeuron} from "../io/portalFormat";
 
 const debug = require("debug")("nmcp:nmcp-api:neuron-model");
 
@@ -635,6 +635,7 @@ export class Neuron extends BaseModel {
     public toPortalFormat(): PortalNeuron {
         // Assumes/requires relationships have been eager-loaded.
         return {
+            id: this.id,
             label: this.label,
             specimen: this.Specimen.toPortalFormat()
         }

@@ -4,8 +4,8 @@ import {BaseModel} from "./baseModel";
 import {NodeStructure} from "./nodeStructure";
 import {Reconstruction} from "./reconstruction";
 import {NeuronStructure} from "./neuronStructure";
-import {PortalJsonNode} from "../io/portalJson";
 import {SpecimenNodeTableName} from "./tableNames";
+import {PortalNode} from "../io/portalFormat";
 
 export type SpecimenNodeShape = {
     index: number;
@@ -20,11 +20,11 @@ export type SpecimenNodeShape = {
     reconstructionId: string;
 }
 
-export function mapToSpecimenNodeShape(node: PortalJsonNode, neuronStructureId: string, reconstructionId: string): SpecimenNodeShape {
+export function mapToSpecimenNodeShape(node: PortalNode, neuronStructureId: string, reconstructionId: string): SpecimenNodeShape {
     return {
-        index: node.sampleNumber,
-        parentIndex: node.parentNumber,
-        nodeStructureId: NodeStructure.idForValue(node.structureIdentifier),
+        index: node.index,
+        parentIndex: node.parentIndex,
+        nodeStructureId: NodeStructure.idForValue(node.structure),
         x: node.x,
         y: node.y,
         z: node.z,

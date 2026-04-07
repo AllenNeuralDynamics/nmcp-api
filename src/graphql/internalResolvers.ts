@@ -3,7 +3,7 @@ import {Precomputed, PrecomputedUpdateShape} from "../models/precomputed";
 import {SpecimenSpacePrecomputed} from "../models/specimenSpacePrecomputed";
 import {Reconstruction} from "../models/reconstruction";
 import {AtlasReconstruction, JsonParts} from "../models/atlasReconstruction";
-import {PortalReconstruction} from "../io/portalFormats";
+import {PortalReconstruction} from "../io/portalFormat";
 
 // noinspection JSUnusedGlobalSymbols
 /**

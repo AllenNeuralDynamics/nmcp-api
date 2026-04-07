@@ -6,8 +6,7 @@ import {CollectionTableName} from "./tableNames";
 import {User} from "./user";
 import {UnauthorizedError} from "../graphql/secureResolvers";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
-import {PortalJsonCollection} from "../io/portalJson";
-import {PortalCollection} from "../io/portalFormats";
+import {PortalCollection} from "../io/portalFormat";
 
 export type CollectionShape = {
     id?: string;
@@ -100,17 +99,9 @@ export class Collection extends BaseModel {
         return await Specimen.count({where: {collectionId: this.id}});
     }
 
-    public toPortalJson(): PortalJsonCollection {
-        return {
-            id: this.id,
-            name: this.name,
-            description: this.description,
-            reference: this.reference
-        };
-    }
-
     public toPortalFormat(): PortalCollection {
         return {
+            id: this.id,
             name: this.name,
             description: this.description,
             reference: this.reference

@@ -20,9 +20,6 @@ import {Fluorophore} from "../models/fluorophore";
 import {Reconstruction, PublishedReconstructionQueryResponse} from "../models/reconstruction";
 import {getSystemSettings, SystemSettings} from "../models/systemSettings";
 import {AccessRequest, AccessRequestShape, RequestAccessResponse} from "../models/accessRequest";
-import {PortalJsonReconstructionContainer} from "../io/portalJson";
-import {QualityControl} from "../models/qualityControl";
-import {UnauthorizedError} from "./secureResolvers";
 import {getNeuronVersionHistory} from "../models/neuronVersionHistory";
 
 // noinspection JSUnusedGlobalSymbols

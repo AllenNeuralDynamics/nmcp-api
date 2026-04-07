@@ -30,19 +30,18 @@ import {EventLogItem, EventLogItemKind, recordEvent} from "./eventLogItem";
 import {isNotNullOrUndefined} from "../util/objectUtil";
 import {NodeCounts, parseJsonFile, parseSwcFile, SimpleReconstruction} from "../io/simpleReconstruction";
 import {NeuronStructure} from "./neuronStructure";
-import {PortalJsonNode, PortalJsonReconstruction, PortalJsonReconstructionContainer} from "../io/portalJson";
 import {Injection} from "./injection";
 import {InjectionVirus} from "./injectionVirus";
 import {Fluorophore} from "./fluorophore";
 import {Genotype} from "./genotype";
 import {Collection} from "./collection"
-import {NodeStructure, NodeStructures} from "./nodeStructure";
+import {NodeStructure} from "./nodeStructure";
 import {GraphQLError} from "graphql/error";
 import {SearchIndex} from "./searchIndex";
 import {Precomputed} from "./precomputed";
 import {DataCiteService, DataCiteServiceStatus} from "../data-access/doi/dataCiteService";
 import {CoreServiceOptions} from "../options/coreServicesOptions";
-import {PortalAnnotationSpace, PortalNode, PortalReconstruction} from "../io/portalFormats";
+import {PortalAnnotationSpace, PortalNode, PortalReconstruction} from "../io/portalFormat";
 import {AtlasStructure} from "./atlasStructure";
 
 const debug = require("debug")("nmcp:nmcp-api:reconstruction");
@@ -899,6 +898,7 @@ export class Reconstruction extends BaseModel {
         return {
             id: reconstruction.id,
             annotationSpace: PortalAnnotationSpace.Atlas,
+            doi: null,
             neuron: reconstruction.Neuron.toPortalFormat(),
             annotator: reconstruction.Annotator?.toPortalFormat() ?? null,
             peerReviewer: reconstruction.Reviewer?.toPortalFormat() ?? null,

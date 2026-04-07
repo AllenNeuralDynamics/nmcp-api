@@ -4,20 +4,20 @@ import {AtlasNodeTableName} from "./tableNames";
 import {BaseModel} from "./baseModel";
 import {NodeStructure} from "./nodeStructure";
 import {NeuronStructure} from "./neuronStructure";
-import {PortalJsonNode} from "../io/portalJson";
 import {AtlasReconstruction} from "./atlasReconstruction";
 import {AtlasStructure} from "./atlasStructure";
 import {mapToSpecimenNodeShape, SpecimenNodeShape} from "./specimenNode";
 import {Atlas} from "./atlas";
+import {PortalNode} from "../io/portalFormat";
 
 export type AtlasNodeShape = SpecimenNodeShape & {
     atlasStructureId: string;
     manualAtlasAssigment: boolean;
 }
 
-export function mapToAtlasNodeShape(node: PortalJsonNode, neuronStructureId: string, reconstructionId: string): AtlasNodeShape {
+export function mapToAtlasNodeShape(node: PortalNode, neuronStructureId: string, reconstructionId: string): AtlasNodeShape {
     // TODO Atlas need to be provided the correct atlas.
-    const structureId =  Atlas.defaultAtlas.getFromStructureId(node.allenId)?.id
+    const structureId =  Atlas.defaultAtlas.getFromStructureId(node.atlasStructure)?.id
 
     return {
         ...mapToSpecimenNodeShape(node, neuronStructureId, reconstructionId),

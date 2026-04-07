@@ -17,7 +17,6 @@ import {Collection} from "./collection";
 import {Reconstruction} from "./reconstruction";
 import {AtlasReconstructionTableName} from "./tableNames";
 import {QualityControl} from "./qualityControl";
-import {mapNodes, PortalJsonReconstruction, PortalJsonReconstructionContainer} from "../io/portalJson";
 import {AtlasNode, AtlasNodeShape, mapToAtlasNodeShape} from "./atlasNode";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {NeuronStructure} from "./neuronStructure";
@@ -27,7 +26,7 @@ import {UnauthorizedError} from "../graphql/secureResolvers";
 import {SearchIndexOperation} from "../transform/searchIndexOperation";
 import {KDTree} from "../util/kdtree";
 import {FiniteMap} from "../util/finiteMap";
-import {PortalAnnotationSpace, PortalNode, PortalReconstruction} from "../io/portalFormats";
+import {PortalAnnotationSpace, PortalNode, PortalReconstruction} from "../io/portalFormat";
 
 const debug = require("debug")("nmcp:nmcp-api:atlas-reconstruction");
 
@@ -561,6 +560,7 @@ export class AtlasReconstruction extends BaseModel {
         return {
             id: reconstruction.id,
             annotationSpace: PortalAnnotationSpace.Atlas,
+            doi: reconstruction.doi,
             neuron: reconstruction.Reconstruction.Neuron.toPortalFormat(),
             annotator: reconstruction.Reconstruction.Annotator?.toPortalFormat() ?? null,
             proofreader: reconstruction.Reviewer?.toPortalFormat() ?? null,

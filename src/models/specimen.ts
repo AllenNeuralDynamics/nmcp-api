@@ -21,9 +21,8 @@ import {User} from "./user";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {UnauthorizedError} from "../graphql/secureResolvers";
 import {Atlas} from "./atlas";
-import {PortalJsonSpecimen} from "../io/portalJson";
 import {parseSomaPropertySteam} from "../io/somaPropertyParser";
-import {PortalSpecimen} from "../io/portalFormats";
+import {PortalSpecimen} from "../io/portalFormat";
 
 const debug = require("debug")("nmcp:nmcp-api:specimen-model");
 
@@ -354,16 +353,6 @@ export class Specimen extends BaseModel {
         return [["label", "ASC"]];
     }
 
-    public toPortalJson(): PortalJsonSpecimen {
-        // Assumes/requires relationships have been eager-loaded.
-        return {
-            date: this.referenceDate ? moment(this.referenceDate).format() : "",
-            subject: this.label,
-            genotype: this.Genotype?.name ?? "",
-            collection: this.Collection?.toPortalJson() ?? null
-        };
-    }
-
     public toPortalFormat(): PortalSpecimen {
         // Assumes/requires relationships have been eager-loaded.
 
@@ -373,6 +362,7 @@ export class Specimen extends BaseModel {
         }));
 
         return {
+            id: this.id,
             label: this.label,
             date: this.referenceDate?.valueOf(),
             genotype: this.Genotype?.name ?? "",

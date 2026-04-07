@@ -3,7 +3,7 @@ import {jsonChunkParse} from "./jsonParser";
 import {NeuronStructure} from "../models/neuronStructure";
 import {NodeStructures} from "../models/nodeStructure";
 import {swcParse} from "./swcParser";
-import {PortalJsonNode} from "./portalJson";
+import {PortalNode} from "./portalFormat";
 
 const debug = require("debug")("nmcp:nmcp-api:simple-reconstruction");
 
@@ -20,7 +20,7 @@ export type NodeCounts = {
 }
 
 export class SimpleNeuronStructure {
-    private _soma: PortalJsonNode;
+    private _soma: PortalNode;
 
     private _soma_count: number;
     private _paths: number;
@@ -30,7 +30,7 @@ export class SimpleNeuronStructure {
     private _comments: string;
 
     private readonly _neuronStructureId: string;
-    private readonly _nodes: Map<number, PortalJsonNode>;
+    private readonly _nodes: Map<number, PortalNode>;
     private readonly _nodeChildCount: Map<number, number>;
 
     public constructor(neuronStructureId: string) {
@@ -43,7 +43,7 @@ export class SimpleNeuronStructure {
 
         this._comments = "";
 
-        this._nodes = new Map<number, PortalJsonNode>();
+        this._nodes = new Map<number, PortalNode>();
         this._nodeChildCount = new Map<number, number>();
     }
 
@@ -81,26 +81,22 @@ export class SimpleNeuronStructure {
         return this._comments;
     }
 
-    public get soma(): PortalJsonNode {
+    public get soma(): PortalNode {
         return this._soma;
     }
 
-    public getNonSomaNodes(): PortalJsonNode[] {
+    public getNonSomaNodes(): PortalNode[] {
         return Array.from(this._nodes.values());
     }
 
-    public addComment(comment: string): void {
-        this._comments += comment;
-    }
-
-    public addNode(node: PortalJsonNode): void {
-        if (node.parentNumber == -1) {
+    public addNode(node: PortalNode): void {
+        if (node.parentIndex == -1) {
             if (this._soma) {
                 debug("already have a soma for this neuron structure");
             }
             this._soma = node;
         } else {
-            this._nodes.set(node.sampleNumber, node);
+            this._nodes.set(node.index, node);
         }
     }
 
@@ -111,12 +107,12 @@ export class SimpleNeuronStructure {
 
     private countChildren(): void {
         this._nodes.forEach(node => {
-            if (node.parentNumber != -1) {
-                if (!this._nodeChildCount.has(node.parentNumber)) {
-                    this._nodeChildCount.set(node.parentNumber, 1);
+            if (node.parentIndex != -1) {
+                if (!this._nodeChildCount.has(node.parentIndex)) {
+                    this._nodeChildCount.set(node.parentIndex, 1);
                 } else {
-                    let count = this._nodeChildCount.get(node.parentNumber);
-                    this._nodeChildCount.set(node.parentNumber, count + 1);
+                    let count = this._nodeChildCount.get(node.parentIndex);
+                    this._nodeChildCount.set(node.parentIndex, count + 1);
                 }
             }
         });
@@ -126,23 +122,23 @@ export class SimpleNeuronStructure {
         const pathType = this._neuronStructureId == NeuronStructure.AxonStructureId ? NodeStructures.axon : NodeStructures.basalDendrite;
 
         this._nodes.forEach(s => {
-            if (s.structureIdentifier != NodeStructures.soma) {
+            if (s.structure != NodeStructures.soma) {
                 // Label anything with <> 1 child as a branch or end point.
-                switch (this._nodeChildCount.get(s.sampleNumber) ?? 0) {
+                switch (this._nodeChildCount.get(s.index) ?? 0) {
                     case 0:
-                        s.structureIdentifier = NodeStructures.endPoint;
+                        s.structure = NodeStructures.endPoint;
                         break;
                     case 1:
-                        s.structureIdentifier = pathType;
+                        s.structure = pathType;
                         break;
                     default:
-                        s.structureIdentifier = NodeStructures.forkPoint;
+                        s.structure = NodeStructures.forkPoint;
                 }
 
                 if (!s.lengthToParent) {
                     // Calculate length to parent.
-                    if (this._nodes.has(s.parentNumber)) {
-                        const parent = this._nodes.get(s.parentNumber);
+                    if (this._nodes.has(s.parentIndex)) {
+                        const parent = this._nodes.get(s.parentIndex);
 
                         // Length to parent in millimeters
                         s.lengthToParent = Math.sqrt(
@@ -154,7 +150,7 @@ export class SimpleNeuronStructure {
                 }
             }
 
-            switch (s.structureIdentifier) {
+            switch (s.structure) {
                 case NodeStructures.soma:
                     this._soma_count++;
                     break;

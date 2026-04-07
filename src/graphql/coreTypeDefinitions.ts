@@ -1,5 +1,5 @@
 import {gql} from "graphql-tag";
-import {PortalAnnotationSpace, PortalNeuron, PortalNode, PortalSpecimen, PortalUser} from "../io/portalFormats";
+import {PortalAnnotationSpace, PortalNeuron, PortalNode, PortalSpecimen, PortalUser} from "../io/portalFormat";
 
 export const coreTypeDefinitions = gql`
     scalar Upload
@@ -354,6 +354,7 @@ export const coreTypeDefinitions = gql`
         z: Float!
         radius: Float!
         parentIndex: Int!
+        lengthToParent: Int
         atlasStructure: Int
     }
 
@@ -363,12 +364,14 @@ export const coreTypeDefinitions = gql`
     }
 
     type PortalCollection {
+        id: String!
         name: String
         description: String
         reference: String
     }
 
     type PortalSpecimen {
+        id: String!
         label: String
         date: String
         subject: String
@@ -378,11 +381,13 @@ export const coreTypeDefinitions = gql`
     }
 
     type PortalNeuron {
+        id: String!
         label: String
         specimen: PortalSpecimen
     }
 
     type PortalUser  {
+        id: String!
         displayName: String
         affiliation: String
         email: String
@@ -396,120 +401,6 @@ export const coreTypeDefinitions = gql`
         peerReviewer: PortalUser
         proofreader: PortalUser
         nodes: [PortalNode!]!
-    }
-
-    """
-    Node structure for reconstruction data
-    """
-    type PortalReconstructionNode {
-        sampleNumber: Int!
-        structureIdentifier: Int!
-        x: Float!
-        y: Float!
-        z: Float!
-        radius: Float!
-        parentNumber: Int!
-        allenId: Int
-    }
-
-    """
-    Atlas structure information for reconstruction
-    """
-    type PortalReconstructionAtlasInfo {
-        allenId: Int!
-        name: String!
-        safeName: String!
-        acronym: String!
-        graphOrder: Int!
-        structurePath: String!
-        colorHex: String!
-    }
-
-    """
-    Annotation space information
-    """
-    type PortalReconstructionAnnotationSpace {
-        version: Int!
-        description: String!
-    }
-
-    """
-    Soma information for reconstruction
-    """
-    type PortalReconstructionSoma {
-        x: Float!
-        y: Float!
-        z: Float!
-        allenId: Int
-    }
-
-    """
-    Label information for reconstruction
-    """
-    type PortalReconstructionLabel {
-        virus: String!
-        fluorophore: String!
-    }
-
-    """
-    Collection information for specimens
-    """
-    type PortalReconstructionCollection {
-        id: String
-        name: String
-        description: String
-        reference: String
-    }
-
-    """
-    Specimen information for reconstruction
-    """
-    type PortalReconstructionSpecimen {
-        date: String
-        subject: String
-        genotype: String
-        collection: PortalReconstructionCollection
-    }
-
-    """
-    Chunk information for paginated data
-    """
-    type PortalReconstructionChunkInfo {
-        totalCount: Int!
-        offset: Int!
-        limit: Int!
-        hasMore: Boolean!
-    }
-
-    """
-    Chunked reconstruction data response
-    """
-    type PortalJsonReconstruction {
-        id: String!
-        idString: String!
-        DOI: String
-        sample: PortalReconstructionSpecimen!
-        label: PortalReconstructionLabel
-        annotationSpace: PortalReconstructionAnnotationSpace!
-        annotator: String
-        proofreader: String
-        peerReviewer: String
-        soma: PortalReconstructionSoma!
-        axonId: String
-        dendriteId: String
-        axon: [PortalReconstructionNode!]
-        axonChunkInfo: PortalReconstructionChunkInfo
-        dendrite: [PortalReconstructionNode!]
-        dendriteChunkInfo: PortalReconstructionChunkInfo
-        allenInformation: [PortalReconstructionAtlasInfo!]
-    }
-
-    """
-    Chunked reconstruction data response
-    """
-    type PortalJsonReconstructionContainer {
-        comment: String!
-        neurons: [PortalJsonReconstruction]!
     }
 
     type VersionHistoryEvent {
