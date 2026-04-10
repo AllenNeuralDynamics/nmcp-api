@@ -29,6 +29,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and Push Docker Images
         run: |
+          npm i -g typescript@5.9
           npm i --save-dev @types/node
           chmod +x docker-entry.sh
           task release
