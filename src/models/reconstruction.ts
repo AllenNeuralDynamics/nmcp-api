@@ -28,7 +28,7 @@ import {AtlasReconstruction, AtlasReconstructionShape} from "./atlasReconstructi
 import {AtlasReconstructionStatus} from "./atlasReconstructionStatus";
 import {EventLogItem, EventLogItemKind, recordEvent} from "./eventLogItem";
 import {isNotNullOrUndefined} from "../util/objectUtil";
-import {NodeCounts, parseJsonFile, parseSwcFile, SimpleReconstruction} from "../io/simpleReconstruction";
+import {NodeCounts, parseSwcFile, SimpleReconstruction} from "../io/simpleReconstruction";
 import {NeuronStructure} from "./neuronStructure";
 import {Injection} from "./injection";
 import {InjectionVirus} from "./injectionVirus";
@@ -42,7 +42,6 @@ import {Precomputed} from "./precomputed";
 import {DataCiteService, DataCiteServiceStatus} from "../data-access/doi/dataCiteService";
 import {CoreServiceOptions} from "../options/coreServicesOptions";
 import {PortalAnnotationSpace, PortalNode, PortalReconstruction} from "../io/portalFormat";
-import {AtlasStructure} from "./atlasStructure";
 
 const debug = require("debug")("nmcp:nmcp-api:reconstruction");
 
@@ -788,24 +787,6 @@ export class Reconstruction extends BaseModel {
         return null;
     }
 
-    public static async fromJsonUpload(userOrId: User | string, args: ReconstructionUploadArgs): Promise<Reconstruction> {
-        await Reconstruction.validateUploadArgs(args);
-
-        const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(args.reconstructionId, userOrId);
-
-        if (!user.canUploadReconstructionData(args.reconstructionSpace)) {
-            throw new UnauthorizedError();
-        }
-
-        const file: any = await args.file;
-
-        const reconstructionData = await parseJsonFile(file.filename, file.createReadStream());
-
-        await reconstruction.fromParsedStructures(user, args.reconstructionSpace, reconstructionData);
-
-        return await Reconstruction.findByPk(args.reconstructionId);
-    }
-
     public static async fromSwcUpload(userOrId: User | string, args: ReconstructionUploadArgs): Promise<Reconstruction> {
         await Reconstruction.validateUploadArgs(args);
 
@@ -822,14 +803,6 @@ export class Reconstruction extends BaseModel {
         await reconstruction.fromParsedStructures(user, args.reconstructionSpace, reconstructionData);
 
         return await Reconstruction.findByPk(args.reconstructionId);
-    }
-
-    public static async fromJsonFile(userOrId: User | string, reconstructionId: string, sourceFile: string, space: ReconstructionSpace, substituteUser: User): Promise<void> {
-        const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(reconstructionId, userOrId);
-
-        const reconstructionData = await parseJsonFile(sourceFile, fs.createReadStream(sourceFile));
-
-        await reconstruction.fromParsedStructures(user, space, reconstructionData, substituteUser);
     }
 
     public static async fromSwcFile(userOrId: User | string, reconstructionId: string, sourceFile: string, space: ReconstructionSpace, substituteUser: User): Promise<void> {

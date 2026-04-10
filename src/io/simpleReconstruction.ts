@@ -1,5 +1,4 @@
 import {ReadStream} from "fs";
-import {jsonChunkParse} from "./jsonParser";
 import {NeuronStructure} from "../models/neuronStructure";
 import {NodeStructures} from "../models/nodeStructure";
 import {swcParse} from "./swcParser";
@@ -176,17 +175,6 @@ export type SimpleReconstruction = {
     comments: string;
     axon: SimpleNeuronStructure
     dendrite: SimpleNeuronStructure;
-}
-
-export async function parseJsonFile(source: string, stream: ReadStream): Promise<SimpleReconstruction> {
-    const [axonData, dendriteData] = await jsonChunkParse(stream);
-
-    return {
-        source: source,
-        comments: axonData.comments,
-        axon: axonData,
-        dendrite: dendriteData
-    };
 }
 
 export async function parseSwcFile(source: string, swcFile: ReadStream): Promise<SimpleReconstruction> {

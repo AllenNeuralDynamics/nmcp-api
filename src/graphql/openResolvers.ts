@@ -2,7 +2,7 @@ import {Kind} from "graphql/language";
 import {GraphQLScalarType} from "graphql/type";
 
 import {IQueryOperator, operators} from "../models/queryOperator";
-import {NearestNodeOutput, AtlasReconstruction, JsonParts} from "../models/atlasReconstruction";
+import {NearestNodeOutput, AtlasReconstruction} from "../models/atlasReconstruction";
 import {PredicateType} from "../models/queryPredicate";
 import {AtlasStructure, AtlasStructureQueryInput} from "../models/atlasStructure";
 import {User} from "../models/user";
@@ -21,13 +21,14 @@ import {Reconstruction, PublishedReconstructionQueryResponse} from "../models/re
 import {getSystemSettings, SystemSettings} from "../models/systemSettings";
 import {AccessRequest, AccessRequestShape, RequestAccessResponse} from "../models/accessRequest";
 import {getNeuronVersionHistory} from "../models/neuronVersionHistory";
+import {QualityControl} from "../models/qualityControl";
 
 // noinspection JSUnusedGlobalSymbols
 /**
  * Resolvers that do not require any type of user authentication.  These are essentially just what is needed to use the viewer and explore candidates
  * without signing in.
  *
- * IF YOU ARE ADDING A MUTATION OTHER THAN THE REQUEST ACCESS MUTATION, CONSIDER WHAT YOU ARE DOING CAREFULLY
+ * IF YOU ARE ADDING A MUTATION OTHER THAN THE REQUEST ACCESS MUTATION, CONSIDER WHAT YOU ARE DOING CAREFULLY.
  */
 export const openResolvers = {
     Query: {
@@ -51,10 +52,8 @@ export const openResolvers = {
             return NeuronStructure.findAll({});
         },
 
-        async atlasStructures(_: any, args: { input: AtlasStructureQueryInput }): Promise<AtlasStructure[]> {
-            const output = await AtlasStructure.getAll(args.input);
-
-            return output.items;
+        async atlasStructures(): Promise<AtlasStructure[]> {
+            return AtlasStructure.getAll();
         },
 
         atlasStructure(_: any, args: { id: string }): Promise<AtlasStructure> {
@@ -103,6 +102,10 @@ export const openResolvers = {
 
         neuronVersionHistory(_: any, args: { neuronId: string }, __: User) {
             return getNeuronVersionHistory(args.neuronId);
+        },
+
+        qualityControl(_: any, args: { id: string }, context: User): Promise<QualityControl> {
+            return QualityControl.findByPk(args.id);
         },
     },
     Mutation: {

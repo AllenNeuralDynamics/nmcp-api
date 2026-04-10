@@ -202,18 +202,4 @@ export const inputTypeDefinitions = gql`
         affiliation: String!
         purpose: String!
     }
-
-    """
-    Input for chunked reconstruction data query
-    """
-    input PortalReconstructionInput {
-        """Offset for axon nodes pagination"""
-        axonOffset: Int
-        """Limit for axon nodes pagination.  <=0 to not include axon.  null or undefined to return all."""
-        axonLimit: Int
-        """Offset for dendrite nodes pagination"""
-        dendriteOffset: Int
-        """Limit for dendrite nodes pagination  <=0 to not include dendrite.  null or undefined to return all."""
-        dendriteLimit: Int
-    }
 `;

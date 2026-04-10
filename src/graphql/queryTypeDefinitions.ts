@@ -18,11 +18,6 @@ export const queryTypeDefinitions = gql`
         items: [User!]!
     }
 
-    type QueryAtlasStructures {
-        totalCount: Int!
-        items: [AtlasStructure!]!
-    }
-
     type QuerySpecimens {
         totalCount: Int!
         items: [Specimen!]!
@@ -37,11 +32,6 @@ export const queryTypeDefinitions = gql`
     type EntityCount {
         id: String
         count: Int
-    }
-
-    type EntityCountOutput {
-        counts: [EntityCount]
-        error: String
     }
 
     type SearchOutput {

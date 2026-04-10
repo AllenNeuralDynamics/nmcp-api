@@ -1,11 +1,7 @@
 import {Sequelize, DataTypes, FindOptions, Op, OrderItem} from "sequelize";
 
-import {BaseModel, EntityQueryInput, EntityQueryOutput} from "./baseModel";
-import {
-    optionsIncludeNeuronIds,
-    optionsWhereIds,
-    WithNeuronsQueryInput
-} from "./findOptions";
+import {BaseModel, EntityQueryInput} from "./baseModel";
+import {WithNeuronsQueryInput} from "./findOptions";
 import {AtlasStructureTableName} from "./tableNames";
 import {Atlas} from "./atlas";
 
@@ -41,16 +37,8 @@ export class AtlasStructure extends BaseModel {
     public defaultColor: string;
     public hasGeometry: number;
 
-    public static async getAll(input: AtlasStructureQueryInput): Promise<EntityQueryOutput<AtlasStructure>> {
-        let options: FindOptions = optionsWhereIds(input);
-
-        options = optionsIncludeNeuronIds(input, options);
-
-        const count = await this.setSortAndLimiting(options, input);
-
-        const areas = await AtlasStructure.findAll(options);
-
-        return {totalCount: count, items: areas};
+    public static async getAll(): Promise<AtlasStructure[]> {
+        return await AtlasStructure.findAll();
     }
 
     public static async findId(id: string): Promise<string> {
@@ -88,7 +76,7 @@ export const modelInit = (sequelize: Sequelize) => {
         name: DataTypes.TEXT,
         safeName: DataTypes.TEXT,
         acronym: DataTypes.TEXT,
-        aliases:  {
+        aliases: {
             type: DataTypes.JSONB,
             defaultValue: null
         },

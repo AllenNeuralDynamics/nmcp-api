@@ -132,14 +132,6 @@ export const secureResolvers = {
             throw new UnauthorizedError();
         },
 
-        qualityControl(_: any, args: { id: string }, context: User): Promise<QualityControl> {
-            if (!context?.canViewReconstructions()) {
-                throw new UnauthorizedError();
-            }
-
-            return QualityControl.findByPk(args.id);
-        },
-
         apiKeys(_: any, __: any, context: User): Promise<ApiKey[]> {
             if (!(context.permissions & UserPermissions.Admin)) {
                 throw new UnauthorizedError();
@@ -267,10 +259,6 @@ export const secureResolvers = {
 
         openReconstructionRevision(_: any, args: { reconstructionId: string, revisionKind: ReconstructionRevisionKind }, user: User): Promise<Reconstruction> {
             return Reconstruction.openReconstructionRevision(user, args.reconstructionId, args.revisionKind);
-        },
-
-        uploadJsonData(_: any, {uploadArgs}: { uploadArgs: ReconstructionUploadArgs }, user: User): Promise<Reconstruction> {
-            return Reconstruction.fromJsonUpload(user, uploadArgs);
         },
 
         uploadSwcData(_: any, {uploadArgs}: { uploadArgs: ReconstructionUploadArgs }, user: User): Promise<Reconstruction> {

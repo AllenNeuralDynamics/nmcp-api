@@ -1,12 +1,11 @@
 import {BelongsToGetAssociationMixin, DataTypes, FindOptions, HasManyGetAssociationsMixin, Op, Sequelize, Transaction} from "sequelize";
-import {uniqBy} from "lodash"
 
 import {BaseModel} from "./baseModel";
 import {Neuron} from "./neuron";
 import {AtlasReconstructionStatus, PrecomputedStatusKinds, QualityControlStatusKinds} from "./atlasReconstructionStatus";
 import {User} from "./user";
 import {Precomputed} from "./precomputed";
-import {NodeStructure, NodeStructures} from "./nodeStructure";
+import {NodeStructure} from "./nodeStructure";
 import {AtlasStructure} from "./atlasStructure";
 import {Specimen} from "./specimen";
 import {Fluorophore} from "./fluorophore";
@@ -35,20 +34,6 @@ export type NearestNodeOutput = {
     location: number[];
     node: AtlasNode;
     error: String;
-}
-
-export type JsonParts = {
-    axonOffset?: number;
-    axonLimit?: number;
-    dendriteOffset?: number;
-    dendriteLimit?: number;
-}
-
-const defaultJsonParts: JsonParts = {
-    axonOffset: 0,
-    axonLimit: null,
-    dendriteOffset: 0,
-    dendriteLimit: null
 }
 
 export type AtlasReconstructionShape = {

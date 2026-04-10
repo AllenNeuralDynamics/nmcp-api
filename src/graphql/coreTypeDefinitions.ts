@@ -5,12 +5,6 @@ export const coreTypeDefinitions = gql`
     scalar Upload
     scalar Date
 
-    type Error {
-        name: String
-        message: String
-        stack: String
-    }
-
     type Features {
         enableUpdatedViewer: Boolean
     }

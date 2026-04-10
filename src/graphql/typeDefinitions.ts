@@ -163,7 +163,6 @@ export const typeDefinitions = gql`
         requestQualityControlReassessment(reconstructionId: String!): QualityControl
 
         updateReconstruction(reconstructionId: String!, duration: Float, notes: String, started: Date, completed: Date): Reconstruction
-        uploadJsonData(uploadArgs: ReconstructionUploadArgs!): Reconstruction
         uploadSwcData(uploadArgs: ReconstructionUploadArgs!): Reconstruction
 
         createApiKey(key: String!, description: String, durationDays: Int, permissions: Int): ApiKey!
