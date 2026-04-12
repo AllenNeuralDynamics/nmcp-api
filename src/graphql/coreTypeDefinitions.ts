@@ -262,6 +262,7 @@ export const coreTypeDefinitions = gql`
 
     type QualityControlTest {
         name: String!
+        safeName: String
         description: String!
         nodes: [Int!]!
     }

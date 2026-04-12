@@ -54,8 +54,14 @@ export enum QualityControlServiceVersion {
 
 export type QualityControlTest = {
     name: string,
+    safeName: string,
     description: string,
     nodes: number[]
+}
+
+function displayName(name: string): string {
+    return name.replace(/([a-z])([A-Z])/g, "$1 $2")
+               .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2");
 }
 
 export type QualityControlToolError = {
@@ -93,7 +99,8 @@ export class QualityControlOutput {
 
             this.passed = standardMorph.passed?.map(item => {
                 return {
-                    name: item.testName,
+                    name: displayName(item.testName),
+                    safeName: item.testName,
                     description: item.testDescription,
                     nodes: item.affectedNodes
                 }
@@ -101,7 +108,8 @@ export class QualityControlOutput {
 
             this.warnings = standardMorph.warnings?.map(w => {
                 return {
-                    name: w.testName,
+                    name: displayName(w.testName),
+                    safeName: w.testName,
                     description: w.testDescription,
                     nodes: w.affectedNodes
                 }
@@ -109,7 +117,8 @@ export class QualityControlOutput {
 
             this.errors = standardMorph.errors?.map(w => {
                 return {
-                    name: w.testName,
+                    name: displayName(w.testName),
+                    safeName: w.testName,
                     description: w.testDescription,
                     nodes: w.affectedNodes
                 }
