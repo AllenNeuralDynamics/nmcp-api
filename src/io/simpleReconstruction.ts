@@ -139,12 +139,12 @@ export class SimpleNeuronStructure {
                     if (this._nodes.has(s.parentIndex)) {
                         const parent = this._nodes.get(s.parentIndex);
 
-                        // Length to parent in millimeters
+                        // Length to parent in micrometers
                         s.lengthToParent = Math.sqrt(
                             Math.pow(s.x - parent.x, 2) +
                             Math.pow(s.y - parent.y, 2) +
                             Math.pow(s.z - parent.z, 2)
-                        ) / 1000;
+                        );
                     }
                 }
             }

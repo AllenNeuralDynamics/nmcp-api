@@ -115,6 +115,10 @@ export = {
                     type: Sequelize.JSONB,
                     defaultValue: null
                 },
+                referenceDataset: {
+                    type: Sequelize.JSONB,
+                    defaultValue: null
+                },
                 tomography: {
                     type: Sequelize.JSONB,
                     defaultValue: null

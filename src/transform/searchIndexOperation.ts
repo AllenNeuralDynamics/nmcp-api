@@ -1,5 +1,4 @@
 import {SearchIndexCounts} from "./searchIndexCounts";
-import {NodeStructure} from "../models/nodeStructure";
 import {SearchIndex, SearchIndexShape} from "../models/searchIndex";
 import {AtlasReconstruction} from "../models/atlasReconstruction";
 import {AtlasNode} from "../models/atlasNode";
@@ -7,7 +6,6 @@ import {Neuron} from "../models/neuron";
 import {NeuronStructure} from "../models/neuronStructure";
 import {Transaction} from "sequelize";
 import {Specimen} from "../models/specimen";
-import {Atlas} from "../models/atlas";
 
 const debug = require("debug")("nmcp:transform:transform-operation");
 
@@ -45,7 +43,6 @@ export class SearchIndexOperation {
         const axonNodeCounts = await this.countNodesPerStructure(NeuronStructure.AxonStructureId);
         const dendriteNodeCounts = await this.countNodesPerStructure(NeuronStructure.DendriteStructureId);
         const somaCounts = this.createSomaEntries();
-
 
         await this.assignSearchCompartments(axonNodeCounts, NeuronStructure.AxonStructureId, t);
         await this.assignSearchCompartments(dendriteNodeCounts, NeuronStructure.DendriteStructureId, t);
@@ -109,7 +106,7 @@ export class SearchIndexOperation {
 
             let counts = nodeCountMap.get(atlasStructureId);
 
-            counts.addNode(NodeStructure.valueForId(node.nodeStructureId));
+            counts.addNode(node);
         } {
             // TODO SystemError that structure assigment didn't default to root structure.
         }
@@ -140,6 +137,10 @@ export class SearchIndexOperation {
                 branchCount: value.branch,
                 endCount: value.end,
                 neuronLabel: this._neuron.label,
+                specimenLabel: this._neuron.Specimen.label,
+                totalLengthMicrometer: value.axonLengthMicrometers + value.dendriteLengthMicrometers,
+                axonLengthMicrometer: value.axonLengthMicrometers,
+                dendriteLengthMicrometer: value.dendriteLengthMicrometers,
                 doi: this._reconstruction.doi,
                 atlasKindId: this._neuron.Specimen.getAtlas().atlasKindId,
                 atlasId: this._neuron.Specimen.atlasId,

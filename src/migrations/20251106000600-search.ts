@@ -47,11 +47,27 @@ export = {
                     type: Sequelize.INTEGER,
                     defaultValue: 0
                 },
+                totalLengthMicrometer: {
+                    type: Sequelize.DOUBLE,
+                    defaultValue: 0.0
+                },
+                axonLengthMicrometer: {
+                    type: Sequelize.DOUBLE,
+                    defaultValue: 0.0
+                },
+                dendriteLengthMicrometer: {
+                    type: Sequelize.DOUBLE,
+                    defaultValue: 0.0
+                },
                 neuronLabel: {
                     type: Sequelize.TEXT,
                     defaultValue: ""
                 },
                 doi: {
+                    type: Sequelize.TEXT,
+                    defaultValue: ""
+                },
+                specimenLabel: {
                     type: Sequelize.TEXT,
                     defaultValue: ""
                 },

@@ -98,12 +98,6 @@ export type SearchOutputPage = {
     error: Error;
 }
 
-enum FilterComposition {
-    and = 1,
-    or = 2,
-    not = 3
-}
-
 export class Neuron extends BaseModel {
     public label: string;
     public keywords: string[];
@@ -416,77 +410,6 @@ export class Neuron extends BaseModel {
         });
     }
 
-    public static async getNeuronsWithPredicates(context: SearchContext): Promise<SearchOutputPage> {
-        try {
-            const start = Date.now();
-
-            let neurons = await this.performNeuronsFilterQuery(context);
-
-            const duration = Date.now() - start;
-
-            const totalCount = await publishedCount();
-
-            neurons = neurons.sort((b, a) => a.label.localeCompare(b.label));
-
-            return {nonce: context.Nonce, queryTime: duration, totalCount, neurons, error: null};
-
-        } catch (err) {
-            debug(err);
-            debug(context);
-
-            return {nonce: context.Nonce, queryTime: 1, totalCount: 0, neurons: [], error: err};
-        }
-    }
-
-    private static async performNeuronsFilterQuery(context: SearchContext): Promise<Neuron[]> {
-        const somaProperties = ["somaX", "somaY", "somaZ"];
-
-        // FindOptions per-predicate.
-        const findOptions: FindOptions[] = context.Predicates.map((predicate) => predicate.createFindOptions(context.CollectionIds));
-
-        const indicesPerPredicate: (SearchIndex[])[] = [];
-
-        const needSomas = context.Predicates.some(p => p.predicateType === PredicateType.CustomRegion && p.arbCenter && p.arbSize);
-
-        const attributes = needSomas ? ["id", "neuronId", ...somaProperties] : ["id", "neuronId"];
-
-        for (const option of findOptions) {
-            option.attributes = attributes;
-            indicesPerPredicate.push(await SearchIndex.findAll(option));
-        }
-
-        // Not interested in individual compartment results.  Just want unique neurons for per-predicate.
-        const neuronIdsPerPredicate: string[][] = indicesPerPredicate.map((indexList, index) => {
-            // Additional filter for custom region.  May be able to do in database (?).
-            const predicate = context.Predicates[index];
-
-            if (predicate.predicateType === PredicateType.CustomRegion && predicate.arbCenter && predicate.arbSize) {
-                const pos = predicate.arbCenter;
-
-                indexList = indexList.filter((searchIndex) => {
-                    const distance = Math.sqrt(Math.pow(pos.x - searchIndex.somaX, 2) + Math.pow(pos.y - searchIndex.somaY, 2) + Math.pow(pos.z - searchIndex.somaZ, 2));
-
-                    return distance <= predicate.arbSize;
-                });
-            }
-
-            return _.uniq(indexList.map(c => c.neuronId));
-        });
-
-        const neuronIds = neuronIdsPerPredicate.length == 1 ? neuronIdsPerPredicate[0] : neuronIdsPerPredicate.reduce((prev, curr, index) => {
-            if (index === 0 || context.Predicates[index].composition === FilterComposition.or) {
-                return _.union(prev, curr);
-            } else if (context.Predicates[index].composition === FilterComposition.and) {
-                return _.intersection(prev, curr);
-            } else {
-                // Not
-                return _.difference(prev, curr);
-            }
-        }, []);
-
-        return await this.findAll({where: {id: {[Op.in]: neuronIds}}});
-    }
-
     public static async startReconstruction(user: User, neuronId: string): Promise<Reconstruction> {
         if (!user?.canAnnotate()) {
             throw new UnauthorizedError();
@@ -538,6 +461,30 @@ export class Neuron extends BaseModel {
         }
 
         return shapes.length;
+    }
+
+    public static async getNeuronsWithPredicates(context: SearchContext): Promise<SearchOutputPage> {
+        try {
+            const start = Date.now();
+
+            const indices = await SearchIndex.performNeuronsFilterQuery(context);
+
+            let neurons = await this.findAll({where: {id: {[Op.in]: indices}}});
+
+            const duration = Date.now() - start;
+
+            const totalCount = await publishedCount();
+
+            neurons = neurons.sort((b, a) => a.label.localeCompare(b.label));
+
+            return {nonce: context.Nonce, queryTime: duration, totalCount, neurons, error: null};
+
+        } catch (err) {
+            debug(err);
+            debug(context);
+
+            return {nonce: context.Nonce, queryTime: 1, totalCount: 0, neurons: [], error: err};
+        }
     }
 
     private static validateBulkUpdateShape(shape: NeuronBulkUpdateShape): void {

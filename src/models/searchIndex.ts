@@ -1,4 +1,4 @@
-import {Sequelize, DataTypes, BelongsToGetAssociationMixin} from "sequelize";
+import {Sequelize, DataTypes, BelongsToGetAssociationMixin, FindOptions} from "sequelize";
 
 import {Neuron} from "./neuron";
 import {BaseModel} from "./baseModel";
@@ -9,6 +9,9 @@ import {AtlasReconstruction} from "./atlasReconstruction";
 import {Atlas} from "./atlas";
 import {AtlasKind} from "./atlasKind";
 import {Collection} from "./collection";
+import {SearchContext} from "./searchContext";
+import {FilterComposition, PredicateType} from "./queryPredicate";
+import * as _ from "lodash";
 
 export type SearchIndexShape = {
     somaX: number;
@@ -20,6 +23,10 @@ export type SearchIndexShape = {
     endCount: number;
     neuronLabel: string;
     doi: string;
+    specimenLabel: string;
+    totalLengthMicrometer: number;
+    axonLengthMicrometer: number;
+    dendriteLengthMicrometer: number;
     atlasKindId: string;
     atlasId: string;
     collectionId: string;
@@ -39,6 +46,10 @@ export class SearchIndex extends BaseModel {
     public endCount: number;
     public neuronLabel: string;
     public doi: string;
+    public specimenLabel: string;
+    public totalLengthMicrometer: number;
+    public axonLengthMicrometer: number;
+    public dendriteLengthMicrometer: number;
     public atlasKindId: string;
     public atlasId: string;
     public collectionId: string;
@@ -56,6 +67,55 @@ export class SearchIndex extends BaseModel {
     public getNeuron!: BelongsToGetAssociationMixin<Neuron>;
     public getNeuronStructure!: BelongsToGetAssociationMixin<NeuronStructure>;
     public getReconstruction!: BelongsToGetAssociationMixin<AtlasReconstruction>;
+
+    public static async performNeuronsFilterQuery(context: SearchContext): Promise<string[]> {
+        const somaProperties = ["somaX", "somaY", "somaZ"];
+
+        // FindOptions per-predicate.
+        const findOptions: FindOptions[] = context.Predicates.map((predicate) => predicate.createFindOptions(context.CollectionIds));
+
+        const indicesPerPredicate: (SearchIndex[])[] = [];
+
+        const needSomas = context.Predicates.some(p => p.predicateType === PredicateType.CustomRegion && p.arbCenter && p.arbSize);
+
+        const attributes = needSomas ? ["id", "neuronId", ...somaProperties] : ["id", "neuronId"];
+
+        for (const option of findOptions) {
+            option.attributes = attributes;
+            indicesPerPredicate.push(await SearchIndex.findAll(option));
+        }
+
+        // Not interested in individual compartment results.  Just want unique neurons for per-predicate.
+        const neuronIdsPerPredicate: string[][] = indicesPerPredicate.map((indexList, index) => {
+            // Additional filter for custom region.  May be able to do in database (?).
+            const predicate = context.Predicates[index];
+
+            if (predicate.predicateType === PredicateType.CustomRegion && predicate.arbCenter && predicate.arbSize) {
+                const pos = predicate.arbCenter;
+
+                indexList = indexList.filter((searchIndex) => {
+                    const distance = Math.sqrt(Math.pow(pos.x - searchIndex.somaX, 2) + Math.pow(pos.y - searchIndex.somaY, 2) + Math.pow(pos.z - searchIndex.somaZ, 2));
+
+                    return distance <= predicate.arbSize;
+                });
+            }
+
+            return _.uniq(indexList.map(c => c.neuronId));
+        });
+
+        const neuronIds = neuronIdsPerPredicate.length == 1 ? neuronIdsPerPredicate[0] : neuronIdsPerPredicate.reduce((prev, curr, index) => {
+            if (index === 0 || context.Predicates[index].composition === FilterComposition.or) {
+                return _.union(prev, curr);
+            } else if (context.Predicates[index].composition === FilterComposition.and) {
+                return _.intersection(prev, curr);
+            } else {
+                // Not
+                return _.difference(prev, curr);
+            }
+        }, []);
+
+        return neuronIds;
+    }
 }
 
 const SearchIndexModelAttributes = {
@@ -99,6 +159,22 @@ const SearchIndexModelAttributes = {
     doi: {
         type: DataTypes.TEXT,
         defaultValue: ""
+    },
+    specimenLabel: {
+        type: DataTypes.TEXT,
+        defaultValue: ""
+    },
+    totalLengthMicrometer: {
+        type: DataTypes.DOUBLE,
+        defaultValue: 0.0
+    },
+    axonLengthMicrometer: {
+        type: DataTypes.DOUBLE,
+        defaultValue: 0.0
+    },
+    dendriteLengthMicrometer: {
+        type: DataTypes.DOUBLE,
+        defaultValue: 0.0
     }
 };
 

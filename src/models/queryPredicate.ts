@@ -12,10 +12,10 @@ export enum PredicateType {
     IdOrDoi = 3
 }
 
-export enum SomaOriginType {
-    Automatic,
-    Manual,
-    Any
+export enum FilterComposition {
+    and = 1,
+    or = 2,
+    not = 3
 }
 
 export interface ICenterPoint {
@@ -30,14 +30,12 @@ export interface IPredicateAttributes {
     tracingIdsOrDOIsExactMatch: boolean;
     tracingStructureIds: string[];
     nodeStructureIds: string[];
-    somaOrigin?: SomaOriginType;
     operatorId: string;
     amount: number;
     brainAreaIds: string[];
     arbCenter: ICenterPoint;
     arbSize: number;
-    invert: boolean;
-    composition: number;
+    composition: FilterComposition;
 }
 
 export interface IQueryPredicate extends IPredicateAttributes {
@@ -50,14 +48,12 @@ export class QueryPredicate implements IQueryPredicate {
     tracingIdsOrDOIsExactMatch: boolean;
     tracingStructureIds: string[];
     nodeStructureIds: string[];
-    somaOrigin: SomaOriginType;
     operatorId: string;
     amount: number;
     brainAreaIds: string[];
     arbCenter: ICenterPoint;
     arbSize: number;
-    invert: boolean;
-    composition: number;
+    composition: FilterComposition;
 
     public static createDefault() : QueryPredicate {
         return new QueryPredicate({
@@ -66,7 +62,6 @@ export class QueryPredicate implements IQueryPredicate {
             tracingIdsOrDOIsExactMatch: false,
             tracingStructureIds: [],
             nodeStructureIds: [],
-            somaOrigin: SomaOriginType.Automatic,
             operatorId: "8905baf3-89bc-4e23-b542-e8d0947991f8",
             amount: 0,
             brainAreaIds: [],
@@ -76,8 +71,7 @@ export class QueryPredicate implements IQueryPredicate {
                 z: 0
             },
             arbSize: 0,
-            invert: false,
-            composition: 0
+            composition: FilterComposition.or
         })
     }
 
@@ -88,7 +82,6 @@ export class QueryPredicate implements IQueryPredicate {
 
         this.predicateType = source.predicateType;
         this.composition = source.composition;
-        this.invert = source.invert;
         this.brainAreaIds = source.brainAreaIds;
         this.tracingIdsOrDOIs = source.tracingIdsOrDOIs;
         this.tracingIdsOrDOIsExactMatch = source.tracingIdsOrDOIsExactMatch;
@@ -96,7 +89,6 @@ export class QueryPredicate implements IQueryPredicate {
         this.arbSize = source.arbSize;
         this.tracingStructureIds = source.tracingStructureIds;
         this.nodeStructureIds = source.nodeStructureIds;
-        this.somaOrigin = source.somaOrigin ?? SomaOriginType.Automatic;
         this.operatorId = source.operatorId;
         this.amount = source.amount;
     }
