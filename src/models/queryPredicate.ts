@@ -1,6 +1,6 @@
 import {FindOptions, Op} from "sequelize";
 
-import {operatorIdValueMap} from "./queryOperator";
+import {GreaterThanOperatorId, operatorIdValueMap} from "./queryOperator";
 import {NodeStructure} from "./nodeStructure";
 import {Atlas} from "./atlas";
 
@@ -12,82 +12,90 @@ export enum PredicateType {
     IdOrDoi = 3
 }
 
-export enum FilterComposition {
+export enum PredicateComposition {
     and = 1,
     or = 2,
     not = 3
 }
 
-export interface ICenterPoint {
+type CenterPoint = {
     x: number;
     y: number;
     z: number;
 }
 
-export interface IPredicateAttributes {
+type AnatomicalPredicateShape = {
+
+}
+
+type CustomRegionPredicateShape = {
+
+}
+
+type IdOrDoiPredicateShape = {
+
+}
+
+export type PredicateShape = {
     predicateType: PredicateType;
-    tracingIdsOrDOIs: string[];
-    tracingIdsOrDOIsExactMatch: boolean;
-    tracingStructureIds: string[];
+    composition: PredicateComposition;
+    labelsOrDois: string[];
+    labelOrDoiExactMatch: boolean;
+    neuronStructureIds: string[];
     nodeStructureIds: string[];
     operatorId: string;
     amount: number;
-    brainAreaIds: string[];
-    arbCenter: ICenterPoint;
+    atlasStructureIds: string[];
+    arbCenter: CenterPoint;
     arbSize: number;
-    composition: FilterComposition;
 }
 
-export interface IQueryPredicate extends IPredicateAttributes {
-    createFindOptions(collectionIds: string[]) : FindOptions;
-}
-
-export class QueryPredicate implements IQueryPredicate {
+export class QueryPredicate implements PredicateShape {
     predicateType: PredicateType;
-    tracingIdsOrDOIs: string[];
-    tracingIdsOrDOIsExactMatch: boolean;
-    tracingStructureIds: string[];
+    labelsOrDois: string[];
+    labelOrDoiExactMatch: boolean;
+    neuronStructureIds: string[];
     nodeStructureIds: string[];
     operatorId: string;
     amount: number;
-    brainAreaIds: string[];
-    arbCenter: ICenterPoint;
+    atlasStructureIds: string[];
+    arbCenter: CenterPoint;
     arbSize: number;
-    composition: FilterComposition;
+    composition: PredicateComposition;
 
     public static createDefault() : QueryPredicate {
         return new QueryPredicate({
             predicateType: PredicateType.AnatomicalRegion,
-            tracingIdsOrDOIs: [],
-            tracingIdsOrDOIsExactMatch: false,
-            tracingStructureIds: [],
+            labelsOrDois: [],
+            labelOrDoiExactMatch: false,
+            neuronStructureIds: [],
             nodeStructureIds: [],
-            operatorId: "8905baf3-89bc-4e23-b542-e8d0947991f8",
+            operatorId: GreaterThanOperatorId,
             amount: 0,
-            brainAreaIds: [],
+            atlasStructureIds: [],
             arbCenter: {
                 x: 0,
                 y: 0,
                 z: 0
             },
             arbSize: 0,
-            composition: FilterComposition.or
+            composition: PredicateComposition.or
         })
     }
 
-    public constructor(source: IPredicateAttributes = null) {
+    public constructor(source: PredicateShape = null) {
         if (source === null) {
             return;
         }
 
         this.predicateType = source.predicateType;
         this.composition = source.composition;
-        this.brainAreaIds = source.brainAreaIds;
-        this.tracingIdsOrDOIs = source.tracingIdsOrDOIs;
-        this.tracingIdsOrDOIsExactMatch = source.tracingIdsOrDOIsExactMatch;
+        this.atlasStructureIds = source.atlasStructureIds;
+        this.labelsOrDois = source.labelsOrDois;
+        this.labelOrDoiExactMatch = source.labelOrDoiExactMatch;
         this.arbCenter = source.arbCenter;
         this.arbSize = source.arbSize;
-        this.tracingStructureIds = source.tracingStructureIds;
+        this.neuronStructureIds = source.neuronStructureIds;
         this.nodeStructureIds = source.nodeStructureIds;
         this.operatorId = source.operatorId;
         this.amount = source.amount;
@@ -113,8 +121,8 @@ export class QueryPredicate implements IQueryPredicate {
                 applyCollectionFilter(findOptions);
 
                 // Zero means any, two is explicitly both types - either way, do not need to filter on structure id
-                if (this.tracingStructureIds?.length === 1) {
-                    findOptions.where["neuronStructureId"] = this.tracingStructureIds[0];
+                if (this.neuronStructureIds?.length === 1) {
+                    findOptions.where["neuronStructureId"] = this.neuronStructureIds[0];
                 }
 
                 // TODO Atlas which atlas should not be hard-coded.
@@ -123,7 +131,7 @@ export class QueryPredicate implements IQueryPredicate {
                 // Asking for "Whole Brain" should not eliminate nodes (particularly soma) that are outside the ontology
                 // atlas.  It should be interpreted as an "all" request.  This also helps performance in that there isn't
                 // a where statement with every structure id.
-                const applicableCompartments = this.brainAreaIds?.filter(id => id != wholeBrainId);
+                const applicableCompartments = this.atlasStructureIds?.filter(id => id != wholeBrainId);
 
                 if (applicableCompartments?.length > 0) {
                     // Find all brain areas that are these or children of in terms of structure path.
@@ -145,39 +153,49 @@ export class QueryPredicate implements IQueryPredicate {
             case PredicateType.IdOrDoi:
                 let where = null;
 
-                if (this.tracingIdsOrDOIsExactMatch || this.tracingIdsOrDOIs.length === 0) {
+                if (this.labelOrDoiExactMatch || this.labelsOrDois.length === 0) {
                     where = {
                         [Op.or]: [
                             {
                                 neuronLabel: {
-                                    [Op.in]: this.tracingIdsOrDOIs
+                                    [Op.in]: this.labelsOrDois
                                 }
                             },
                             {
                                 doi: {
-                                    [Op.in]: this.tracingIdsOrDOIs
+                                    [Op.in]: this.labelsOrDois
+                                }
+                            },
+                            {
+                                specimenLabel: {
+                                    [Op.in]: this.labelsOrDois
                                 }
                             }
                         ]
                     };
                 } else {
-                    if (this.tracingIdsOrDOIs.length === 1) {
+                    if (this.labelsOrDois.length === 1) {
                         where = {
                             [Op.or]: [
                                 {
                                     neuronLabel: {
-                                        [Op.iLike]: `%${this.tracingIdsOrDOIs[0]}%`
+                                        [Op.iLike]: `%${this.labelsOrDois[0]}%`
                                     }
                                 },
                                 {
                                     doi: {
-                                        [Op.iLike]: `%${this.tracingIdsOrDOIs[0]}%`
+                                        [Op.iLike]: `%${this.labelsOrDois[0]}%`
+                                    }
+                                },
+                                {
+                                    specimenLabel: {
+                                        [Op.iLike]: `%${this.labelsOrDois[0]}%`
                                     }
                                 }
                             ]
                         };
                     } else {
-                        const ors = this.tracingIdsOrDOIs.map(id => {
+                        const ors = this.labelsOrDois.map(id => {
                             return {
                                 [Op.or]: [
                                     {
@@ -187,6 +205,11 @@ export class QueryPredicate implements IQueryPredicate {
                                     },
                                     {
                                         doi: {
+                                            [Op.iLike]: `%${id}%`
+                                        }
+                                    },
+                                    {
+                                        specimenLabel: {
                                             [Op.iLike]: `%${id}%`
                                         }
                                     }

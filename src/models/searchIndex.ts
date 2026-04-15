@@ -10,7 +10,7 @@ import {Atlas} from "./atlas";
 import {AtlasKind} from "./atlasKind";
 import {Collection} from "./collection";
 import {SearchContext} from "./searchContext";
-import {FilterComposition, PredicateType} from "./queryPredicate";
+import {PredicateComposition, PredicateType} from "./queryPredicate";
 import * as _ from "lodash";
 
 export type SearchIndexShape = {
@@ -104,9 +104,9 @@ export class SearchIndex extends BaseModel {
         });
 
         const neuronIds = neuronIdsPerPredicate.length == 1 ? neuronIdsPerPredicate[0] : neuronIdsPerPredicate.reduce((prev, curr, index) => {
-            if (index === 0 || context.Predicates[index].composition === FilterComposition.or) {
+            if (index === 0 || context.Predicates[index].composition === PredicateComposition.or) {
                 return _.union(prev, curr);
-            } else if (context.Predicates[index].composition === FilterComposition.and) {
+            } else if (context.Predicates[index].composition === PredicateComposition.and) {
                 return _.intersection(prev, curr);
             } else {
                 // Not

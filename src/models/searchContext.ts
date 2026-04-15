@@ -1,11 +1,11 @@
 import * as uuid from "uuid"
 
-import {IPredicateAttributes, IQueryPredicate, QueryPredicate} from "./queryPredicate";
+import {PredicateShape, QueryPredicate} from "./queryPredicate";
 
 export type SearchContextInput = {
     nonce: string;
     collectionIds: string[];
-    predicates: IPredicateAttributes[];
+    predicates: PredicateShape[];
 }
 
 export class SearchContext {
@@ -21,7 +21,7 @@ export class SearchContext {
 
     private readonly _collectionIds: string[];
 
-    private readonly _predicates: IQueryPredicate[];
+    private readonly _predicates: QueryPredicate[];
 
     public constructor(input: SearchContextInput) {
         input = input ?? SearchContext.createDefault();
@@ -39,7 +39,7 @@ export class SearchContext {
         return this._collectionIds;
     }
 
-    public get Predicates(): IQueryPredicate[] {
+    public get Predicates(): QueryPredicate[] {
         return this._predicates;
     }
 }

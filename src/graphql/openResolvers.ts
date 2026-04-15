@@ -1,7 +1,7 @@
 import {Kind} from "graphql/language";
 import {GraphQLScalarType} from "graphql/type";
 
-import {IQueryOperator, operators} from "../models/queryOperator";
+import {QueryOperator, operators} from "../models/queryOperator";
 import {NearestNodeOutput, AtlasReconstruction} from "../models/atlasReconstruction";
 import {PredicateType} from "../models/queryPredicate";
 import {AtlasStructure, AtlasStructureQueryInput} from "../models/atlasStructure";
@@ -40,7 +40,7 @@ export const openResolvers = {
             return getSystemSettings();
         },
 
-        queryOperators(): IQueryOperator[] {
+        queryOperators(): QueryOperator[] {
             return operators;
         },
 

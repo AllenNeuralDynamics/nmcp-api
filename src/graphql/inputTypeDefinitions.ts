@@ -176,12 +176,12 @@ export const inputTypeDefinitions = gql`
 
     input Predicate {
         predicateType: PredicateType!
-        tracingIdsOrDOIs: [String!]
-        tracingIdsOrDOIsExactMatch: Boolean
-        brainAreaIds: [String!]
+        labelsOrDois: [String!]
+        labelOrDoiExactMatch: Boolean
+        atlasStructureIds: [String!]
         arbCenter: InputPosition
         arbSize: Float
-        tracingStructureIds: [String!]
+        neuronStructureIds: [String!]
         nodeStructureIds: [String!]
         operatorId: String
         amount: Float

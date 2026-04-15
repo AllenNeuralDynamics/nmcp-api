@@ -1,13 +1,15 @@
 import {Op} from "sequelize";
 
-export interface IQueryOperator {
+export type QueryOperator = {
     id: string;
     display: string;
     operator2: string;
     operatorSymbol: symbol;
 }
 
-export const operators: IQueryOperator[] = [
+export const GreaterThanOperatorId = "8905baf3-89bc-4e23-b542-e8d0947991f8";
+
+export const operators: QueryOperator[] = [
     {
         id: "5f21a040-dd64-4116-aa9c-d00387b83db8",
         display: "=",
@@ -33,7 +35,7 @@ export const operators: IQueryOperator[] = [
         operatorSymbol: Op.lt
     },
     {
-        id: "8905baf3-89bc-4e23-b542-e8d0947991f8",
+        id: GreaterThanOperatorId,
         display: "≥",
         operator2: "$gte",
         operatorSymbol: Op.gte
@@ -46,7 +48,7 @@ export const operators: IQueryOperator[] = [
     }
 ];
 
-const _map = new Map<string, IQueryOperator>();
+const _map = new Map<string, QueryOperator>();
 
 export function operatorIdValueMap() {
     if (_map.size === 0) {
