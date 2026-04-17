@@ -64,6 +64,9 @@ export const typeDefinitions = gql`
         """Returns the closest node in the reconstruction graph to the given location."""
         nearestNode(id: String!, location: [Float!]!): NearestNodeOutput
 
+        """Returns computed morphological metrics for a published reconstruction."""
+        reconstructionMetrics(id: String!): ReconstructionMetrics
+
         neuronVersionHistory(neuronId: String!): NeuronVersionHistory
 
         # The following are not used by any of the services themselves at this time.  They are open/public for use by scripts/tools that may want to access
