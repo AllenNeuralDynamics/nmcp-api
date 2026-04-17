@@ -22,6 +22,7 @@ import {getSystemSettings, SystemSettings} from "../models/systemSettings";
 import {AccessRequest, AccessRequestShape, RequestAccessResponse} from "../models/accessRequest";
 import {getNeuronVersionHistory} from "../models/neuronVersionHistory";
 import {QualityControl} from "../models/qualityControl";
+import {getReconstructionMetrics, ReconstructionMetrics} from "../data-access/reconstructionMetricsService";
 
 // noinspection JSUnusedGlobalSymbols
 /**
@@ -90,6 +91,10 @@ export const openResolvers = {
 
         nearestNode(_: any, args: { id: string, location: number[] }, __: User): Promise<NearestNodeOutput> {
             return AtlasReconstruction.nearestNode(args.id, args.location);
+        },
+
+        reconstructionMetrics(_: any, args: { id: string }): Promise<ReconstructionMetrics | null> {
+            return getReconstructionMetrics(args.id);
         },
 
         publishedReconstructions(_: any, args: { offset: number, limit: number }, user: User): Promise<PublishedReconstructionQueryResponse> {

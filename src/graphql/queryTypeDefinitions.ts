@@ -54,4 +54,71 @@ export const queryTypeDefinitions = gql`
         node: AtlasNode
         error: String
     }
+
+    type DominantStructure {
+        atlasStructureId: String!
+    }
+
+    type StructureNodeCountEntry {
+        atlasStructureId: String!
+        nodeCount: Int!
+        pathCount: Int!
+        branchCount: Int!
+        endCount: Int!
+        nodePercentage: Float!
+    }
+
+    type StructureLengthEntry {
+        atlasStructureId: String!
+        totalLengthMicrometer: Float!
+        axonLengthMicrometer: Float!
+        dendriteLengthMicrometer: Float!
+        totalLengthPercentage: Float!
+        axonLengthPercentage: Float!
+        dendriteLengthPercentage: Float!
+    }
+
+    type DetailedMetricsEntry {
+        atlasStructureId: String!
+        neuronStructureId: String!
+        nodeCount: Int!
+        pathCount: Int!
+        branchCount: Int!
+        endCount: Int!
+        totalLengthMicrometer: Float!
+        axonLengthMicrometer: Float!
+        dendriteLengthMicrometer: Float!
+        nodePercentage: Float!
+        totalLengthPercentage: Float!
+        axonLengthPercentage: Float!
+        dendriteLengthPercentage: Float!
+    }
+
+    type NodeCountMetrics {
+        totalNodeCount: Int!
+        totalPathCount: Int!
+        totalBranchCount: Int!
+        totalEndCount: Int!
+        byStructure: [StructureNodeCountEntry!]!
+        dominantNodeStructures: [DominantStructure!]!
+        dominantAxonNodeStructures: [DominantStructure!]!
+        dominantDendriteNodeStructures: [DominantStructure!]!
+    }
+
+    type LengthMetrics {
+        totalLengthMicrometer: Float!
+        totalAxonLengthMicrometer: Float!
+        totalDendriteLengthMicrometer: Float!
+        byStructure: [StructureLengthEntry!]!
+        dominantLengthStructures: [DominantStructure!]!
+        dominantAxonLengthStructures: [DominantStructure!]!
+        dominantDendriteLengthStructures: [DominantStructure!]!
+    }
+
+    type ReconstructionMetrics {
+        reconstructionId: String!
+        nodeCounts: NodeCountMetrics!
+        lengths: LengthMetrics!
+        detailedEntries: [DetailedMetricsEntry!]!
+    }
 `;
