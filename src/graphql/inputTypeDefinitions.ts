@@ -174,19 +174,30 @@ export const inputTypeDefinitions = gql`
         z: Float
     }
 
-    input Predicate {
-        predicateType: PredicateType!
-        labelsOrDois: [String!]
-        labelOrDoiExactMatch: Boolean
-        atlasStructureIds: [String!]
-        arbCenter: InputPosition
-        arbSize: Float
-        neuronStructureIds: [String!]
-        nodeStructureIds: [String!]
+    input AnatomicalPredicateInput {
+        neuronStructureId: String
+        nodeStructureId: String
         operatorId: String
         amount: Float
-        invert: Boolean
+        atlasStructureIds: [String!]
+    }
+
+    input CustomRegionPredicateInput {
+        arbCenter: InputPosition
+        arbSize: Float
+    }
+
+    input IdOrDoiPredicateInput {
+        labelsOrDois: [String!]
+        labelOrDoiExactMatch: Boolean
+    }
+
+    input Predicate {
+        predicateType: PredicateType!
         composition: Int
+        anatomicalPredicate: AnatomicalPredicateInput
+        customRegionPredicate: CustomRegionPredicateInput
+        idOrDoiPredicate: IdOrDoiPredicateInput
     }
 
     input SearchContext {

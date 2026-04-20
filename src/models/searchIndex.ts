@@ -76,7 +76,7 @@ export class SearchIndex extends BaseModel {
 
         const indicesPerPredicate: (SearchIndex[])[] = [];
 
-        const needSomas = context.Predicates.some(p => p.predicateType === PredicateType.CustomRegion && p.arbCenter && p.arbSize);
+        const needSomas = context.Predicates.some(p => p.predicateType === PredicateType.CustomRegion && p.customRegionPredicate?.arbCenter && p.customRegionPredicate?.arbSize);
 
         const attributes = needSomas ? ["id", "neuronId", ...somaProperties] : ["id", "neuronId"];
 
@@ -87,16 +87,16 @@ export class SearchIndex extends BaseModel {
 
         // Not interested in individual compartment results.  Just want unique neurons for per-predicate.
         const neuronIdsPerPredicate: string[][] = indicesPerPredicate.map((indexList, index) => {
-            // Additional filter for custom region.  May be able to do in database (?).
+            // Additional filter for custom region predicates.  Might be able to do in the database (?).
             const predicate = context.Predicates[index];
 
-            if (predicate.predicateType === PredicateType.CustomRegion && predicate.arbCenter && predicate.arbSize) {
-                const pos = predicate.arbCenter;
+            if (predicate.predicateType === PredicateType.CustomRegion && predicate.customRegionPredicate?.arbCenter && predicate.customRegionPredicate?.arbSize) {
+                const pos = predicate.customRegionPredicate.arbCenter;
 
                 indexList = indexList.filter((searchIndex) => {
                     const distance = Math.sqrt(Math.pow(pos.x - searchIndex.somaX, 2) + Math.pow(pos.y - searchIndex.somaY, 2) + Math.pow(pos.z - searchIndex.somaZ, 2));
 
-                    return distance <= predicate.arbSize;
+                    return distance <= predicate.customRegionPredicate.arbSize;
                 });
             }
 
