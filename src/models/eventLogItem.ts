@@ -51,6 +51,7 @@ export enum EventLogItemKind {
     NeuronCreate = 4000,
     NeuronUpdate = 4010,
     NeuronDelete = 4050,
+    NeuronAssignDoi = 4080,
 
     CandidatesInsert = 4500,
 

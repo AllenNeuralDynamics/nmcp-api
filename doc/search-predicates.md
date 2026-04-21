@@ -34,60 +34,72 @@ Predicates are evaluated left to right. Each predicate runs independently agains
 
 When `collectionIds` is non-empty, every predicate (regardless of type) restricts its SearchIndex query to rows whose `collectionId` is in the provided list. This filter is applied at the database level before any other filtering.
 
-## Node Count Filtering (AnatomicalRegion and CustomRegion only)
-
-AnatomicalRegion and CustomRegion predicates apply an additional node count threshold filter using these fields:
-
-| Field | Type | Description |
-|---|---|---|
-| `operatorId` | `String` | ID of a comparison operator (=, >, <, etc.). If omitted, defaults to `>` with `amount` 0 (i.e., at least one node). |
-| `amount` | `Float` | The threshold value for the comparison. |
-| `nodeStructureId` | `String` | Which node type to count. Controls which SearchIndex column is compared. |
-
-Available operators: `=`, `!=`, `>`, `<`, `>=`, `<=`.
-
-**Column selection based on `nodeStructureId`:**
-
-| nodeStructureId | Column compared |
-|---|---|
-| Empty or omitted | `nodeCount` (total across all node types) |
-| Specified | The column corresponding to that node type |
-
-**Node type to column mapping:**
-
-| Node Type | SearchIndex Column |
-|---|---|
-| Fork point | `branchCount` |
-| End point | `endCount` |
-| Undefined / path | `pathCount` |
-| Soma, axon, dendrite | No count column (filter is not applied) |
-
-IdOrDoi predicates do not apply node count filtering.
-
 ---
 
 ## PredicateType: AnatomicalRegion
 
-Finds neurons that have morphological data in specified brain regions, optionally filtered by neuron compartment type and node count thresholds.
+Finds neurons that have morphological data in specified brain regions, optionally filtered by neuron compartment type and threshold criteria.
 
 ### Inputs
 
 | Field | Type | Description |
 |---|---|---|
 | `atlasStructureIds` | `[String!]` | Brain region IDs to search. Each selected region implicitly includes all of its descendant regions in the atlas hierarchy. If empty, or if only the whole-brain structure is selected, no region filter is applied (equivalent to searching the entire brain). |
-| `neuronStructureId` | `String` | Neuron compartment type ID (soma, axon, dendrite). If provided, only SearchIndex rows for that compartment are matched. If empty, all compartment types are included. |
-| `nodeStructureId` | `String` | See Node Count Filtering above. |
-| `operatorId` | `String` | See Node Count Filtering above. |
-| `amount` | `Float` | See Node Count Filtering above. |
+| `neuronStructureId` | `String` | Neuron compartment type ID (soma, axon, dendrite). If provided, only SearchIndex rows for that compartment are matched. If empty, all compartment types are included. Also determines whether the threshold filter targets a node count or a compartment length (see Threshold Filtering below). |
+| `nodeStructureId` | `String` | See Threshold Filtering below. |
+| `operatorId` | `String` | See Threshold Filtering below. |
+| `amount` | `Float` | See Threshold Filtering below. |
 
 ### Behavior
 
 1. Query SearchIndex rows filtered by:
    - `atlasStructureId` in the expanded set of selected regions and their descendants (unless whole-brain or empty).
-   - `neuronStructureId` matching the single selected compartment (if exactly one specified).
-   - Node count column satisfying the operator/amount threshold.
+   - Threshold filter: depending on the combination of `neuronStructureId` and `nodeStructureId`, a `neuronStructureId` WHERE clause may be applied and either a node count column or a compartment length column is compared against the operator/amount threshold (see below).
    - `collectionId` restriction (if any).
 2. Collect the distinct `neuronId` values from the matched rows.
+
+### Threshold Filtering
+
+An additional threshold filter is applied based on the combination of `neuronStructureId` and `nodeStructureId`. The `operatorId` and `amount` fields control the comparison:
+
+| Field | Type | Description |
+|---|---|---|
+| `operatorId` | `String` | ID of a comparison operator (=, >, <, etc.). If omitted, defaults to `>` with `amount` 0 (i.e., at least one node). |
+| `amount` | `Float` | The threshold value for the comparison. |
+
+Available operators: `=`, `!=`, `>`, `<`, `>=`, `<=`.
+
+Which SearchIndex column is compared depends on the combination of `neuronStructureId` and `nodeStructureId`:
+
+**No `neuronStructureId` (empty or omitted):**
+
+The total `nodeCount` column is compared against the operator/amount threshold.
+
+**`neuronStructureId` is axon or dendrite, with a `nodeStructureId`:**
+
+The SearchIndex row is filtered to that compartment type, and the column for the specified node type is compared:
+
+| Node Type | SearchIndex Column |
+|---|---|
+| Fork point | `branchCount` |
+| End point | `endCount` |
+| Undefined / path | `pathCount` |
+| Soma | No count column (filter is not applied) |
+
+**`neuronStructureId` is axon or dendrite, without a `nodeStructureId`:**
+
+Instead of a node count, the compartment length column is compared against the operator/amount threshold:
+
+| Neuron Structure | SearchIndex Column |
+|---|---|
+| Axon | `axonLengthMicrometer` |
+| Dendrite | `dendriteLengthMicrometer` |
+
+This allows queries such as "axon length > 5000 micrometers in region X".
+
+**`neuronStructureId` is soma:**
+
+The `neuronStructureId` filter is applied as a presence check. The operator and amount are not used. See the soma note below.
 
 ### Notes
 
@@ -99,7 +111,7 @@ Finds neurons that have morphological data in specified brain regions, optionall
 
 ## PredicateType: CustomRegion
 
-Finds neurons whose soma falls within a spherical region in atlas coordinate space. This predicate does not use `neuronStructureId`, `nodeStructureId`, `operatorId`, or `amount` — it is purely a spatial filter on soma position.
+Finds neurons whose soma falls within a spherical region in atlas coordinate space. This is purely a spatial filter on soma position.
 
 ### Inputs
 
@@ -110,30 +122,32 @@ Finds neurons whose soma falls within a spherical region in atlas coordinate spa
 
 ### Behavior
 
-1. Query all SearchIndex rows (filtered only by collection, if specified).
-2. For each matched row, compute the 3D Euclidean distance between the row's soma position `(somaX, somaY, somaZ)` and the provided `arbCenter`:
-   ```
-   distance = sqrt((arbCenter.x - somaX)^2 + (arbCenter.y - somaY)^2 + (arbCenter.z - somaZ)^2)
-   ```
-3. Keep only rows where `distance <= arbSize`.
-4. Collect the distinct `neuronId` values from the remaining rows.
+1. Query SearchIndex rows filtered by:
+   - `neuronStructureId` restricted to soma (only soma rows have meaningful spatial position).
+   - A bounding box pre-filter on `somaX`, `somaY`, `somaZ` (center &pm; radius), which allows database indexes to eliminate most rows.
+   - An exact squared Euclidean distance check:
+     ```
+     (somaX - arbCenter.x)^2 + (somaY - arbCenter.y)^2 + (somaZ - arbCenter.z)^2 <= arbSize^2
+     ```
+   - `collectionId` restriction (if any).
+2. Collect the distinct `neuronId` values from the matched rows.
 
 ### Notes
 
-- The distance filter is applied in application code after the database query, not as a SQL expression.
-- If `arbCenter` is null or `arbSize` is 0/falsy, no distance filtering is applied, which would effectively return all neurons (subject to collection filter).
+- All spatial filtering (bounding box and distance) is performed in the database query, not in application code.
+- If `arbCenter` is null or `arbSize` is 0/falsy, no spatial filtering is applied. Only the soma neuron structure filter and optional collection filter are used.
 
 ---
 
 ## PredicateType: IdOrDoi
 
-Finds neurons by matching neuron labels, specimen labels, or DOIs.
+Finds neurons by matching neuron labels, specimen labels, or DOIs (both reconstruction and canonical).
 
 ### Inputs
 
 | Field | Type | Description |
 |---|---|---|
-| `labelsOrDois` | `[String!]` | The search terms. Matched against `neuronLabel`, `specimenLabel`, and `doi` fields in the SearchIndex. |
+| `labelsOrDois` | `[String!]` | The search terms. Matched against `neuronLabel`, `specimenLabel`, `doi`, and `canonicalDoi` fields in the SearchIndex. |
 | `labelOrDoiExactMatch` | `Boolean` | If `true`, terms must match a field value exactly. If `false`, terms are matched as case-insensitive substrings. |
 
 ### Behavior
@@ -142,7 +156,7 @@ The matching strategy depends on the combination of `labelOrDoiExactMatch` and t
 
 **Exact match (`labelOrDoiExactMatch = true`):**
 
-A SearchIndex row matches if its `neuronLabel`, `doi`, or `specimenLabel` is exactly equal to any of the provided terms. Standard case-sensitive equality.
+A SearchIndex row matches if its `neuronLabel`, `doi`, `canonicalDoi`, or `specimenLabel` is exactly equal to any of the provided terms. Standard case-sensitive equality.
 
 **Exact match with empty terms (`labelsOrDois` is empty):**
 
@@ -150,16 +164,17 @@ Uses exact match logic with an empty list, which matches no rows.
 
 **Substring match with one term:**
 
-A row matches if its `neuronLabel`, `doi`, or `specimenLabel` contains the term as a case-insensitive substring.
+A row matches if its `neuronLabel`, `doi`, `canonicalDoi`, or `specimenLabel` contains the term as a case-insensitive substring.
 
 **Substring match with multiple terms:**
 
-A row matches if, for any of the provided terms, its `neuronLabel`, `doi`, or `specimenLabel` contains that term as a case-insensitive substring. (The terms are OR'd together.)
+A row matches if, for any of the provided terms, its `neuronLabel`, `doi`, `canonicalDoi`, or `specimenLabel` contains that term as a case-insensitive substring. (The terms are OR'd together.)
 
 ### Notes
 
-- Node count filtering is not applied for this predicate type.
-- All three fields (`neuronLabel`, `doi`, `specimenLabel`) are always searched; there is no way to restrict the match to a single field.
+- Threshold filtering is not applied for this predicate type.
+- All four fields (`neuronLabel`, `doi`, `canonicalDoi`, `specimenLabel`) are always searched; there is no way to restrict the match to a single field.
+- `doi` is the reconstruction-level DOI assigned to the atlas reconstruction; `canonicalDoi` is the neuron-level DOI.
 - Substring matching is case-insensitive. Exact matching uses the database's default collation.
 
 ---

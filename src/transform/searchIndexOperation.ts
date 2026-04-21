@@ -142,6 +142,7 @@ export class SearchIndexOperation {
                 axonLengthMicrometer: value.axonLengthMicrometers,
                 dendriteLengthMicrometer: value.dendriteLengthMicrometers,
                 doi: this._reconstruction.doi,
+                canonicalDoi: this._neuron.canonicalDoi ?? "",
                 atlasKindId: this._neuron.Specimen.getAtlas().atlasKindId,
                 atlasId: this._neuron.Specimen.atlasId,
                 collectionId: this._neuron.Specimen.collectionId,

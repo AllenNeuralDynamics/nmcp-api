@@ -164,6 +164,7 @@ export const coreTypeDefinitions = gql`
         atlasSoma: SomaLocation
         atlasStructureId: String
         atlasStructure: AtlasStructure
+        canonicalDoi: String
         specimen: Specimen
         published: AtlasReconstruction
         reconstructions: [Reconstruction]

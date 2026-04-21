@@ -20,6 +20,7 @@ const SOMA_NODE_STRUCTURE_ID = "node-soma-id";
 
 const AXON_NEURON_STRUCTURE_ID = "neuron-axon-id";
 const DENDRITE_NEURON_STRUCTURE_ID = "neuron-dendrite-id";
+const SOMA_NEURON_STRUCTURE_ID = "neuron-soma-id";
 
 const COLLECTION_1 = "collection-1";
 const COLLECTION_2 = "collection-2";
@@ -101,6 +102,11 @@ beforeAll(() => {
         [PATH_NODE_STRUCTURE_ID, NodeStructures.undefined],
         [SOMA_NODE_STRUCTURE_ID, NodeStructures.soma],
     ]);
+
+    const neuronStructureModule = require("../src/models/neuronStructure");
+    neuronStructureModule.NeuronStructure._axonStructure = {id: AXON_NEURON_STRUCTURE_ID};
+    neuronStructureModule.NeuronStructure._dendriteStructure = {id: DENDRITE_NEURON_STRUCTURE_ID};
+    neuronStructureModule.NeuronStructure._somaNeuronStructure = {id: SOMA_NEURON_STRUCTURE_ID};
 });
 
 // ──────────────────────────────────────────────────────────────
@@ -161,8 +167,13 @@ describe("AnatomicalRegion — neuron structure filtering", () => {
         expect(options.where["neuronStructureId"]).toBeUndefined();
     });
 
-    test("neuronStructureId applies filter", () => {
-        const predicate = new QueryPredicate(makeAnatomicalShape({neuronStructureId: AXON_NEURON_STRUCTURE_ID}));
+    test("neuronStructureId with nodeStructureId applies neuronStructureId filter", () => {
+        const predicate = new QueryPredicate(makeAnatomicalShape({
+            neuronStructureId: AXON_NEURON_STRUCTURE_ID,
+            nodeStructureId: FORK_NODE_STRUCTURE_ID,
+            operatorId: GT_OPERATOR_ID,
+            amount: 10,
+        }));
         const options = predicate.createFindOptions([]);
 
         expect(options.where["neuronStructureId"]).toBe(AXON_NEURON_STRUCTURE_ID);
@@ -187,6 +198,7 @@ describe("AnatomicalRegion — node count filtering", () => {
 
     test("fork point nodeStructureId uses branchCount column", () => {
         const predicate = new QueryPredicate(makeAnatomicalShape({
+            neuronStructureId: AXON_NEURON_STRUCTURE_ID,
             operatorId: GT_OPERATOR_ID,
             amount: 10,
             nodeStructureId: FORK_NODE_STRUCTURE_ID,
@@ -199,6 +211,7 @@ describe("AnatomicalRegion — node count filtering", () => {
 
     test("end point nodeStructureId uses endCount column", () => {
         const predicate = new QueryPredicate(makeAnatomicalShape({
+            neuronStructureId: AXON_NEURON_STRUCTURE_ID,
             operatorId: EQ_OPERATOR_ID,
             amount: 5,
             nodeStructureId: END_NODE_STRUCTURE_ID,
@@ -210,6 +223,7 @@ describe("AnatomicalRegion — node count filtering", () => {
 
     test("path nodeStructureId uses pathCount column", () => {
         const predicate = new QueryPredicate(makeAnatomicalShape({
+            neuronStructureId: DENDRITE_NEURON_STRUCTURE_ID,
             operatorId: LTE_OPERATOR_ID,
             amount: 20,
             nodeStructureId: PATH_NODE_STRUCTURE_ID,
@@ -221,6 +235,7 @@ describe("AnatomicalRegion — node count filtering", () => {
 
     test("soma nodeStructureId has no count column — node count filter not applied", () => {
         const predicate = new QueryPredicate(makeAnatomicalShape({
+            neuronStructureId: AXON_NEURON_STRUCTURE_ID,
             operatorId: GT_OPERATOR_ID,
             amount: 100,
             nodeStructureId: SOMA_NODE_STRUCTURE_ID,
@@ -260,6 +275,57 @@ describe("AnatomicalRegion — node count filtering", () => {
 
             expect(options.where["nodeCount"][expectedSymbol]).toBe(42);
         }
+    });
+});
+
+// ──────────────────────────────────────────────────────────────
+// AnatomicalRegion — compartment length threshold filtering
+// ──────────────────────────────────────────────────────────────
+
+describe("AnatomicalRegion — compartment length threshold filtering", () => {
+    test("axon neuronStructureId without nodeStructureId uses axonLengthMicrometer column", () => {
+        const predicate = new QueryPredicate(makeAnatomicalShape({
+            neuronStructureId: AXON_NEURON_STRUCTURE_ID,
+            nodeStructureId: "",
+            operatorId: GT_OPERATOR_ID,
+            amount: 5000,
+        }));
+        const options = predicate.createFindOptions([]);
+
+        expect(options.where["axonLengthMicrometer"][Op.gt]).toBe(5000);
+        expect(options.where["dendriteLengthMicrometer"]).toBeUndefined();
+        expect(options.where["nodeCount"]).toBeUndefined();
+        expect(options.where["neuronStructureId"]).toBeUndefined();
+    });
+
+    test("dendrite neuronStructureId without nodeStructureId uses dendriteLengthMicrometer column", () => {
+        const predicate = new QueryPredicate(makeAnatomicalShape({
+            neuronStructureId: DENDRITE_NEURON_STRUCTURE_ID,
+            nodeStructureId: "",
+            operatorId: GTE_OPERATOR_ID,
+            amount: 1000,
+        }));
+        const options = predicate.createFindOptions([]);
+
+        expect(options.where["dendriteLengthMicrometer"][Op.gte]).toBe(1000);
+        expect(options.where["axonLengthMicrometer"]).toBeUndefined();
+        expect(options.where["nodeCount"]).toBeUndefined();
+        expect(options.where["neuronStructureId"]).toBeUndefined();
+    });
+
+    test("soma neuronStructureId without nodeStructureId applies presence filter only", () => {
+        const predicate = new QueryPredicate(makeAnatomicalShape({
+            neuronStructureId: SOMA_NEURON_STRUCTURE_ID,
+            nodeStructureId: "",
+            operatorId: GT_OPERATOR_ID,
+            amount: 100,
+        }));
+        const options = predicate.createFindOptions([]);
+
+        expect(options.where["neuronStructureId"]).toBe(SOMA_NEURON_STRUCTURE_ID);
+        expect(options.where["nodeCount"]).toBeUndefined();
+        expect(options.where["axonLengthMicrometer"]).toBeUndefined();
+        expect(options.where["dendriteLengthMicrometer"]).toBeUndefined();
     });
 });
 
@@ -312,12 +378,49 @@ describe("Collection filtering", () => {
 // ──────────────────────────────────────────────────────────────
 
 describe("CustomRegion — createFindOptions", () => {
-    test("no atlas structure or neuron structure filter in where clause", () => {
+    test("filters to soma neuron structure only", () => {
         const predicate = new QueryPredicate(makeCustomRegionShape());
         const options = predicate.createFindOptions([]);
 
         expect(options.where["atlasStructureId"]).toBeUndefined();
-        expect(options.where["neuronStructureId"]).toBeUndefined();
+        expect(options.where["neuronStructureId"]).toBe(SOMA_NEURON_STRUCTURE_ID);
+    });
+
+    test("no spatial filter when arbCenter and arbSize are absent", () => {
+        const predicate = new QueryPredicate(makeCustomRegionShape({
+            arbCenter: {x: 0, y: 0, z: 0},
+            arbSize: 0,
+        }));
+        const options = predicate.createFindOptions([]);
+
+        expect(options.where["somaX"]).toBeUndefined();
+        expect(options.where["somaY"]).toBeUndefined();
+        expect(options.where["somaZ"]).toBeUndefined();
+        expect(options.where[Op.and as any]).toBeUndefined();
+    });
+
+    test("bounding box filter applied when arbCenter and arbSize are set", () => {
+        const predicate = new QueryPredicate(makeCustomRegionShape({
+            arbCenter: {x: 100, y: 200, z: 300},
+            arbSize: 50,
+        }));
+        const options = predicate.createFindOptions([]);
+
+        expect(options.where["somaX"][Op.between]).toEqual([50, 150]);
+        expect(options.where["somaY"][Op.between]).toEqual([150, 250]);
+        expect(options.where["somaZ"][Op.between]).toEqual([250, 350]);
+    });
+
+    test("squared Euclidean distance filter is included", () => {
+        const predicate = new QueryPredicate(makeCustomRegionShape({
+            arbCenter: {x: 10, y: 20, z: 30},
+            arbSize: 5,
+        }));
+        const options = predicate.createFindOptions([]);
+
+        const andClause = options.where[Op.and as any];
+        expect(andClause).toHaveLength(1);
+        expect(andClause[0]).toBeDefined();
     });
 });
 
@@ -326,7 +429,7 @@ describe("CustomRegion — createFindOptions", () => {
 // ──────────────────────────────────────────────────────────────
 
 describe("IdOrDoi — createFindOptions", () => {
-    test("exact match with terms uses Op.in on all three fields", () => {
+    test("exact match with terms uses Op.in on all four fields", () => {
         const predicate = new QueryPredicate(makeIdOrDoiShape({
             labelOrDoiExactMatch: true,
             labelsOrDois: ["N001", "10.1234/test"],
@@ -334,14 +437,16 @@ describe("IdOrDoi — createFindOptions", () => {
         const options = predicate.createFindOptions([]);
 
         const orClause = options.where[Op.or];
-        expect(orClause).toHaveLength(3);
+        expect(orClause).toHaveLength(4);
 
         const neuronLabelClause = orClause.find((clause: any) => clause.neuronLabel);
         const doiClause = orClause.find((clause: any) => clause.doi);
+        const canonicalDoiClause = orClause.find((clause: any) => clause.canonicalDoi);
         const specimenClause = orClause.find((clause: any) => clause.specimenLabel);
 
         expect(neuronLabelClause.neuronLabel[Op.in]).toEqual(["N001", "10.1234/test"]);
         expect(doiClause.doi[Op.in]).toEqual(["N001", "10.1234/test"]);
+        expect(canonicalDoiClause.canonicalDoi[Op.in]).toEqual(["N001", "10.1234/test"]);
         expect(specimenClause.specimenLabel[Op.in]).toEqual(["N001", "10.1234/test"]);
     });
 
@@ -353,7 +458,7 @@ describe("IdOrDoi — createFindOptions", () => {
         const options = predicate.createFindOptions([]);
 
         const orClause = options.where[Op.or];
-        expect(orClause).toHaveLength(3);
+        expect(orClause).toHaveLength(4);
 
         const neuronLabelClause = orClause.find((clause: any) => clause.neuronLabel);
         expect(neuronLabelClause.neuronLabel[Op.in]).toEqual([]);
@@ -367,13 +472,13 @@ describe("IdOrDoi — createFindOptions", () => {
         const options = predicate.createFindOptions([]);
 
         const orClause = options.where[Op.or];
-        expect(orClause).toHaveLength(3);
+        expect(orClause).toHaveLength(4);
 
         const neuronLabelClause = orClause.find((clause: any) => clause.neuronLabel);
         expect(neuronLabelClause.neuronLabel[Op.in]).toEqual([]);
     });
 
-    test("substring match with single term uses iLike on all three fields", () => {
+    test("substring match with single term uses iLike on all four fields", () => {
         const predicate = new QueryPredicate(makeIdOrDoiShape({
             labelOrDoiExactMatch: false,
             labelsOrDois: ["N0"],
@@ -381,14 +486,16 @@ describe("IdOrDoi — createFindOptions", () => {
         const options = predicate.createFindOptions([]);
 
         const orClause = options.where[Op.or];
-        expect(orClause).toHaveLength(3);
+        expect(orClause).toHaveLength(4);
 
         const neuronLabelClause = orClause.find((clause: any) => clause.neuronLabel);
         const doiClause = orClause.find((clause: any) => clause.doi);
+        const canonicalDoiClause = orClause.find((clause: any) => clause.canonicalDoi);
         const specimenClause = orClause.find((clause: any) => clause.specimenLabel);
 
         expect(neuronLabelClause.neuronLabel[Op.iLike]).toBe("%N0%");
         expect(doiClause.doi[Op.iLike]).toBe("%N0%");
+        expect(canonicalDoiClause.canonicalDoi[Op.iLike]).toBe("%N0%");
         expect(specimenClause.specimenLabel[Op.iLike]).toBe("%N0%");
     });
 
@@ -404,11 +511,12 @@ describe("IdOrDoi — createFindOptions", () => {
 
         for (const group of outerOr) {
             const innerOr = group[Op.or];
-            expect(innerOr).toHaveLength(3);
+            expect(innerOr).toHaveLength(4);
 
             const fields = innerOr.map((clause: any) => Object.keys(clause)[0]);
             expect(fields).toContain("neuronLabel");
             expect(fields).toContain("doi");
+            expect(fields).toContain("canonicalDoi");
             expect(fields).toContain("specimenLabel");
         }
 
@@ -627,22 +735,22 @@ describe("performNeuronsFilterQuery — composition", () => {
 });
 
 // ──────────────────────────────────────────────────────────────
-// performNeuronsFilterQuery — CustomRegion distance filtering
+// performNeuronsFilterQuery — CustomRegion results passthrough
 // ──────────────────────────────────────────────────────────────
 
-describe("performNeuronsFilterQuery — CustomRegion distance filtering", () => {
-    function mockSearchIndexEntry(neuronId: string, somaX: number, somaY: number, somaZ: number) {
-        return {id: `si-${neuronId}`, neuronId, somaX, somaY, somaZ};
+describe("performNeuronsFilterQuery — CustomRegion", () => {
+    function mockSearchIndexEntry(neuronId: string) {
+        return {id: `si-${neuronId}`, neuronId};
     }
 
     afterEach(() => {
         vi.restoreAllMocks();
     });
 
-    test("soma within radius is included, outside is excluded", async () => {
+    test("returns neuron IDs from database-filtered results", async () => {
         vi.spyOn(SearchIndex, "findAll").mockResolvedValueOnce([
-            mockSearchIndexEntry("N1", 10, 0, 0),
-            mockSearchIndexEntry("N2", 100, 0, 0),
+            mockSearchIndexEntry("N1"),
+            mockSearchIndexEntry("N2"),
         ] as any);
 
         const context = new SearchContext({
@@ -656,86 +764,8 @@ describe("performNeuronsFilterQuery — CustomRegion distance filtering", () => 
 
         const result = await SearchIndex.performNeuronsFilterQuery(context);
 
-        expect(result).toEqual(["N1"]);
-    });
-
-    test("soma at exactly arbSize distance is included (<=)", async () => {
-        vi.spyOn(SearchIndex, "findAll").mockResolvedValueOnce([
-            mockSearchIndexEntry("N1", 50, 0, 0),
-        ] as any);
-
-        const context = new SearchContext({
-            nonce: "test",
-            collectionIds: [],
-            predicates: [makeCustomRegionShape({
-                arbCenter: {x: 0, y: 0, z: 0},
-                arbSize: 50,
-            })],
-        });
-
-        const result = await SearchIndex.performNeuronsFilterQuery(context);
-
-        expect(result).toEqual(["N1"]);
-    });
-
-    test("3D Euclidean distance is used (3-4-5 triangle)", async () => {
-        vi.spyOn(SearchIndex, "findAll").mockResolvedValueOnce([
-            mockSearchIndexEntry("N1", 3, 4, 0),
-        ] as any);
-
-        const context = new SearchContext({
-            nonce: "test",
-            collectionIds: [],
-            predicates: [makeCustomRegionShape({
-                arbCenter: {x: 0, y: 0, z: 0},
-                arbSize: 5,
-            })],
-        });
-
-        const result = await SearchIndex.performNeuronsFilterQuery(context);
-
-        expect(result).toEqual(["N1"]);
-    });
-
-    test("3D distance just outside radius is excluded", async () => {
-        // distance = sqrt(3^2 + 4^2 + 1^2) = sqrt(26) ≈ 5.099
-        vi.spyOn(SearchIndex, "findAll").mockResolvedValueOnce([
-            mockSearchIndexEntry("N1", 3, 4, 1),
-        ] as any);
-
-        const context = new SearchContext({
-            nonce: "test",
-            collectionIds: [],
-            predicates: [makeCustomRegionShape({
-                arbCenter: {x: 0, y: 0, z: 0},
-                arbSize: 5,
-            })],
-        });
-
-        const result = await SearchIndex.performNeuronsFilterQuery(context);
-
-        expect(result).toEqual([]);
-    });
-
-    test("non-zero arbCenter is used in distance calculation", async () => {
-        // distance from (100,200,300) to (103,204,300) = sqrt(9+16+0) = 5
-        vi.spyOn(SearchIndex, "findAll").mockResolvedValueOnce([
-            mockSearchIndexEntry("N1", 103, 204, 300),
-            mockSearchIndexEntry("N2", 200, 200, 300),
-        ] as any);
-
-        const context = new SearchContext({
-            nonce: "test",
-            collectionIds: [],
-            predicates: [makeCustomRegionShape({
-                arbCenter: {x: 100, y: 200, z: 300},
-                arbSize: 10,
-            })],
-        });
-
-        const result = await SearchIndex.performNeuronsFilterQuery(context);
-
-        expect(result).toEqual(["N1"]);
+        expect(result).toEqual(expect.arrayContaining(["N1", "N2"]));
+        expect(result).toHaveLength(2);
     });
 });
 

@@ -10,7 +10,7 @@ import {Atlas} from "./atlas";
 import {AtlasKind} from "./atlasKind";
 import {Collection} from "./collection";
 import {SearchContext} from "./searchContext";
-import {PredicateComposition, PredicateType} from "./queryPredicate";
+import {PredicateComposition} from "./queryPredicate";
 import * as _ from "lodash";
 
 export type SearchIndexShape = {
@@ -23,6 +23,7 @@ export type SearchIndexShape = {
     endCount: number;
     neuronLabel: string;
     doi: string;
+    canonicalDoi: string;
     specimenLabel: string;
     totalLengthMicrometer: number;
     axonLengthMicrometer: number;
@@ -46,6 +47,7 @@ export class SearchIndex extends BaseModel {
     public endCount: number;
     public neuronLabel: string;
     public doi: string;
+    public canonicalDoi: string;
     public specimenLabel: string;
     public totalLengthMicrometer: number;
     public axonLengthMicrometer: number;
@@ -69,37 +71,16 @@ export class SearchIndex extends BaseModel {
     public getReconstruction!: BelongsToGetAssociationMixin<AtlasReconstruction>;
 
     public static async performNeuronsFilterQuery(context: SearchContext): Promise<string[]> {
-        const somaProperties = ["somaX", "somaY", "somaZ"];
-
-        // FindOptions per-predicate.
         const findOptions: FindOptions[] = context.Predicates.map((predicate) => predicate.createFindOptions(context.CollectionIds));
 
         const indicesPerPredicate: (SearchIndex[])[] = [];
 
-        const needSomas = context.Predicates.some(p => p.predicateType === PredicateType.CustomRegion && p.customRegionPredicate?.arbCenter && p.customRegionPredicate?.arbSize);
-
-        const attributes = needSomas ? ["id", "neuronId", ...somaProperties] : ["id", "neuronId"];
-
         for (const option of findOptions) {
-            option.attributes = attributes;
+            option.attributes = ["id", "neuronId"];
             indicesPerPredicate.push(await SearchIndex.findAll(option));
         }
 
-        // Not interested in individual compartment results.  Just want unique neurons for per-predicate.
-        const neuronIdsPerPredicate: string[][] = indicesPerPredicate.map((indexList, index) => {
-            // Additional filter for custom region predicates.  Might be able to do in the database (?).
-            const predicate = context.Predicates[index];
-
-            if (predicate.predicateType === PredicateType.CustomRegion && predicate.customRegionPredicate?.arbCenter && predicate.customRegionPredicate?.arbSize) {
-                const pos = predicate.customRegionPredicate.arbCenter;
-
-                indexList = indexList.filter((searchIndex) => {
-                    const distance = Math.sqrt(Math.pow(pos.x - searchIndex.somaX, 2) + Math.pow(pos.y - searchIndex.somaY, 2) + Math.pow(pos.z - searchIndex.somaZ, 2));
-
-                    return distance <= predicate.customRegionPredicate.arbSize;
-                });
-            }
-
+        const neuronIdsPerPredicate: string[][] = indicesPerPredicate.map((indexList) => {
             return _.uniq(indexList.map(c => c.neuronId));
         });
 
@@ -157,6 +138,10 @@ const SearchIndexModelAttributes = {
         defaultValue: ""
     },
     doi: {
+        type: DataTypes.TEXT,
+        defaultValue: ""
+    },
+    canonicalDoi: {
         type: DataTypes.TEXT,
         defaultValue: ""
     },

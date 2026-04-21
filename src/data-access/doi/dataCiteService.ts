@@ -40,7 +40,8 @@ export type DataCiteAttributes = {
     subjects?: DataCiteSubject[];
     contributors?: DataCiteContributor[];
     alternateIdentifiers?: DataCiteAlternateIdentifier[];
-    version: number;
+    relatedIdentifiers?: DataCiteRelatedIdentifier[];
+    version?: number;
     rights?: string;
 }
 
@@ -76,6 +77,17 @@ export type DataCiteRelationshipEntry = {
     type: string;
 }
 
+export type DataCiteRelatedIdentifierType = "DOI" | "URL" | "Handle" | "ISBN" | "ISSN" | "PMID" | "PURL" | "URN";
+
+export type DataCiteRelationType = "IsVersionOf" | "HasVersion";
+
+export type DataCiteRelatedIdentifier = {
+    relatedIdentifier?: string;
+    relatedIdentifierType: DataCiteRelatedIdentifierType;
+    relationType: DataCiteRelationType;
+    resourceTypeGeneral: string;
+}
+
 export type DataCiteResponseAttributes = {
     doi: string;
     prefix: string;
@@ -92,7 +104,7 @@ export type DataCiteResponseAttributes = {
     dates: unknown[];
     language: string | null;
     types: DataCiteResponseTypes;
-    relatedIdentifiers: unknown[];
+    relatedIdentifiers: DataCiteRelatedIdentifier[];
     relatedItems: unknown[];
     sizes: unknown[];
     formats: unknown[];
@@ -165,9 +177,8 @@ export type DataCiteServiceResult = {
 }
 
 export class DataCiteService {
-    public static async createDoi(request: DataCiteRequest): Promise<DataCiteServiceResult> {
+    private static async request(method: string, urlPath: string, body?: object): Promise<DataCiteServiceResult> {
         const options = CoreServiceOptions.rest.doiGeneration;
-        const url = `https://${options.host}:${options.port}${options.endpoint}`;
 
         if (!options.prefix || !options.user || !options.password) {
             return {
@@ -178,21 +189,27 @@ export class DataCiteService {
             };
         }
 
+        const url = `https://${options.host}:${options.port}${options.endpoint}${urlPath}`;
+
         const headers = new Headers();
         const credentials = btoa(`${options.user}:${options.password}`);
 
         headers.append("Content-Type", "application/json");
         headers.append("Authorization", `Basic ${credentials}`);
 
+        const fetchOptions: RequestInit = {method, headers};
+
+        if (body !== undefined) {
+            fetchOptions.body = JSON.stringify(body);
+        }
+
         try {
-            const response = await fetch(url, {
-                method: "POST",
-                headers: headers,
-                body: JSON.stringify(request)
-            });
+            const response = await fetch(url, fetchOptions);
 
             if (!response.ok) {
                 debug(`bad response status: ${response.status}`);
+                const d = await response.json();
+                debug(` ${d}`);
 
                 return {
                     doi: null,
@@ -212,7 +229,6 @@ export class DataCiteService {
             };
         } catch (err) {
             debug(`exception: ${err}`);
-            debug(request);
             return {
                 doi: null,
                 serviceStatus: DataCiteServiceStatus.Unavailable,
@@ -220,5 +236,43 @@ export class DataCiteService {
                 serviceError: err.message
             };
         }
+    }
+
+    public static async createDoi(request: DataCiteRequest): Promise<DataCiteServiceResult> {
+        return this.request("POST", "", request);
+    }
+
+    public static async updateDoi(doi: string, relatedIdentifiers: DataCiteRelatedIdentifier[]): Promise<DataCiteServiceResult> {
+        const request = {
+            data: {
+                type: "dois",
+                attributes: {
+                    relatedIdentifiers
+                }
+            }
+        };
+
+        return this.request("PUT", `/${doi}`, request);
+    }
+
+    public static async getDoi(doi: string): Promise<DataCiteServiceResult> {
+        return this.request("GET", `/${doi}`);
+    }
+
+    public static async updateDoiUrl(doi: string, url: string): Promise<DataCiteServiceResult> {
+        const request = {
+            data: {
+                type: "dois",
+                attributes: {url}
+            }
+        };
+
+        return this.request("PUT", `/${doi}`, request);
+    }
+
+    public static async getRelatedIdentifiers(doi: string): Promise<DataCiteRelatedIdentifier[]> {
+        const result = await this.getDoi(doi);
+
+        return result.response?.data?.attributes?.relatedIdentifiers ?? [];
     }
 }

@@ -22,6 +22,9 @@ import {UnauthorizedError} from "../graphql/secureResolvers";
 import {isNullOrEmpty} from "../util/objectUtil";
 import {Reconstruction} from "./reconstruction";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
+import {Collection} from "./collection";
+import {DataCiteService, DataCiteServiceStatus, DataCiteRelatedIdentifier} from "../data-access/doi/dataCiteService";
+import {CoreServiceOptions} from "../options/coreServicesOptions";
 import {Atlas} from "./atlas";
 import {ReconstructionStatus} from "./reconstructionStatus";
 import {publishedCount} from "./systemSettings";
@@ -104,6 +107,7 @@ export class Neuron extends BaseModel {
     public specimenSoma: SomaLocation;
     public atlasSoma: SomaLocation
     public somaProperties?: SomaProperties;
+    public canonicalDoi: string;
     public specimenId: string;
     public atlasStructureId?: string;
 
@@ -579,6 +583,56 @@ export class Neuron extends BaseModel {
         return options;
     }
 
+    public async assignCanonicalDoi(user: User, publicationYear: number, relatedIdentifiers: DataCiteRelatedIdentifier[], t: Transaction): Promise<string> {
+        if (this.canonicalDoi) {
+            return this.canonicalDoi;
+        }
+
+        const options = CoreServiceOptions.rest.doiGeneration;
+
+        const specimen = this.Specimen ?? await this.getSpecimen({include: [{model: Collection}], transaction: t});
+        const collection = specimen.Collection ?? await specimen.getCollection({transaction: t});
+
+        const doiResult = await DataCiteService.createDoi({
+            data: {
+                type: "dois",
+                attributes: {
+                    event: "publish",
+                    prefix: options.prefix,
+                    creators: [{name: "Neuron Morphology Community Portal"}],
+                    titles: [{title: `Neuron ${this.label} in the ${collection?.name ?? "(unspecified)"} collection`}],
+                    publisher: "Neuron Morphology Community Portal",
+                    publicationYear,
+                    types: {resourceTypeGeneral: "Dataset"},
+                    url: `${options.url}neuron/${this.id}`,
+                    subjects: [{subject: "Neuron"}],
+                    alternateIdentifiers: [{alternateIdentifier: this.label, alternateIdentifierType: "Neuron Label"}],
+                    relatedIdentifiers,
+                    version: 1,
+                    rights: "CC-BY-4.0"
+                }
+            }
+        });
+
+        if (doiResult.serviceStatus !== DataCiteServiceStatus.Success) {
+            throw new Error(`Neuron DOI creation failed: ${doiResult.serviceError ?? "unknown error"}`);
+        }
+
+        await this.update({canonicalDoi: doiResult.doi}, {transaction: t});
+
+        await recordEvent({
+            kind: EventLogItemKind.NeuronAssignDoi,
+            targetId: this.id,
+            parentId: this.specimenId,
+            details: {doi: doiResult.doi},
+            userId: user.id
+        }, t);
+
+        debug(`canonical doi assigned to neuron ${this.label}: ${doiResult.doi}`);
+
+        return doiResult.doi;
+    }
+
     public toPortalFormat(): PortalNeuron {
         // Assumes/requires relationships have been eager-loaded.
         return {
@@ -615,6 +669,10 @@ export const modelInit = (sequelize: Sequelize) => {
         },
         somaProperties: {
             type: DataTypes.JSONB,
+            defaultValue: null
+        },
+        canonicalDoi: {
+            type: DataTypes.TEXT,
             defaultValue: null
         }
     }, {
