@@ -14,8 +14,10 @@ import {
 import {AtlasStructure} from "./atlasStructure";
 import {Specimen} from "./specimen";
 import {SearchContext} from "./searchContext";
-import {SearchIndex} from "./searchIndex";
+import {SearchIndex, FilterQueryResult} from "./searchIndex";
 import {PredicateType} from "./queryPredicate";
+import {recordSearchMetrics} from "../data-access/searchMetrics/searchMetricsService";
+import {SearchQueryMetrics, SearchPredicateMetrics} from "../data-access/searchMetrics/searchMetricsTypes";
 import {AtlasReconstruction} from "./atlasReconstruction";
 import {User} from "./user";
 import {UnauthorizedError} from "../graphql/secureResolvers";
@@ -467,19 +469,58 @@ export class Neuron extends BaseModel {
         return shapes.length;
     }
 
+    private static postSearchMetrics(context: SearchContext, filterResult: FilterQueryResult, totalDurationMs: number, resultCount: number, error: string | null): void {
+        const queryMetrics: SearchQueryMetrics = {
+            nonce: context.Nonce,
+            timestamp: new Date(),
+            totalDurationMs,
+            predicateCount: context.Predicates.length,
+            resultCount,
+            collectionIds: context.CollectionIds,
+            error,
+        };
+
+        const predicateMetrics: SearchPredicateMetrics[] = context.Predicates.map((predicate, idx) => {
+            const predicateResult = filterResult.predicateResults[idx];
+            const parameters: Record<string, unknown> = {};
+
+            if (predicate.anatomicalPredicate) {
+                Object.assign(parameters, predicate.anatomicalPredicate);
+            } else if (predicate.customRegionPredicate) {
+                Object.assign(parameters, predicate.customRegionPredicate);
+            } else if (predicate.idOrDoiPredicate) {
+                Object.assign(parameters, predicate.idOrDoiPredicate);
+            }
+
+            return {
+                ordinal: idx,
+                predicateType: predicate.predicateType,
+                composition: predicate.composition,
+                durationMs: predicateResult.durationMs,
+                resultCountRaw: predicateResult.rawNeuronIds.length,
+                resultCountAfterComposition: predicateResult.composedNeuronIds.length,
+                parameters,
+            };
+        });
+
+        recordSearchMetrics(queryMetrics, predicateMetrics);
+    }
+
     public static async getNeuronsWithPredicates(context: SearchContext): Promise<SearchOutputPage> {
         try {
             const start = Date.now();
 
-            const indices = await SearchIndex.performNeuronsFilterQuery(context);
+            const filterResult = await SearchIndex.performNeuronsFilterQuery(context);
 
-            let neurons = await this.findAll({where: {id: {[Op.in]: indices}}});
+            let neurons = await this.findAll({where: {id: {[Op.in]: filterResult.neuronIds}}});
 
             const duration = Date.now() - start;
 
             const totalCount = await publishedCount();
 
             neurons = neurons.sort((b, a) => a.label.localeCompare(b.label));
+
+            this.postSearchMetrics(context, filterResult, duration, neurons.length, null);
 
             return {nonce: context.Nonce, queryTime: duration, totalCount, neurons, error: null};
 

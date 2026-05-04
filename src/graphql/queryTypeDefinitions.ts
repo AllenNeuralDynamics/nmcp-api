@@ -99,6 +99,14 @@ export const queryTypeDefinitions = gql`
         totalPathCount: Int!
         totalBranchCount: Int!
         totalEndCount: Int!
+        totalAxonNodeCount: Int!
+        totalAxonPathCount: Int!
+        totalAxonBranchCount: Int!
+        totalAxonEndCount: Int!
+        totalDendriteNodeCount: Int!
+        totalDendritePathCount: Int!
+        totalDendriteBranchCount: Int!
+        totalDendriteEndCount: Int!
         byStructure: [StructureNodeCountEntry!]!
         dominantNodeStructures: [DominantStructure!]!
         dominantAxonNodeStructures: [DominantStructure!]!

@@ -46,6 +46,14 @@ export interface NodeCountMetrics {
     totalPathCount: number;
     totalBranchCount: number;
     totalEndCount: number;
+    totalAxonNodeCount: number;
+    totalAxonPathCount: number;
+    totalAxonBranchCount: number;
+    totalAxonEndCount: number;
+    totalDendriteNodeCount: number;
+    totalDendritePathCount: number;
+    totalDendriteBranchCount: number;
+    totalDendriteEndCount: number;
     byStructure: StructureNodeCountEntry[];
     dominantNodeStructures: DominantStructure[];
     dominantAxonNodeStructures: DominantStructure[];
@@ -79,7 +87,13 @@ interface AggregatedStructure {
     axonLengthMicrometer: number;
     dendriteLengthMicrometer: number;
     axonNodeCount: number;
+    axonPathCount: number;
+    axonBranchCount: number;
+    axonEndCount: number;
     dendriteNodeCount: number;
+    dendritePathCount: number;
+    dendriteBranchCount: number;
+    dendriteEndCount: number;
 }
 
 export interface SearchIndexEntry {
@@ -126,6 +140,14 @@ export function computeMetrics(reconstructionId: string, entries: SearchIndexEnt
     let totalPathCount = 0;
     let totalBranchCount = 0;
     let totalEndCount = 0;
+    let totalAxonNodeCount = 0;
+    let totalAxonPathCount = 0;
+    let totalAxonBranchCount = 0;
+    let totalAxonEndCount = 0;
+    let totalDendriteNodeCount = 0;
+    let totalDendritePathCount = 0;
+    let totalDendriteBranchCount = 0;
+    let totalDendriteEndCount = 0;
     let totalLengthMicrometer = 0;
     let totalAxonLengthMicrometer = 0;
     let totalDendriteLengthMicrometer = 0;
@@ -138,6 +160,18 @@ export function computeMetrics(reconstructionId: string, entries: SearchIndexEnt
         totalLengthMicrometer += entry.totalLengthMicrometer;
         totalAxonLengthMicrometer += entry.axonLengthMicrometer;
         totalDendriteLengthMicrometer += entry.dendriteLengthMicrometer;
+
+        if (entry.neuronStructureId === axonStructureId) {
+            totalAxonNodeCount += entry.nodeCount;
+            totalAxonPathCount += entry.pathCount;
+            totalAxonBranchCount += entry.branchCount;
+            totalAxonEndCount += entry.endCount;
+        } else if (entry.neuronStructureId === dendriteStructureId) {
+            totalDendriteNodeCount += entry.nodeCount;
+            totalDendritePathCount += entry.pathCount;
+            totalDendriteBranchCount += entry.branchCount;
+            totalDendriteEndCount += entry.endCount;
+        }
 
         let agg = aggregationMap.get(entry.atlasStructureId);
 
@@ -152,7 +186,13 @@ export function computeMetrics(reconstructionId: string, entries: SearchIndexEnt
                 axonLengthMicrometer: 0,
                 dendriteLengthMicrometer: 0,
                 axonNodeCount: 0,
+                axonPathCount: 0,
+                axonBranchCount: 0,
+                axonEndCount: 0,
                 dendriteNodeCount: 0,
+                dendritePathCount: 0,
+                dendriteBranchCount: 0,
+                dendriteEndCount: 0,
             };
             aggregationMap.set(entry.atlasStructureId, agg);
         }
@@ -167,8 +207,14 @@ export function computeMetrics(reconstructionId: string, entries: SearchIndexEnt
 
         if (entry.neuronStructureId === axonStructureId) {
             agg.axonNodeCount += entry.nodeCount;
+            agg.axonPathCount += entry.pathCount;
+            agg.axonBranchCount += entry.branchCount;
+            agg.axonEndCount += entry.endCount;
         } else if (entry.neuronStructureId === dendriteStructureId) {
             agg.dendriteNodeCount += entry.nodeCount;
+            agg.dendritePathCount += entry.pathCount;
+            agg.dendriteBranchCount += entry.branchCount;
+            agg.dendriteEndCount += entry.endCount;
         }
     }
 
@@ -209,6 +255,14 @@ export function computeMetrics(reconstructionId: string, entries: SearchIndexEnt
         totalPathCount,
         totalBranchCount,
         totalEndCount,
+        totalAxonNodeCount,
+        totalAxonPathCount,
+        totalAxonBranchCount,
+        totalAxonEndCount,
+        totalDendriteNodeCount,
+        totalDendritePathCount,
+        totalDendriteBranchCount,
+        totalDendriteEndCount,
         byStructure: byStructureNodeCount,
         dominantNodeStructures: findDominant(aggregated, agg => agg.nodeCount, toDominant),
         dominantAxonNodeStructures: findDominant(axonAggregated, agg => agg.axonNodeCount, toDominant),

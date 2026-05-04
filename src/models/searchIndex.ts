@@ -37,6 +37,17 @@ export type SearchIndexShape = {
     atlasStructureId: string;
 }
 
+export interface PredicateResult {
+    durationMs: number;
+    rawNeuronIds: string[];
+    composedNeuronIds: string[];
+}
+
+export interface FilterQueryResult {
+    neuronIds: string[];
+    predicateResults: PredicateResult[];
+}
+
 export class SearchIndex extends BaseModel {
     public somaX: number;
     public somaY: number;
@@ -70,32 +81,38 @@ export class SearchIndex extends BaseModel {
     public getNeuronStructure!: BelongsToGetAssociationMixin<NeuronStructure>;
     public getReconstruction!: BelongsToGetAssociationMixin<AtlasReconstruction>;
 
-    public static async performNeuronsFilterQuery(context: SearchContext): Promise<string[]> {
+    public static async performNeuronsFilterQuery(context: SearchContext): Promise<FilterQueryResult> {
         const findOptions: FindOptions[] = context.Predicates.map((predicate) => predicate.createFindOptions(context.CollectionIds));
 
-        const indicesPerPredicate: (SearchIndex[])[] = [];
+        const predicateResults: PredicateResult[] = [];
+        let composedNeuronIds: string[] = [];
 
-        for (const option of findOptions) {
+        for (let predicateIdx = 0; predicateIdx < findOptions.length; predicateIdx++) {
+            const option = findOptions[predicateIdx];
             option.attributes = ["id", "neuronId"];
-            indicesPerPredicate.push(await SearchIndex.findAll(option));
+
+            const start = Date.now();
+            const indices = await SearchIndex.findAll(option);
+            const durationMs = Date.now() - start;
+
+            const rawNeuronIds = _.uniq(indices.map(idx => idx.neuronId));
+
+            if (predicateIdx === 0 || context.Predicates[predicateIdx].composition === PredicateComposition.or) {
+                composedNeuronIds = _.union(composedNeuronIds, rawNeuronIds);
+            } else if (context.Predicates[predicateIdx].composition === PredicateComposition.and) {
+                composedNeuronIds = _.intersection(composedNeuronIds, rawNeuronIds);
+            } else {
+                composedNeuronIds = _.difference(composedNeuronIds, rawNeuronIds);
+            }
+
+            predicateResults.push({
+                durationMs,
+                rawNeuronIds,
+                composedNeuronIds: [...composedNeuronIds],
+            });
         }
 
-        const neuronIdsPerPredicate: string[][] = indicesPerPredicate.map((indexList) => {
-            return _.uniq(indexList.map(c => c.neuronId));
-        });
-
-        const neuronIds = neuronIdsPerPredicate.length == 1 ? neuronIdsPerPredicate[0] : neuronIdsPerPredicate.reduce((prev, curr, index) => {
-            if (index === 0 || context.Predicates[index].composition === PredicateComposition.or) {
-                return _.union(prev, curr);
-            } else if (context.Predicates[index].composition === PredicateComposition.and) {
-                return _.intersection(prev, curr);
-            } else {
-                // Not
-                return _.difference(prev, curr);
-            }
-        }, []);
-
-        return neuronIds;
+        return {neuronIds: composedNeuronIds, predicateResults};
     }
 }
 

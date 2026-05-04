@@ -84,6 +84,11 @@ async function start() {
         })
     );
 
+    app.get("/health", async (_req, res) => {
+        // optionally check DB connectivity here
+        res.status(200).send("ok");
+    });
+
     app.listen(ServiceOptions.port, () => debug(`nmcp api server is now running on http://${os.hostname()}:${ServiceOptions.port}/graphql`));
 }
 

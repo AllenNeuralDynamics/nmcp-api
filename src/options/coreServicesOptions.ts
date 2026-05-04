@@ -9,6 +9,13 @@ const databaseServices = {
         password: "pgsecret",
         dialect: "postgres" as Dialect,
         logging: null
+    },
+    influxDb: {
+        host: "",
+        port: 8086,
+        database: "nmcp_metrics",
+        username: "",
+        password: ""
     }
 };
 
@@ -41,6 +48,12 @@ function loadDatabaseOptions(options): any {
     options.nmcp.username = process.env.NMCP_DATABASE_UN || options.nmcp.username;
     options.nmcp.password = process.env.NMCP_DATABASE_PW || options.nmcp.password;
 
+    options.influxDb.host = process.env.INFLUXDB_HOST || options.influxDb.host;
+    options.influxDb.port = parseInt(process.env.INFLUXDB_PORT) || options.influxDb.port;
+    options.influxDb.database = process.env.INFLUXDB_DATABASE || options.influxDb.database;
+    options.influxDb.username = process.env.INFLUXDB_USER || options.influxDb.username;
+    options.influxDb.password = process.env.INFLUXDB_PASSWORD || options.influxDb.password;
+
     return options;
 }
 
@@ -71,3 +84,5 @@ function loadConfiguration() {
 export const CoreServiceOptions = loadConfiguration();
 
 export const SequelizeOptions: Options = CoreServiceOptions.database.nmcp;
+
+export const InfluxDbOptions = CoreServiceOptions.database.influxDb;

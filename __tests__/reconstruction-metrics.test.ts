@@ -54,6 +54,15 @@ test("computes metrics for a single structure", () => {
     expect(result.nodeCounts.totalBranchCount).toBe(5);
     expect(result.nodeCounts.totalEndCount).toBe(6);
 
+    expect(result.nodeCounts.totalAxonNodeCount).toBe(100);
+    expect(result.nodeCounts.totalAxonPathCount).toBe(10);
+    expect(result.nodeCounts.totalAxonBranchCount).toBe(5);
+    expect(result.nodeCounts.totalAxonEndCount).toBe(6);
+    expect(result.nodeCounts.totalDendriteNodeCount).toBe(0);
+    expect(result.nodeCounts.totalDendritePathCount).toBe(0);
+    expect(result.nodeCounts.totalDendriteBranchCount).toBe(0);
+    expect(result.nodeCounts.totalDendriteEndCount).toBe(0);
+
     expect(result.nodeCounts.byStructure).toHaveLength(1);
     expect(result.nodeCounts.byStructure[0].nodePercentage).toBe(100);
     expect(result.nodeCounts.byStructure[0].atlasStructureId).toBe("atlas-1");
@@ -115,6 +124,15 @@ test("aggregates multiple structures correctly", () => {
 
     expect(result.nodeCounts.totalNodeCount).toBe(200);
     expect(result.nodeCounts.totalPathCount).toBe(20);
+
+    expect(result.nodeCounts.totalAxonNodeCount).toBe(160);
+    expect(result.nodeCounts.totalAxonPathCount).toBe(16);
+    expect(result.nodeCounts.totalAxonBranchCount).toBe(8);
+    expect(result.nodeCounts.totalAxonEndCount).toBe(10);
+    expect(result.nodeCounts.totalDendriteNodeCount).toBe(40);
+    expect(result.nodeCounts.totalDendritePathCount).toBe(4);
+    expect(result.nodeCounts.totalDendriteBranchCount).toBe(2);
+    expect(result.nodeCounts.totalDendriteEndCount).toBe(3);
 
     expect(result.nodeCounts.byStructure).toHaveLength(2);
     expect(result.nodeCounts.byStructure[0].atlasStructureId).toBe("atlas-1");

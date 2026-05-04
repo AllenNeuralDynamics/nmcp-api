@@ -613,8 +613,8 @@ describe("performNeuronsFilterQuery — composition", () => {
 
         const result = await SearchIndex.performNeuronsFilterQuery(context);
 
-        expect(result).toEqual(expect.arrayContaining(["N1", "N2"]));
-        expect(result).toHaveLength(2);
+        expect(result.neuronIds).toEqual(expect.arrayContaining(["N1", "N2"]));
+        expect(result.neuronIds).toHaveLength(2);
     });
 
     test("deduplicates neuron IDs from multiple SearchIndex rows", async () => {
@@ -632,8 +632,8 @@ describe("performNeuronsFilterQuery — composition", () => {
 
         const result = await SearchIndex.performNeuronsFilterQuery(context);
 
-        expect(result).toEqual(expect.arrayContaining(["N1", "N2"]));
-        expect(result).toHaveLength(2);
+        expect(result.neuronIds).toEqual(expect.arrayContaining(["N1", "N2"]));
+        expect(result.neuronIds).toHaveLength(2);
     });
 
     test("OR composition unions neuron IDs", async () => {
@@ -652,7 +652,7 @@ describe("performNeuronsFilterQuery — composition", () => {
 
         const result = await SearchIndex.performNeuronsFilterQuery(context);
 
-        expect(result.sort()).toEqual(["N1", "N2", "N3"]);
+        expect(result.neuronIds.sort()).toEqual(["N1", "N2", "N3"]);
     });
 
     test("AND composition intersects neuron IDs", async () => {
@@ -671,7 +671,7 @@ describe("performNeuronsFilterQuery — composition", () => {
 
         const result = await SearchIndex.performNeuronsFilterQuery(context);
 
-        expect(result.sort()).toEqual(["N2", "N3"]);
+        expect(result.neuronIds.sort()).toEqual(["N2", "N3"]);
     });
 
     test("NOT composition subtracts neuron IDs", async () => {
@@ -690,7 +690,7 @@ describe("performNeuronsFilterQuery — composition", () => {
 
         const result = await SearchIndex.performNeuronsFilterQuery(context);
 
-        expect(result.sort()).toEqual(["N1", "N3"]);
+        expect(result.neuronIds.sort()).toEqual(["N1", "N3"]);
     });
 
     test("first predicate composition is ignored — always contributes its results", async () => {
@@ -709,7 +709,7 @@ describe("performNeuronsFilterQuery — composition", () => {
 
         const result = await SearchIndex.performNeuronsFilterQuery(context);
 
-        expect(result.sort()).toEqual(["N1", "N2", "N3"]);
+        expect(result.neuronIds.sort()).toEqual(["N1", "N2", "N3"]);
     });
 
     test("three predicates composed sequentially: OR then AND then NOT", async () => {
@@ -730,7 +730,7 @@ describe("performNeuronsFilterQuery — composition", () => {
 
         const result = await SearchIndex.performNeuronsFilterQuery(context);
 
-        expect(result).toEqual(["N2"]);
+        expect(result.neuronIds).toEqual(["N2"]);
     });
 });
 
@@ -764,8 +764,8 @@ describe("performNeuronsFilterQuery — CustomRegion", () => {
 
         const result = await SearchIndex.performNeuronsFilterQuery(context);
 
-        expect(result).toEqual(expect.arrayContaining(["N1", "N2"]));
-        expect(result).toHaveLength(2);
+        expect(result.neuronIds).toEqual(expect.arrayContaining(["N1", "N2"]));
+        expect(result.neuronIds).toHaveLength(2);
     });
 });
 
