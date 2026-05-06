@@ -11,11 +11,11 @@ const databaseServices = {
         logging: null
     },
     influxDb: {
-        host: "",
+        host: "nmcp-influxdb",
         port: 8086,
-        database: "nmcp_metrics",
-        username: "",
-        password: ""
+        token: "",
+        org: "nmcp",
+        bucket: "nmcp_metrics"
     }
 };
 
@@ -48,11 +48,11 @@ function loadDatabaseOptions(options): any {
     options.nmcp.username = process.env.NMCP_DATABASE_UN || options.nmcp.username;
     options.nmcp.password = process.env.NMCP_DATABASE_PW || options.nmcp.password;
 
-    options.influxDb.host = process.env.INFLUXDB_HOST || options.influxDb.host;
-    options.influxDb.port = parseInt(process.env.INFLUXDB_PORT) || options.influxDb.port;
-    options.influxDb.database = process.env.INFLUXDB_DATABASE || options.influxDb.database;
-    options.influxDb.username = process.env.INFLUXDB_USER || options.influxDb.username;
-    options.influxDb.password = process.env.INFLUXDB_PASSWORD || options.influxDb.password;
+    options.influxDb.host = process.env.NMCP_INFLUXDB_HOST || options.influxDb.host;
+    options.influxDb.port = parseInt(process.env.NMCP_INFLUXDB_PORT) || options.influxDb.port;
+    options.influxDb.token = process.env.NMCP_INFLUX_DB_TOKEN || options.influxDb.token;
+    options.influxDb.org = process.env.NMCP_INFLUXDB_ORG || options.influxDb.org;
+    options.influxDb.bucket = process.env.NMCP_INFLUXDB_BUCKET || options.influxDb.bucket;
 
     return options;
 }

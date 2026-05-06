@@ -7,9 +7,9 @@ const debug = require("debug")("nmcp:nmcp-api:search-metrics-influxdb");
 export interface InfluxDbOptions {
     host: string;
     port: number;
-    username: string;
-    password: string;
-    database: string;
+    token: string;
+    org: string;
+    bucket: string;
 }
 
 function escapeTag(value: string): string {
@@ -33,8 +33,8 @@ export class InfluxDbMetricsStore implements ISearchMetricsStore {
     private readonly authHeader: string;
 
     constructor(options: InfluxDbOptions) {
-        this.writeUrl = `http://${options.host}:${options.port}/write?db=${encodeURIComponent(options.database)}`;
-        this.authHeader = "Basic " + Buffer.from(`${options.username}:${options.password}`).toString("base64");
+        this.writeUrl = `http://${options.host}:${options.port}/api/v2/write?org=${encodeURIComponent(options.org)}&bucket=${encodeURIComponent(options.bucket)}&precision=ns`;
+        this.authHeader = `Token ${options.token}`;
     }
 
     async recordSearchMetrics(query: SearchQueryMetrics, predicates: SearchPredicateMetrics[]): Promise<void> {
@@ -96,6 +96,8 @@ export class InfluxDbMetricsStore implements ISearchMetricsStore {
             const text = await response.text();
             debug("write failed status=%d body=%s", response.status, text);
             throw new Error(`InfluxDB write failed: ${response.status} ${text}`);
+        } else {
+            debug("write succeeded status=%d", response.status);
         }
     }
 }

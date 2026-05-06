@@ -10,6 +10,7 @@ const stores: ISearchMetricsStore[] = [];
 
 export function registerStore(store: ISearchMetricsStore): void {
     stores.push(store);
+    debug("store registered: %s", store.constructor.name);
 }
 
 export function clearStores(): void {
@@ -26,7 +27,7 @@ export function recordSearchMetrics(query: SearchQueryMetrics, predicates: Searc
 
 registerStore(new DebugMetricsStore());
 
-if (InfluxDbOptions.host && InfluxDbOptions.username && InfluxDbOptions.password) {
+if (InfluxDbOptions.host && InfluxDbOptions.token) {
     registerStore(new InfluxDbMetricsStore(InfluxDbOptions));
     debug("influxdb store registered host=%s port=%d", InfluxDbOptions.host, InfluxDbOptions.port);
 }

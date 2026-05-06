@@ -4,6 +4,7 @@ import {PredicateType, PredicateComposition, PredicateShape} from "../src/models
 import {SearchContext} from "../src/models/searchContext";
 import {SearchIndex} from "../src/models/searchIndex";
 import {DebugMetricsStore} from "../src/data-access/searchMetrics/debugMetricsStore";
+import {InfluxDbMetricsStore, InfluxDbOptions} from "../src/data-access/searchMetrics/influxDbMetricsStore";
 import {SearchQueryMetrics, SearchPredicateMetrics} from "../src/data-access/searchMetrics/searchMetricsTypes";
 import {ISearchMetricsStore} from "../src/data-access/searchMetrics/searchMetricsStore";
 
@@ -250,5 +251,98 @@ describe("performNeuronsFilterQuery returns FilterQueryResult", () => {
         expect(result.predicateResults[1].composedNeuronIds.sort()).toEqual(["N2", "N3"]);
 
         expect(result.neuronIds.sort()).toEqual(["N2", "N3"]);
+    });
+});
+
+// ──────────────────────────────────────────────────────────────
+// InfluxDbMetricsStore
+// ──────────────────────────────────────────────────────────────
+
+describe("InfluxDbMetricsStore", () => {
+    const defaultOptions: InfluxDbOptions = {
+        host: "influx-host",
+        port: 8086,
+        token: "test-token-abc",
+        org: "test-org",
+        bucket: "test-bucket",
+    };
+
+    let fetchSpy: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+        fetchSpy = vi.fn().mockResolvedValue({ok: true, status: 204});
+        vi.stubGlobal("fetch", fetchSpy);
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+        vi.unstubAllGlobals();
+    });
+
+    test("constructs correct v2 write URL", async () => {
+        const store = new InfluxDbMetricsStore(defaultOptions);
+        await store.recordSearchMetrics(makeQueryMetrics(), []);
+
+        const callUrl = fetchSpy.mock.calls[0][0];
+        expect(callUrl).toBe(
+            "http://influx-host:8086/api/v2/write?org=test-org&bucket=test-bucket&precision=ns"
+        );
+    });
+
+    test("sends Token authorization header", async () => {
+        const store = new InfluxDbMetricsStore(defaultOptions);
+        await store.recordSearchMetrics(makeQueryMetrics(), []);
+
+        const callOptions = fetchSpy.mock.calls[0][1];
+        expect(callOptions.headers["Authorization"]).toBe("Token test-token-abc");
+    });
+
+    test("sends line protocol body with search_query measurement", async () => {
+        const timestamp = new Date("2025-01-15T12:00:00.000Z");
+        const store = new InfluxDbMetricsStore(defaultOptions);
+
+        await store.recordSearchMetrics(
+            makeQueryMetrics({nonce: "abc123", timestamp, totalDurationMs: 42, predicateCount: 2, resultCount: 10}),
+            []
+        );
+
+        const body: string = fetchSpy.mock.calls[0][1].body;
+        expect(body).toContain("search_query,");
+        expect(body).toContain("nonce=abc123");
+        expect(body).toContain("status=ok");
+        expect(body).toContain("totalDurationMs=42i");
+        expect(body).toContain("predicateCount=2i");
+        expect(body).toContain("resultCount=10i");
+
+        const expectedNs = `${timestamp.getTime()}000000`;
+        expect(body).toContain(expectedNs);
+    });
+
+    test("includes search_predicate lines for each predicate", async () => {
+        const store = new InfluxDbMetricsStore(defaultOptions);
+
+        await store.recordSearchMetrics(makeQueryMetrics(), [
+            makePredicateMetrics({ordinal: 0, durationMs: 30}),
+            makePredicateMetrics({ordinal: 1, durationMs: 70}),
+        ]);
+
+        const body: string = fetchSpy.mock.calls[0][1].body;
+        const lines = body.split("\n");
+        expect(lines).toHaveLength(3);
+        expect(lines[0]).toMatch(/^search_query,/);
+        expect(lines[1]).toMatch(/^search_predicate,/);
+        expect(lines[2]).toMatch(/^search_predicate,/);
+        expect(lines[1]).toContain("durationMs=30i");
+        expect(lines[2]).toContain("durationMs=70i");
+    });
+
+    test("throws on non-ok response", async () => {
+        fetchSpy.mockResolvedValueOnce({ok: false, status: 401, text: async () => "Unauthorized"});
+
+        const store = new InfluxDbMetricsStore(defaultOptions);
+
+        await expect(
+            store.recordSearchMetrics(makeQueryMetrics(), [])
+        ).rejects.toThrow("InfluxDB write failed: 401 Unauthorized");
     });
 });
