@@ -26,3 +26,5 @@ Taskfile.yaml
 defaultUsers.json
 
 specimenMetadata.json
+
+.cache/

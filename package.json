@@ -1,6 +1,6 @@
 {
   "name": "nmcp-api",
-  "version": "3.0.12",
+  "version": "3.0.13",
   "main": "dist/app.js",
   "repository": "https://github.com/AllenNeuralDynamics/nmcp-sample-api",
   "author": "Patrick Edson <pedson@leapscientific.com>",
@@ -10,7 +10,8 @@
     "dev": "tsc && node --trace-warnings --max-old-space-size=8192 --optimize-for-size src/app.js",
     "express": "node dist/app.js",
     "smartsheet": "tsc && node --trace-warnings --max-old-space-size=8192 src/tools/smartSheetImport.js",
-    "import-candidates": "tsc && node --trace-warnings src/tools/importCandidates.js"
+    "import-candidates": "tsc && node --trace-warnings src/tools/importCandidates.js",
+    "mouselight": "tsc && node --trace-warnings src/tools/mouselightImport.js"
   },
   "dependencies": {
     "@apollo/client": "^3.10.5",
