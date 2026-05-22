@@ -2,9 +2,7 @@ import * as byline from "byline";
 import * as fs from "fs";
 import {NodeStructures} from "../models/nodeStructure";
 
-import {SimpleNeuronStructure, SimpleReconstruction} from "./simpleReconstruction";
-import {NeuronStructure} from "../models/neuronStructure";
-import {PortalNode} from "./portalFormat";
+import {buildSimpleReconstruction, SimpleReconstruction, SimpleReconstructionRow} from "./simpleReconstruction";
 
 const debug = require("debug")("nmcp:nmcp-api:swc-parser");
 
@@ -17,12 +15,8 @@ const debug = require("debug")("nmcp:nmcp-api:swc-parser");
 export async function swcParse(source: string, fileStream: fs.ReadStream): Promise<SimpleReconstruction> {
     const stream = byline.createStream(fileStream);
 
-    const reconstruction: SimpleReconstruction = {
-        source: source,
-        comments: "",
-        axon: new SimpleNeuronStructure(NeuronStructure.AxonStructureId),
-        dendrite: new SimpleNeuronStructure(NeuronStructure.DendriteStructureId)
-    };
+    const rows: SimpleReconstructionRow[] = [];
+    let comments = "";
 
     return new Promise<SimpleReconstruction>((resolve) => {
         stream.on("readable", () => {
@@ -35,69 +29,49 @@ export async function swcParse(source: string, fileStream: fs.ReadStream): Promi
                 }
 
                 if (lineContent[0] === "#") {
-                    reconstruction.comments += lineContent + "\n";
+                    comments += lineContent + "\n";
                 }
 
-                parseNode(reconstruction, lineContent);
+                const row = parseSwcLine(lineContent);
+
+                if (row) {
+                    if (row.parentIndex === -1 && row.structure !== NodeStructures.soma) {
+                        comments += `# Un-parented (root) node ${row.index} converted from ${row.structure} to soma (${NodeStructures.soma})\n`;
+                        row.structure = NodeStructures.soma;
+                    }
+
+                    rows.push(row);
+                }
             }
         });
         stream.on("end", () => {
-            oneSwcFileComplete(reconstruction, resolve);
+            resolve(buildSimpleReconstruction(source, rows, comments));
         });
     });
 }
 
-function parseNode(reconstruction: SimpleReconstruction, lineContent: string) {
+function parseSwcLine(lineContent: string): SimpleReconstructionRow | null {
     const data = lineContent.split(/\s/);
 
     if (data.length != 7) {
-        return;
+        return null;
     }
 
     const index = parseInt(data[0]);
-
     const parentIndex = parseInt(data[6]);
 
     if (isNaN(index) || isNaN(parentIndex)) {
-        return;
+        return null;
     }
 
-    let structure = parseInt(data[1]);
-
-    if (parentIndex === -1) {
-        if (structure !== NodeStructures.soma) {
-            reconstruction.comments += `# Un-parented (root) node ${index} converted from ${structure} to soma (${NodeStructures.soma})`;
-            structure = NodeStructures.soma;
-        }
-    }
-
-    const node: PortalNode = {
+    return {
         index: index,
         parentIndex: parentIndex,
-        structure: structure,
+        structure: parseInt(data[1]),
         x: parseFloat(data[2]),
         y: parseFloat(data[3]),
         z: parseFloat(data[4]),
         radius: parseFloat(data[5]),
-        lengthToParent: 0,
         atlasStructure: null
     };
-
-    if (structure == NodeStructures.soma) {
-        reconstruction.axon.addNode(node);
-        reconstruction.dendrite.addNode(node);
-    } else if (structure == NodeStructures.axon) {
-        reconstruction.axon.addNode(node);
-    } else if (structure == NodeStructures.basalDendrite || structure == NodeStructures.apicalDendrite) {
-        reconstruction.dendrite.addNode(node);
-    } else {
-        debug(`unexpected SWC node structure: ${structure}`);
-    }
-}
-
-function oneSwcFileComplete(reconstruction: SimpleReconstruction, resolve: (value: (SimpleReconstruction | PromiseLike<SimpleReconstruction>)) => void) {
-    reconstruction.axon.finalize();
-    reconstruction.dendrite.finalize();
-
-    resolve(reconstruction);
 }

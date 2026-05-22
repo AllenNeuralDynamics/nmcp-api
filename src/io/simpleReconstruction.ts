@@ -6,6 +6,17 @@ import {PortalNode} from "./portalFormat";
 
 const debug = require("debug")("nmcp:nmcp-api:simple-reconstruction");
 
+export type SimpleReconstructionRow = {
+    index: number;
+    parentIndex: number;
+    structure: number;
+    x: number;
+    y: number;
+    z: number;
+    radius: number;
+    atlasStructure?: number | null;
+};
+
 export type NodeCount = {
     total: number;
     soma: number;
@@ -175,6 +186,45 @@ export type SimpleReconstruction = {
     comments: string;
     axon: SimpleNeuronStructure
     dendrite: SimpleNeuronStructure;
+}
+
+export function buildSimpleReconstruction(source: string, rows: SimpleReconstructionRow[], comments = ""): SimpleReconstruction {
+    const reconstruction: SimpleReconstruction = {
+        source: source,
+        comments: comments,
+        axon: new SimpleNeuronStructure(NeuronStructure.AxonStructureId),
+        dendrite: new SimpleNeuronStructure(NeuronStructure.DendriteStructureId)
+    };
+
+    for (const row of rows) {
+        const node: PortalNode = {
+            index: row.index,
+            parentIndex: row.parentIndex,
+            structure: row.structure,
+            x: row.x,
+            y: row.y,
+            z: row.z,
+            radius: row.radius,
+            lengthToParent: 0,
+            atlasStructure: row.atlasStructure ?? null
+        };
+
+        if (row.structure == NodeStructures.soma) {
+            reconstruction.axon.addNode(node);
+            reconstruction.dendrite.addNode(node);
+        } else if (row.structure == NodeStructures.axon) {
+            reconstruction.axon.addNode(node);
+        } else if (row.structure == NodeStructures.basalDendrite || row.structure == NodeStructures.apicalDendrite) {
+            reconstruction.dendrite.addNode(node);
+        } else {
+            debug(`unexpected node structure: ${row.structure}`);
+        }
+    }
+
+    reconstruction.axon.finalize();
+    reconstruction.dendrite.finalize();
+
+    return reconstruction;
 }
 
 export async function parseSwcFile(source: string, swcFile: ReadStream): Promise<SimpleReconstruction> {

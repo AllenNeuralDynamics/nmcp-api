@@ -29,6 +29,7 @@ import {AtlasReconstructionStatus} from "./atlasReconstructionStatus";
 import {EventLogItem, EventLogItemKind, recordEvent} from "./eventLogItem";
 import {isNotNullOrUndefined} from "../util/objectUtil";
 import {NodeCounts, parseSwcFile, SimpleReconstruction} from "../io/simpleReconstruction";
+import {parseParquetFile, parseParquetUpload} from "../io/parquetParser";
 import {NeuronStructure} from "./neuronStructure";
 import {Injection} from "./injection";
 import {InjectionVirus} from "./injectionVirus";
@@ -874,6 +875,34 @@ export class Reconstruction extends BaseModel {
         const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(reconstructionId, userOrId);
 
         const reconstructionData = await parseSwcFile(sourceFile, fs.createReadStream(sourceFile));
+
+        await reconstruction.fromParsedStructures(user, space, reconstructionData, substituteUser);
+    }
+
+    public static async fromParquetUpload(userOrId: User | string, args: ReconstructionUploadArgs): Promise<Reconstruction> {
+        if (!args.file) {
+            throw new UploadError("The Parquet file is missing.");
+        }
+
+        const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(args.reconstructionId, userOrId);
+
+        if (!user.canUploadReconstructionData(args.reconstructionSpace)) {
+            throw new UnauthorizedError();
+        }
+
+        const file: any = await args.file;
+
+        const reconstructionData = await parseParquetUpload(file.filename, file.createReadStream());
+
+        await reconstruction.fromParsedStructures(user, args.reconstructionSpace, reconstructionData);
+
+        return await Reconstruction.findByPk(args.reconstructionId);
+    }
+
+    public static async fromParquetFile(userOrId: User | string, reconstructionId: string, sourceFile: string, space: ReconstructionSpace, substituteUser: User): Promise<void> {
+        const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(reconstructionId, userOrId);
+
+        const reconstructionData = await parseParquetFile(sourceFile, sourceFile);
 
         await reconstruction.fromParsedStructures(user, space, reconstructionData, substituteUser);
     }

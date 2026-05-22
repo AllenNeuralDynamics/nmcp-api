@@ -8,6 +8,6 @@ RUN npm -g add sequelize-cli@5
 
 RUN npm install --production=true
 
-CMD ["./docker-entry.sh"]
+CMD ["bash", "./docker-entry.sh"]
 
 EXPOSE 5000

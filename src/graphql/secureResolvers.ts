@@ -265,6 +265,10 @@ export const secureResolvers = {
             return Reconstruction.fromSwcUpload(user, uploadArgs);
         },
 
+        uploadParquetData(_: any, {uploadArgs}: { uploadArgs: ReconstructionUploadArgs }, user: User): Promise<Reconstruction> {
+            return Reconstruction.fromParquetUpload(user, uploadArgs);
+        },
+
         createApiKey(_: any, args: { key: string, description: string, durationDays?: number, permissions?: number }, user: User): Promise<ApiKey> {
             if (!(user.permissions & UserPermissions.Admin)) {
                 throw new UnauthorizedError();

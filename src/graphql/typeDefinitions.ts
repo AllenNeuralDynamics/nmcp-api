@@ -167,6 +167,7 @@ export const typeDefinitions = gql`
 
         updateReconstruction(reconstructionId: String!, duration: Float, notes: String, started: Date, completed: Date): Reconstruction
         uploadSwcData(uploadArgs: ReconstructionUploadArgs!): Reconstruction
+        uploadParquetData(uploadArgs: ReconstructionUploadArgs!): Reconstruction
 
         createApiKey(key: String!, description: String, durationDays: Int, permissions: Int): ApiKey!
         deleteApiKey(id: String!): Boolean!
