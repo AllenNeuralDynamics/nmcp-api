@@ -1,4 +1,5 @@
 import * as fs from "fs";
+import * as path from "path";
 import {glob} from "glob";
 
 import {Cell, Client, createClient, Row, Sheet} from "smartsheet";
@@ -17,8 +18,8 @@ import moment = require("moment");
 
 const debug = require("debug")("nmcp:api:smartsheet");
 
-const specimenSpaceDirectorySuffix = "-specimen-space";
-const atlasSpaceDirectorySuffix = "-ccf";
+const specimenSpaceReconstructionDirectory = "specimen";
+const atlasSpaceReconstructionDirectory = "atlas";
 
 enum ColumnName {
     CCFCoordinates = "CCF Coordinates",
@@ -115,14 +116,32 @@ type DefaultUser = {
 }
 
 // Some ugly globals while we figure out what we want.
-const reconstructionNotFound = [];
+const specimensMissingReconstructionDirectory = [];
+const specimenReconstructionNotFound = [];
+const atlasReconstructionNotFound = [];
 const ccfMissing = [];
 const ccfCoordinatesParseFailed = [];
+const specimenCoordinatesParseFailed = [];
 const ccfLookupFailed = [];
 const failedToApprove = [];
 
+// Observational accumulators for the post-run markdown report.  These only record what the import did and never influence its behavior.
+type ReconstructionReportEntry = { id: string; subjectId: string; neuron: string; status?: string };
+
+const importReport = {
+    newSpecimens: [] as string[],
+    existingSpecimensWithChanges: new Set<string>(),
+    neuronsAdded: [] as { subjectId: string; neuron: string }[],
+    neuronsModified: [] as { subjectId: string; neuron: string }[],
+    existingNeuronsWithReconstructionChanges: new Set<string>(),
+    reconstructionsAdded: new Map<string, ReconstructionReportEntry>(),
+    reconstructionsModified: new Map<string, ReconstructionReportEntry>(),
+    reconstructionsWithData: new Set<string>(),
+    reconstructionsSkippedImmutable: [] as ReconstructionReportEntry[]
+};
+
 const neuronSelection = {
-    // "648434": ["N004"]
+    // "613814": []
 };
 
 const specimenSubset = [...new Set(Object.keys(neuronSelection))];
@@ -161,7 +180,7 @@ function smartSheetImport(sheetId: number, importQualifier: ImportQualifier, pat
 
         await s.updateDatabase(insertReconstructions, testFlightInsertion);
 
-        s.print();
+        s.print(sheetId, importQualifier);
 
         resolve();
     });
@@ -211,6 +230,11 @@ function findBrainCompartment(atlas: Atlas, primaryLabel: string, secondaryLabel
 
 const immutableReconstructionStatus = [ReconstructionStatus.Published, ReconstructionStatus.Archived, ReconstructionStatus.Discarded];
 
+// Treats null, undefined, and entries without a usable url (e.g. an empty object) as "no value provided".
+function hasMetadataValue(value: { url?: string } | null | undefined): boolean {
+    return !!value && typeof value.url === "string" && value.url.trim().length > 0;
+}
+
 async function specimenDataFromRow(s: SpecimenRowContents, insertReconstructions: boolean, testFlightInsertion: boolean = true) {
     const collection = await Collection.findByName(s.collectionName);
 
@@ -230,21 +254,40 @@ async function specimenDataFromRow(s: SpecimenRowContents, insertReconstructions
     const metadata = specimenMetadata.find(m => m.subject == s.subjectId);
 
     if (metadata) {
-        shape.tomography = metadata.tomography;
-        shape.referenceDataset = metadata.referenceDataset;
+        // Only apply these when the metadata actually carries a value.  Otherwise leave the property off the shape so an
+        // existing specimen's tomography/reference dataset is preserved rather than clobbered by a missing/empty entry.
+        if (hasMetadataValue(metadata.tomography)) {
+            shape.tomography = metadata.tomography;
+        }
+
+        if (hasMetadataValue(metadata.referenceDataset)) {
+            shape.referenceDataset = metadata.referenceDataset;
+        }
     }
 
     let specimen: Specimen;
 
+    const specimenExisted = !!(await Specimen.findOne({where: {label: shape.label}}));
+
     try {
-        specimen = await Specimen.createOrUpdateForShape(shape, User.SystemAutomationUser, {allowCreate: true, allowMatchLabel: true});
+        specimen = await Specimen.createOrUpdateForShape(shape, User.SystemAutomationUser, {
+            allowCreate: true,
+            allowMatchLabel: true
+        });
     } catch (e) {
         debug(`error with createOrUpdateForShape for specimen ${s.subjectId}`)
         debug(e);
         return;
     }
 
+    if (!specimenExisted) {
+        importReport.newSpecimens.push(s.subjectId);
+    }
+
     const suitableReconstructions: NeuronRowContents[] = [];
+
+    // Neuron ids that already existed prior to this import, used to attribute later reconstruction changes.
+    const existingNeuronIds = new Set<string>();
 
     for (const n of s.neurons) {
         let somaAtlasStructure = findBrainCompartment(specimen.getAtlas(), n.manualBrainStructureAcronym, n.ccfBrainStructureAcronym)?.id
@@ -254,7 +297,8 @@ async function specimenDataFromRow(s: SpecimenRowContents, insertReconstructions
                 subject: s.subjectId,
                 neuron: n.idString,
                 manual: n.manualBrainStructureAcronym,
-                ccf: n.ccfBrainStructureAcronym
+                ccf: n.ccfBrainStructureAcronym,
+                value: [n.manualBrainStructureAcronym, n.ccfBrainStructureAcronym].filter(label => label).join(" / ")
             });
         }
 
@@ -269,10 +313,27 @@ async function specimenDataFromRow(s: SpecimenRowContents, insertReconstructions
             keywords: assigned.length > 0 ? [assigned] : []
         };
 
+        const neuronExisted = !!(await Neuron.findOne({where: {label: shape.label, specimenId: specimen.id}}));
+
         try {
-            const neuron = await Neuron.createOrUpdateForShape(shape, User.SystemAutomationUser, {allowCreate: true, allowMatchLabel: true});
+            const neuron = await Neuron.createOrUpdateForShape(shape, User.SystemAutomationUser, {
+                allowCreate: true,
+                allowMatchLabel: true
+            });
             n.id = neuron.id;
             suitableReconstructions.push(n);
+
+            if (neuronExisted) {
+                existingNeuronIds.add(neuron.id);
+                importReport.neuronsModified.push({subjectId: s.subjectId, neuron: n.idString});
+            } else {
+                importReport.neuronsAdded.push({subjectId: s.subjectId, neuron: n.idString});
+            }
+
+            if (specimenExisted) {
+                importReport.existingSpecimensWithChanges.add(s.subjectId);
+            }
+
             debug(`neuron ${neuron.label} (specimen ${specimen.label}) OK`)
         } catch (e) {
             debug(`error with createOrUpdateForShape for neuron ${n.idString} (specimen ${specimen.label})`)
@@ -327,14 +388,46 @@ async function specimenDataFromRow(s: SpecimenRowContents, insertReconstructions
         const targetStatus = reconstructionStatusForSmartSheetStatus(n.status);
 
         try {
+            const reconstructionExisted = !!(await Reconstruction.findOne({
+                where: {
+                    annotatorId: annotator.id,
+                    neuronId: n.id
+                }
+            }));
+
             // This tool assumes one instance of a reconstruction per annotator, per candidate.  If the information in SmartSheets is meant to allow a second
             // reconstruction for the same annotator on the same neuron/candidate, this must be changed.
             let reconstruction = await Reconstruction.findOrOpenReconstruction(n.id, annotator, User.SystemAutomationUser);
 
             // Do not modify a published, archived, or discarded reconstructions.
             if (immutableReconstructionStatus.includes(reconstruction.status)) {
+                importReport.reconstructionsSkippedImmutable.push({
+                    id: reconstruction.id,
+                    subjectId: s.subjectId,
+                    neuron: n.idString,
+                    status: ReconstructionStatus[reconstruction.status]
+                });
                 debug(`${reconstruction.id} (${n.idString}-${s.subjectId}) skipped ${ReconstructionStatus[reconstruction.status]}.`)
                 continue;
+            }
+
+            if (reconstructionExisted) {
+                importReport.reconstructionsModified.set(reconstruction.id, {
+                    id: reconstruction.id,
+                    subjectId: s.subjectId,
+                    neuron: n.idString
+                });
+            } else {
+                importReport.reconstructionsAdded.set(reconstruction.id, {
+                    id: reconstruction.id,
+                    subjectId: s.subjectId,
+                    neuron: n.idString
+                });
+            }
+
+            // A reconstruction was added to or modified on a neuron that already existed before this import.
+            if (existingNeuronIds.has(n.id)) {
+                importReport.existingNeuronsWithReconstructionChanges.add(`${s.subjectId}-${n.idString}`);
             }
 
             const checks = n.checks ? "\n" + n.checks : "";
@@ -375,9 +468,13 @@ async function specimenDataFromRow(s: SpecimenRowContents, insertReconstructions
             }
 
             if (insertReconstructions || testFlightInsertion) {
-                await loadSpecimenReconstruction(reconstruction, s.subjectId, n.idString, annotator);
+                const specimenDataLoaded = await loadSpecimenReconstruction(reconstruction, s.subjectId, n.idString, annotator);
 
-                await loadAtlasReconstruction(reconstruction, s.subjectId, n.idString, targetStatus, proofreader);
+                const atlasDataLoaded = await loadAtlasReconstruction(reconstruction, s.subjectId, n.idString, targetStatus, proofreader);
+
+                if (specimenDataLoaded || atlasDataLoaded) {
+                    importReport.reconstructionsWithData.add(reconstruction.id);
+                }
             }
         } catch (error) {
             debug(error);
@@ -385,35 +482,77 @@ async function specimenDataFromRow(s: SpecimenRowContents, insertReconstructions
     }
 }
 
-async function loadSpecimenReconstruction(reconstruction: Reconstruction, subjectId: string, neuronLabel: string, annotator: User) {
+// Caches whether each subject's top-level reconstruction directory was found so it is only globbed (and reported) once per specimen.
+const reconstructionDirectoryChecked = new Map<string, boolean>();
+
+// Returns true when there is a top-level subject directory under the reconstruction location (or when there is no location to inspect, leaving
+// the normal not-found handling in place).  The first time a subject's directory is found to be missing it is recorded for reporting.
+async function reconstructionDirectoryExists(baseLocation: string, subjectId: string): Promise<boolean> {
+    if (isNullOrEmpty(baseLocation)) {
+        return true;
+    }
+
+    if (reconstructionDirectoryChecked.has(subjectId)) {
+        return reconstructionDirectoryChecked.get(subjectId);
+    }
+
+    const matches = await glob(path.posix.join(baseLocation, "**", subjectId) + "/");
+
+    const exists = matches.length > 0;
+
+    reconstructionDirectoryChecked.set(subjectId, exists);
+
+    if (!exists) {
+        specimensMissingReconstructionDirectory.push(subjectId);
+        debug(`\t---> reconstruction directory not found for specimen ${subjectId}`);
+    }
+
+    return exists;
+}
+
+async function loadSpecimenReconstruction(reconstruction: Reconstruction, subjectId: string, neuronLabel: string, annotator: User): Promise<boolean> {
     const filePrefix = `${neuronLabel}-${subjectId}`;
 
     try {
-        const swcPath = await findSpecimenReconstructionFile(`${reconstructionLocation}`, subjectId, filePrefix);
+        if (!(await reconstructionDirectoryExists(reconstructionLocation, subjectId))) {
+            return false;
+        }
+
+        const swcPath = await findSpecimenReconstructionFile(reconstructionLocation, subjectId, filePrefix);
 
         if (swcPath) {
             debug(`\tupdating or adding specimen reconstruction data for ${reconstruction.id} (${subjectId}-${neuronLabel})`);
 
             try {
                 await Reconstruction.fromSwcFile(annotator ?? User.SystemAutomationUser, reconstruction.id, swcPath, ReconstructionSpace.Specimen, User.SystemAutomationUser);
+                return true;
             } catch (error) {
                 debug(`\t---> parsing error for ${swcPath}`);
                 debug(error);
                 debug(`\t---`);
             }
+        } else if (reconstruction.specimenNodeCounts) {
+            debug(`\tspecimen reconstruction data file not found, but data already present for ${reconstruction.id} (${subjectId}-${neuronLabel})`);
         } else {
+            specimenReconstructionNotFound.push({subject: subjectId, neuron: neuronLabel});
             debug(`\t---> expected specimen reconstruction data not found for ${reconstruction.id} (${subjectId}-${neuronLabel})`);
         }
     } catch (err) {
         debug(`---> issue detecting specimen reconstruction data for ${reconstruction.id} (${subjectId}-${neuronLabel})`);
         console.log(err);
     }
+
+    return false;
 }
 
-async function loadAtlasReconstruction(reconstruction: Reconstruction, subjectId: string, neuronLabel: string, targetStatus: ReconstructionStatus, proofreader: User) {
+async function loadAtlasReconstruction(reconstruction: Reconstruction, subjectId: string, neuronLabel: string, targetStatus: ReconstructionStatus, proofreader: User): Promise<boolean> {
     const filePrefix = `${neuronLabel}-${subjectId}`;
 
     try {
+        if (!(await reconstructionDirectoryExists(reconstructionLocation, subjectId))) {
+            return false;
+        }
+
         const jsonPath = await findAtlasReconstructionFile(reconstructionLocation, subjectId, filePrefix);
 
         if (jsonPath) {
@@ -428,25 +567,194 @@ async function loadAtlasReconstruction(reconstruction: Reconstruction, subjectId
                         debug(`failed to approve reconstruction ${reconstruction.id} (${subjectId}-${neuronLabel})`);
                     }
                 }
+
+                return true;
             } catch (error) {
                 debug(`\t---> parsing error for ${jsonPath}`);
                 debug(error);
                 debug(`\t---`);
             }
-        } else if (reconstruction.status == ReconstructionStatus.Approved) {
-            reconstructionNotFound.push({subject: subjectId, neuron: neuronLabel});
-            debug(`\t---> expected atlas reconstruction data not found for ${reconstruction.id} (${subjectId}-${neuronLabel})`);
         } else {
-            debug(`\t---> failed to find atlas reconstruction data for unexpected status: ${reconstruction.status} for: ${reconstruction.id} (${subjectId}-${neuronLabel})`);
+            const existingAtlasReconstruction = await reconstruction.getAtlasReconstruction();
+
+            if (existingAtlasReconstruction?.nodeCounts) {
+                debug(`\tatlas reconstruction data file not found, but data already present for ${reconstruction.id} (${subjectId}-${neuronLabel})`);
+            } else {
+                atlasReconstructionNotFound.push({
+                    subject: subjectId,
+                    neuron: neuronLabel,
+                    status: reconstruction.status
+                });
+
+                if (reconstruction.status == ReconstructionStatus.Approved) {
+                    debug(`\t---> expected atlas reconstruction data not found for ${reconstruction.id} (${subjectId}-${neuronLabel})`);
+                } else {
+                    debug(`\t---> failed to find atlas reconstruction data for unexpected status: ${reconstruction.status} for: ${reconstruction.id} (${subjectId}-${neuronLabel})`);
+                }
+            }
         }
     } catch (err) {
         debug(`---> issue detecting atlas reconstruction data for ${reconstruction.id} (${subjectId}-${neuronLabel})`);
         console.log(err);
     }
+
+    return false;
+}
+
+// Number of entries shown per row in the report grids.  Must be even so the two-column tables can repeat their columns evenly.
+const reportGridColumns = 8;
+
+// Returns null for an empty list so the caller can omit the subsection entirely.  Renders the values as a compact,
+// column-aligned grid (a fenced code block, so there is no header) with several entries per row.  An optional description
+// is rendered in italics below the header.
+function renderReportSection(title: string, lines: string[], description: string = null): string | null {
+    if (lines.length == 0) {
+        return null;
+    }
+
+    const columns = reportGridColumns;
+
+    const rows: string[][] = [];
+
+    for (let idx = 0; idx < lines.length; idx += columns) {
+        rows.push(lines.slice(idx, idx + columns).map(line => line.replace(/\r?\n/g, " ")));
+    }
+
+    const columnWidths: number[] = [];
+
+    for (let column = 0; column < columns; column++) {
+        columnWidths[column] = Math.max(0, ...rows.map(row => (row[column] ?? "").length));
+    }
+
+    const grid = rows
+        .map(row => row.map((cell, column) => cell.padEnd(columnWidths[column])).join("  ").trimEnd())
+        .join("\n");
+
+    const descriptionLine = description ? `_${description}_\n\n` : "";
+
+    return `#### ${title}\n\n${descriptionLine}\`\`\`\n${grid}\n\`\`\`\n`;
+}
+
+// Escapes characters that would otherwise break a markdown table cell.
+function escapeTableCell(value: string): string {
+    return value.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+}
+
+// Returns null for an empty set of rows so the caller can omit the subsection entirely.  The two-column header is repeated
+// across the row to match the grid width used by the list sections, packing that many entries per row.  An optional
+// description is rendered in italics below the header.
+function renderReportTable(title: string, headers: string[], rows: string[][], description: string = null): string | null {
+    if (rows.length == 0) {
+        return null;
+    }
+
+    const repeats = reportGridColumns / 2;
+
+    const repeatedHeaders = Array(repeats).fill(headers).flat();
+    const headerRow = `| ${repeatedHeaders.join(" | ")} |`;
+    const dividerRow = `| ${repeatedHeaders.map(() => "---").join(" | ")} |`;
+
+    const bodyRows: string[] = [];
+
+    for (let idx = 0; idx < rows.length; idx += repeats) {
+        const cells: string[] = [];
+
+        for (let offset = 0; offset < repeats; offset++) {
+            const sourceRow = rows[idx + offset];
+
+            for (let column = 0; column < headers.length; column++) {
+                cells.push(escapeTableCell(sourceRow?.[column] ?? ""));
+            }
+        }
+
+        bodyRows.push(`| ${cells.join(" | ")} |`);
+    }
+
+    const descriptionLine = description ? `_${description}_\n\n` : "";
+
+    return `#### ${title}\n\n${descriptionLine}${headerRow}\n${dividerRow}\n${bodyRows.join("\n")}\n`;
+}
+
+// Writes a markdown summary of what the import did to the current directory.  Purely observational; mirrors the logging output but in a durable file.
+function writeImportReport(sheetId: number, importQualifier: ImportQualifier) {
+    const runMoment = moment();
+    const timestamp = runMoment.format("YYYY-MM-DD_HH-mm-ss");
+
+    const addedReconstructions = Array.from(importReport.reconstructionsAdded.values());
+    const addedWithData = addedReconstructions.filter(entry => importReport.reconstructionsWithData.has(entry.id));
+    const addedWithoutData = addedReconstructions.filter(entry => !importReport.reconstructionsWithData.has(entry.id));
+
+    const modifiedWithData = Array.from(importReport.reconstructionsModified.values()).filter(entry => importReport.reconstructionsWithData.has(entry.id));
+
+    const reconstructionLabel = (entry: ReconstructionReportEntry) => `${entry.subjectId}-${entry.neuron}`;
+
+    // Sorted "Neuron"/"Invalid Value" rows for the coordinate parse-failure tables.
+    const parseFailureRows = (entries: { subject: string; neuron: string; value?: string }[]): string[][] =>
+        entries
+            .slice()
+            .sort((first, second) => `${first.subject}-${first.neuron}`.localeCompare(`${second.subject}-${second.neuron}`))
+            .map(entry => [`${entry.subject}-${entry.neuron}`, entry.value ?? ""]);
+
+    const notEmpty = (section: string | null): section is string => section !== null;
+
+    const importSections = [
+        renderReportSection("Specimens Added", importReport.newSpecimens.slice().sort()),
+        renderReportSection("Specimens Updated", Array.from(importReport.existingSpecimensWithChanges).sort()),
+        renderReportSection("Neurons Added", importReport.neuronsAdded.map(entry => `${entry.subjectId}-${entry.neuron}`).sort()),
+        renderReportSection("Neurons Updated", importReport.neuronsModified.map(entry => `${entry.subjectId}-${entry.neuron}`).sort()),
+        renderReportSection("Neurons with Reconstructions Changes", Array.from(importReport.existingNeuronsWithReconstructionChanges).sort()),
+        renderReportSection("Reconstructions Added with Reconstruction Data", addedWithoutData.map(reconstructionLabel).sort()),
+        renderReportSection("Reconstructions Added without Reconstruction Data", addedWithData.map(reconstructionLabel).sort()),
+        renderReportSection("Reconstructions with Updated Reconstruction Data", modifiedWithData.map(reconstructionLabel).sort()),
+        renderReportSection("Reconstructions not Updated (published or other immutable state)", importReport.reconstructionsSkippedImmutable.map(entry => `${entry.subjectId}-${entry.neuron} (${entry.id}) - ${entry.status}`).sort())
+    ].filter(notEmpty);
+
+    const issueSections = [
+        renderReportSection("Specimens Missing Reconstruction Directory", specimensMissingReconstructionDirectory.slice().sort(),
+            "These entries may be expected if these specimens have already been fully imported in an earlier batch."),
+        renderReportSection("Specimen-Space Reconstruction Data Not Found", specimenReconstructionNotFound.map(entry => `${entry.subject}-${entry.neuron}`).sort()),
+        renderReportTable("Expected Atlas-Space Reconstruction Data Not Found", ["Neuron", "Status"],
+            atlasReconstructionNotFound
+                .slice()
+                .sort((first, second) => `${first.subject}-${first.neuron}`.localeCompare(`${second.subject}-${second.neuron}`))
+                .map(entry => [`${entry.subject}-${entry.neuron}`, ReconstructionStatus[entry.status]]),
+            "The SmartSheet status for these reconstructions suggest the data should be available, but was not found (SWC file)."),
+        renderReportTable("Specimen Soma Coordinates Failed to Parse", ["Neuron", "Invalid Value"], parseFailureRows(specimenCoordinatesParseFailed)),
+        renderReportSection("Atlas Soma Coordinates Missing", ccfMissing.map(entry => `${entry.subject}-${entry.neuron}`).sort()),
+        renderReportTable("Atlas Soma Coordinates Failed to Parse", ["Neuron", "Invalid Value"], parseFailureRows(ccfCoordinatesParseFailed)),
+        renderReportTable("Atlas Structure Lookup for Soma Failed", ["Neuron", "Structure Label"], parseFailureRows(ccfLookupFailed)),
+        renderReportSection("Reconstructions Failed Expected Approve Update", failedToApprove.slice().sort(),
+            "It was expected that marking the reconstruction as approved would succeed, but it failed.")
+    ].filter(notEmpty);
+
+    const sections = [
+        "### Summary\n\n"
+        + `- SmartSheet sheet id: ${sheetId}\n`
+        + `- Import qualifier: ${ImportQualifier[importQualifier]}\n`
+        + `- Run at: ${runMoment.format("YYYY-MM-DD HH:mm:ss")}\n`,
+        "---\n### Issues\n",
+        ...(issueSections.length > 0 ? issueSections : ["_None_\n"]),
+        "---\n### Import\n",
+        ...importSections
+    ];
+
+    const fileName = `smartsheet-import-${timestamp}.md`;
+
+    try {
+        fs.writeFileSync(fileName, sections.join("\n") + "\n", "utf8");
+        debug(`wrote import report to ${fileName}`);
+    } catch (err) {
+        debug(`failed to write import report to ${fileName}`);
+        console.log(err);
+    }
 }
 
 async function findSpecimenReconstructionFile(baseLocation: string, subjectId: string, file_prefix: string): Promise<string> {
-    const filePattern = `${baseLocation}/**/${subjectId}${specimenSpaceDirectorySuffix}/${file_prefix}*.swc`;
+    if (isNullOrEmpty(baseLocation)) {
+        return null;
+    }
+
+    const filePattern = path.posix.join(baseLocation, "**", subjectId, specimenSpaceReconstructionDirectory, "**", `${file_prefix}*.swc`);
 
     debug(filePattern);
 
@@ -456,7 +764,11 @@ async function findSpecimenReconstructionFile(baseLocation: string, subjectId: s
 }
 
 async function findAtlasReconstructionFile(baseLocation: string, subjectId: string, file_prefix: string): Promise<string> {
-    const filePattern = `${baseLocation}/**/${subjectId}${atlasSpaceDirectorySuffix}/${file_prefix}*.swc`;
+    if (isNullOrEmpty(baseLocation)) {
+        return null;
+    }
+
+    const filePattern = path.posix.join(baseLocation, "**", subjectId, atlasSpaceReconstructionDirectory, "**", `${file_prefix}*.swc`);
 
     const sources = await glob(filePattern);
 
@@ -522,7 +834,7 @@ class SmartSheetImport {
         }
     }
 
-    public print() {
+    public print(sheetId: number, importQualifier: ImportQualifier) {
         const showPending = false;
 
         let ordered = Array.from(this._specimens.values()).sort((a, b) => a.subjectId.localeCompare(b.subjectId));
@@ -558,10 +870,24 @@ class SmartSheetImport {
             }
         }
 
-        if (reconstructionNotFound.length > 0) {
-            debug("reconstruction marked approved, but data not found:")
-            reconstructionNotFound.forEach(r => {
+        if (specimensMissingReconstructionDirectory.length > 0) {
+            debug("specimens missing reconstruction directory:")
+            specimensMissingReconstructionDirectory.forEach(subject => {
+                debug(`\t${subject}`);
+            });
+        }
+
+        if (specimenReconstructionNotFound.length > 0) {
+            debug("specimen reconstruction data not found:")
+            specimenReconstructionNotFound.forEach(r => {
                 debug(`\t${r.subject}-${r.neuron}`);
+            });
+        }
+
+        if (atlasReconstructionNotFound.length > 0) {
+            debug("atlas reconstruction data not found:")
+            atlasReconstructionNotFound.forEach(r => {
+                debug(`\t${r.subject}-${r.neuron} (${ReconstructionStatus[r.status]})`);
             });
         }
 
@@ -573,6 +899,13 @@ class SmartSheetImport {
         if (ccfCoordinatesParseFailed.length > 0) {
             debug("could not parse CCF soma coordinates:")
             ccfCoordinatesParseFailed.forEach(r => {
+                debug(`\t${r.subject}-${r.neuron}`);
+            });
+        }
+
+        if (specimenCoordinatesParseFailed.length > 0) {
+            debug("could not parse specimen soma coordinates:")
+            specimenCoordinatesParseFailed.forEach(r => {
                 debug(`\t${r.subject}-${r.neuron}`);
             });
         }
@@ -590,6 +923,8 @@ class SmartSheetImport {
                 debug(r);
             });
         }
+
+        writeImportReport(sheetId, importQualifier);
     }
 
     private parseSpecimen(row: Row, qualifier: ImportQualifier) {
@@ -662,21 +997,31 @@ class SmartSheetImport {
             return;
         }
 
-        if (neuronSelection[specimen.subjectId] !== undefined) {
-            if (!neuronSelection[specimen.subjectId].includes(id)) {
-                // debug("exempted");
-                return;
-            }
+        const selectedNeurons = neuronSelection[specimen.subjectId];
+
+        // An entry with an empty array means "all neurons for this specimen"; a populated array limits to the listed neurons.
+        if (selectedNeurons !== undefined && selectedNeurons.length > 0 && !selectedNeurons.includes(id)) {
+            // debug("exempted");
+            return;
         }
 
         let horta = this.getCell(row, ColumnName.HortaCoordinates).value as string;
 
-        const specimenSoma = this.parseCoordinates(horta ?? "[0.0, 0.0, 0.0]");
+        const hortaValue = horta ?? "[0.0, 0.0, 0.0]";
+
+        const specimenSoma = this.parseCoordinates(hortaValue);
+
+        if (!specimenSoma) {
+            specimenCoordinatesParseFailed.push({subject: specimen.subjectId, neuron: id, value: hortaValue});
+            debug(`could not parse specimen (Horta) coordinates ${this.getStringValue(row, ColumnName.Id)} (row ${row.rowNumber})`);
+        }
 
         let ccf = this.getCell(row, ColumnName.CCFCoordinates).value as string;
 
+        const ccfWasMissing = !ccf;
+
         // Only processing rows that have a registered soma location.
-        if (!ccf) {
+        if (ccfWasMissing) {
             ccfMissing.push({subject: specimen.subjectId, neuron: id});
 
             if (!allowMissingCCF) {
@@ -688,8 +1033,9 @@ class SmartSheetImport {
 
         const atlasSoma = this.parseCoordinates(ccf);
 
-        if (!atlasSoma) {
-            ccfCoordinatesParseFailed.push({subject: specimen.subjectId, neuron: id});
+        // A missing value is already reported as such; only flag a value that was present but could not be parsed.
+        if (!atlasSoma && !ccfWasMissing) {
+            ccfCoordinatesParseFailed.push({subject: specimen.subjectId, neuron: id, value: ccf});
             debug(`could not parse CCF coordinates ${this.getStringValue(row, ColumnName.Id)} (row ${row.rowNumber})`);
         }
 
@@ -864,7 +1210,56 @@ async function populateDefaults(defaultUsers: DefaultUser[]): Promise<void> {
     }
 }
 
-if (process.argv.length < 3 || isNaN(parseInt(process.argv[2]))) {
+// Pulls a `--name value` or `--name=value` flag out of the argument list, leaving the positional arguments intact.
+function extractFlag(args: string[], name: string): string | null {
+    for (let idx = 0; idx < args.length; idx++) {
+        const arg = args[idx];
+
+        if (arg === `--${name}`) {
+            const value = args[idx + 1] ?? null;
+            args.splice(idx, value === null ? 1 : 2);
+            return value;
+        }
+
+        if (arg.startsWith(`--${name}=`)) {
+            const value = arg.substring(name.length + 3);
+            args.splice(idx, 1);
+            return value;
+        }
+    }
+
+    return null;
+}
+
+// Resolves a flag-provided path, exiting when an explicitly supplied path does not exist.  Falls back to the default when the flag is absent.
+function resolvePathFlag(args: string[], name: string, defaultPath: string): string {
+    const provided = extractFlag(args, name);
+
+    if (provided === null) {
+        return defaultPath;
+    }
+
+    if (!fs.existsSync(provided)) {
+        console.error(`--${name} path "${provided}" does not exist.`);
+        process.exit(-1);
+    }
+
+    return provided;
+}
+
+const cliArguments = process.argv.slice(2);
+
+const usersPath = resolvePathFlag(cliArguments, "users", "./defaultUsers.json");
+
+// Extracted up front to keep positional parsing clean, but its default location depends on reconstructionLocation resolved below.
+const specimenMetadataFlag = extractFlag(cliArguments, "specimen-metadata");
+
+if (specimenMetadataFlag !== null && !fs.existsSync(specimenMetadataFlag)) {
+    console.error(`--specimen-metadata path "${specimenMetadataFlag}" does not exist.`);
+    process.exit(-1);
+}
+
+if (cliArguments.length < 1 || isNaN(parseInt(cliArguments[0]))) {
     console.error("SmartSheet sheet numeric id required.");
     process.exit(-1);
 }
@@ -872,21 +1267,28 @@ if (process.argv.length < 3 || isNaN(parseInt(process.argv[2]))) {
 let importQualifier = ImportQualifier.Test;
 let reconstructionLocation: string = null;
 
-if (process.argv.length > 3) {
-    const qualifier = parseInt(process.argv[3]);
+if (cliArguments.length > 1) {
+    const qualifier = parseInt(cliArguments[1]);
     if (!isNaN(qualifier)) {
         importQualifier = qualifier;
     }
 }
 
-if (process.argv.length > 4 && process.argv[4]) {
-    if (process.argv[4]) {
-        if (fs.existsSync(process.argv[4])) {
-            reconstructionLocation = process.argv[4];
-        }
-    } else {
-        console.error(`${process.argv[4]} is not readable.`);
-        process.exit(-1);
+if (cliArguments.length > 2 && cliArguments[2]) {
+    if (fs.existsSync(cliArguments[2])) {
+        reconstructionLocation = cliArguments[2];
+    }
+}
+
+// Explicit flag wins; otherwise prefer specimenMetadata.json from the reconstruction location, falling back to the current directory.
+let specimenMetadataPath = "./specimenMetadata.json";
+
+if (specimenMetadataFlag !== null) {
+    specimenMetadataPath = specimenMetadataFlag;
+} else if (reconstructionLocation) {
+    const candidate = path.join(reconstructionLocation, "specimenMetadata.json");
+    if (fs.existsSync(candidate)) {
+        specimenMetadataPath = candidate;
     }
 }
 
@@ -899,16 +1301,16 @@ type SpecimenMetadata = {
 let defaultUsers: DefaultUser[] = [];
 let specimenMetadata: SpecimenMetadata[] = [];
 
-if (fs.existsSync("./defaultUsers.json")) {
-    const obj = JSON.parse(fs.readFileSync("./defaultUsers.json", "utf8"));
+if (fs.existsSync(usersPath)) {
+    const obj = JSON.parse(fs.readFileSync(usersPath, "utf8"));
     defaultUsers = obj.users;
 }
 
-if (fs.existsSync("./specimenMetadata.json")) {
-    specimenMetadata = JSON.parse(fs.readFileSync("./specimenMetadata.json", "utf8"));
+if (fs.existsSync(specimenMetadataPath)) {
+    specimenMetadata = JSON.parse(fs.readFileSync(specimenMetadataPath, "utf8"));
 }
 
 
 const start = performance.now();
 
-smartSheetImport(parseInt(process.argv[2]), importQualifier, reconstructionLocation, defaultUsers).then((count) => debug(`synchronize ${count}: ${((performance.now() - start) / 1000).toFixed(3)}s`));
+smartSheetImport(parseInt(cliArguments[0]), importQualifier, reconstructionLocation, defaultUsers).then(() => debug(`Import complete: ${((performance.now() - start) / 1000).toFixed(3)}s`));

@@ -19,6 +19,8 @@ dist/
 
 .DS_Store
 
+.cache/
+
 # Taskfile.dist.yaml is used by the GitHub workflow.  Allow a local task file that is not commited to push images to other hubs, etc.
 Taskfile.yaml
 
@@ -27,4 +29,5 @@ defaultUsers.json
 
 specimenMetadata.json
 
-.cache/
+# Output files from import tools
+*-import-*.md

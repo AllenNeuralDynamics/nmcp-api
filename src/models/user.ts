@@ -38,7 +38,7 @@ export enum UserPermissions {
     InternalSystem = 0xFFFFFFF
 }
 
-// All 4882
+// All 4883
 
 export const UserPermissionsAll = UserPermissions.ViewAll | UserPermissions.EditAll | UserPermissions.ReviewAll | UserPermissions.AdminAll;
 
