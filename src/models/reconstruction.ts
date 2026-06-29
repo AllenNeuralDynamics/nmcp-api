@@ -560,7 +560,7 @@ export class Reconstruction extends BaseModel {
             throw new UnauthorizedError();
         }
 
-        if (reconstruction.status != ReconstructionStatus.PeerReview && reconstruction.status != ReconstructionStatus.PublishReview) {
+        if (reconstruction.status != ReconstructionStatus.PeerReview && reconstruction.status != ReconstructionStatus.PublishReview && reconstruction.status != ReconstructionStatus.ReadyToPublish) {
             throw new Error("Requested status must be Peer Review or Publish Review")
         }
 
