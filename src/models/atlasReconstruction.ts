@@ -368,7 +368,7 @@ export class AtlasReconstruction extends BaseModel {
 
         const update = {status: AtlasReconstructionStatus.PendingSearchIndexing};
 
-        await this.update(update);
+        await this.update(update, {transaction: t});
 
         await this.recordEvent(EventLogItemKind.AtlasReconstructionIndexingRequest, update, user, t);
 
@@ -398,11 +398,11 @@ export class AtlasReconstruction extends BaseModel {
                 publishedAt: now,
             }
 
-            await this.update(update);
+            await this.update(update, {transaction: t});
 
             await this.recordEvent(EventLogItemKind.AtlasReconstructionIndexingComplete, update, user, t);
 
-            const reconstruction = await this.getReconstruction();
+            const reconstruction = await this.getReconstruction({transaction: t});
 
             await reconstruction.onAtlasReconstructionStatusChanged(user, update.status, t);
         });

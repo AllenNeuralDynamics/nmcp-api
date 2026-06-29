@@ -607,6 +607,11 @@ export class Reconstruction extends BaseModel {
     }
 
     private async publishWithTransaction(user: User, replaceExisting: boolean, t: Transaction): Promise<Reconstruction> {
+        // Guard here (not just in publish) so bulk publishing can not push a reconstruction that is not ready into the publish path.
+        if (this.AtlasReconstruction?.nodeCounts == null || this.status != ReconstructionStatus.ReadyToPublish) {
+            throw new Error("The reconstruction is not in a publishable state");
+        }
+
         const existingPublished = await Reconstruction.findOne({where: {neuronId: this.neuronId, status: ReconstructionStatus.Published}});
 
         if (existingPublished) {
@@ -753,15 +758,26 @@ export class Reconstruction extends BaseModel {
             reconstructions = await this.findAll({where: {id: {[Op.in]: reconstructionIds}}, include: [{model: AtlasReconstruction}]});
         }
 
-        return await this.sequelize.transaction(async (t) => {
-            const updated = [];
+        const updated: Reconstruction[] = [];
+        const failures: { id: string; error: string }[] = [];
 
-            for (const r of reconstructions) {
-                updated.push(await r.publishWithTransaction(user, false, t));
+        // Publish each reconstruction in its own transaction so one failure does not roll back the others.  Attempt all,
+        // then surface a single error listing every reconstruction that could not be published.
+        for (const reconstruction of reconstructions) {
+            try {
+                updated.push(await this.sequelize.transaction(async (t) => {
+                    return await reconstruction.publishWithTransaction(user, false, t);
+                }));
+            } catch (error) {
+                failures.push({id: reconstruction.id, error: error instanceof Error ? error.message : String(error)});
             }
+        }
 
-            return updated;
-        });
+        if (failures.length > 0) {
+            throw new Error(`Failed to publish ${failures.length} of ${reconstructions.length} reconstruction(s): ${failures.map(failure => `${failure.id} (${failure.error})`).join("; ")}`);
+        }
+
+        return updated;
     }
 
     public static async validateDois(user: User): Promise<number> {
