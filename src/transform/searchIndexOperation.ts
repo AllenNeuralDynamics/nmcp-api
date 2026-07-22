@@ -54,7 +54,7 @@ export class SearchIndexOperation {
 
         this._populateCompartmentMap(nodeCountMap, this._soma);
 
-        if (this._neuronSomaStructureId != this._soma.atlasStructureId) {
+        if (this._neuronSomaStructureId && this._neuronSomaStructureId != this._soma.atlasStructureId) {
             // If the Neuron has a manually assigned soma atlas structure, and it does not match the automatic atlas structure,
             // include soma in the entries for this atlas structure.  That allows searches by soma to return the neuron for both
             // the manual and automatic structures.

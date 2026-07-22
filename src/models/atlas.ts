@@ -114,6 +114,9 @@ export class Atlas extends BaseModel {
         return this._structureByStructureId.get(id) ?? null;
     }
 
+    // Expansion is intentionally one-directional (down the ontology only).  Selecting an outer region is meant to
+    // include everything within it, not just what is assigned to that region exactly.  Selecting a specific region is
+    // not meant to pull in the more general regions containing it.
     public getComprehensiveBrainArea(id: string): string[] {
         return this._structureTreeById.get(id) ?? null;
     }

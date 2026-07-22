@@ -24,7 +24,7 @@ The first predicate's `composition` value is ignored; its results always form th
 
 Predicates are evaluated left to right. Each predicate runs independently against the SearchIndex, producing a set of neuron IDs. The sets are then combined sequentially using the composition operator.
 
-**Example with three predicates:**
+**Example with three predicates: **
 
 1. Predicate A produces `{N1, N2, N3}`
 2. Predicate B (OR) produces `{N3, N4}` &rarr; accumulated = `{N1, N2, N3, N4}`

@@ -109,6 +109,8 @@ export class QueryPredicate implements PredicateShape {
         const applicableCompartments = this.anatomicalPredicate?.atlasStructureIds?.filter(id => id != wholeBrainId);
 
         if (applicableCompartments?.length > 0) {
+            // Only the selected structures are expanded, and only downward, so an index entry matches when its
+            // structure falls within the selection but not when it is an ancestor of the selection.
             // TODO Atlas which atlas should not be hard-coded.
             const comprehensiveBrainAreas = applicableCompartments.map(id => Atlas.defaultAtlas.getComprehensiveBrainArea(id)).reduce((prev, curr) => {
                 return prev.concat(curr);
