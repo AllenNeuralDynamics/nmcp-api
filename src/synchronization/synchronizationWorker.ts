@@ -3,19 +3,28 @@ import {AtlasReconstruction} from "../models/atlasReconstruction";
 import {QualityControl} from "../models/qualityControl";
 import {User} from "../models/user";
 import {SynchronizationWorkerNotification} from "./synchonizationManager";
+import {ServiceBackoff} from "./serviceBackoff";
 
 const debug = require("debug")("nmcp:synchronization:synchronization-worker");
 
 const defaultBatchSize = 10;
 
-setTimeout(async () => {
-    debug("synchronization worker starting");
+const defaultIntervalSeconds = 60;
+const qcBackoffBaseMs = defaultIntervalSeconds * 1000;   // 60s: first retry after one normal interval
+const qcBackoffMaxMs = 5 * 60 * 1000;                    // cap at 5 minutes
 
-    await RemoteDatabaseClient.Start();
+const qcBackoff = new ServiceBackoff(qcBackoffBaseMs, qcBackoffMaxMs);
 
-    await performSynchronization();
+if (require.main === module) {
+    setTimeout(async () => {
+        debug("synchronization worker starting");
 
-}, 1000);
+        await RemoteDatabaseClient.Start();
+
+        await performSynchronization();
+
+    }, 1000);
+}
 
 /**
  * Perform one pass of synchronizing published reconstruction data.
@@ -23,7 +32,7 @@ setTimeout(async () => {
  * @param repeat - `true` to call itself repeatedly as the specified interval (default `true`)
  * @param intervalSeconds - delay in seconds between successive calls when `repeat` is `true` (default `60`)
  */
-async function performSynchronization(repeat: boolean = true, intervalSeconds = 60) {
+async function performSynchronization(repeat: boolean = true, intervalSeconds = defaultIntervalSeconds) {
     let intervalStart = Date.now();
 
     // Would like to complete processing, where possible, in batches, rather than doing all QC, before moving on to the next step, etc.
@@ -52,36 +61,50 @@ let sanityStructureCheckCount = sanityCheckInterval - 1;
 let sanitySearchContentsCheckCount = sanityCheckInterval - 1;
 
 async function performQualityControl(batchSize: number): Promise<boolean> {
+    if (!qcBackoff.ready(Date.now())) {
+        // Backing off from an unavailable QC service; skip cheaply so the other
+        // steps keep running without re-hammering the service or spamming logs.
+        return false;
+    }
+
     const pending = await QualityControl.getPending(batchSize);
 
-    if (pending.length > 0) {
-        debug(`${pending.length} or more quality control calls are pending`);
-
-        for (const qc of pending) {
-            // Success == service was available and called, not whether QC passed.
-            const success = await qc.assess(User.SystemInternalUser);
-
-            if (!success) {
-                debug(`issue with QC service - skipping any further pending items`);
-                break;
-            }
-
-            // TODO Put in phase to check QC service availability with expo backoff to some longer duration.  Needs health check in QC service.
-        }
-
-        sanityQualityCheckPendingCount = 0;
-
-        return pending.length == batchSize;
-    } else {
+    if (pending.length === 0) {
         sanityQualityCheckPendingCount++;
 
         if (sanityQualityCheckPendingCount >= sanityCheckInterval) {
             debug(`there are no reconstructions with quality control check pending`);
             sanityQualityCheckPendingCount = 0;
         }
+
+        return false;
     }
 
-    return false;
+    debug(`${pending.length} or more quality control calls are pending`);
+    sanityQualityCheckPendingCount = 0;
+
+    let processed = 0;
+
+    for (const qc of pending) {
+        // Success == service was available and called, not whether QC passed.
+        const success = await qc.assess(User.SystemInternalUser);
+
+        if (!success) {
+            if (qcBackoff.recordFailure(Date.now())) {
+                debug(`QC service unavailable - backing off, next attempt in ${qcBackoff.currentDelay}ms`);
+            }
+
+            return false;
+        }
+
+        processed++;
+    }
+
+    if (qcBackoff.recordSuccess()) {
+        debug(`QC service recovered`);
+    }
+
+    return processed === batchSize;
 }
 
 async function performStructureAssignments(batchSize: number): Promise<boolean> {
@@ -137,3 +160,5 @@ async function performSearchIndexing(batchSize: number): Promise<boolean> {
 
     return false;
 }
+
+export {performQualityControl, qcBackoff};
