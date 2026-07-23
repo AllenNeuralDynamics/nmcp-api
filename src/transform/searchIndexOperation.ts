@@ -107,8 +107,9 @@ export class SearchIndexOperation {
             let counts = nodeCountMap.get(atlasStructureId);
 
             counts.addNode(node);
-        } {
+        } else {
             // TODO SystemError that structure assigment didn't default to root structure.
+            debug(`node ${node.id} has no atlas structure assignment and is excluded from the search index`);
         }
     }
 

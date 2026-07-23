@@ -6,13 +6,12 @@ import {ApolloServer} from '@apollo/server';
 import {expressMiddleware} from '@apollo/server/express4';
 
 const graphqlUploadExpress = require('graphql-upload/graphqlUploadExpress.js');
-import {jwtDecode} from "jwt-decode";
-import moment = require("moment");
 
 const debug = require("debug")("mnb:nmcp-api:server");
 
 import {ServiceOptions} from "./options/serviceOptions";
 import {RemoteDatabaseClient} from "./data-access/remoteDatabaseClient";
+import {initializeTokenVerifier, validateToken} from "./data-access/auth/tokenVerifier";
 
 import {synchronizationManagerStart} from "./synchronization/synchonizationManager";
 import {User} from "./models/user";
@@ -49,25 +48,30 @@ async function start() {
 
     const requireAuthentication = ServiceOptions.requireAuthentication;
 
+    if (requireAuthentication) {
+        await initializeTokenVerifier();
+    }
+
     app.use(
         ServiceOptions.graphQLEndpoint,
         cors<cors.CorsRequest>(),
         express.json(),
         expressMiddleware(server, {
             context: async ({req, res}) => {
-                const token = req.headers.authorization || null;
+                const authorization = req.headers.authorization || null;
 
                 let user = null;
 
                 if (requireAuthentication) {
-                    let [scopes, tokenUser] = await validateToken(token);
+                    let [scopes, tokenUser] = await validateToken(authorization);
 
                     if (scopes != null) {
                         user = tokenUser;
                     }
 
+                    // The API key path compares the header value exactly, so it receives the unmodified header.
                     if (!user) {
-                        user = await ApiKey.authenticateKey(token);
+                        user = await ApiKey.authenticateKey(authorization);
                     }
                 }
 
@@ -92,43 +96,4 @@ async function start() {
     app.listen(ServiceOptions.port, () => debug(`nmcp api server is now running on http://${os.hostname()}:${ServiceOptions.port}/graphql`));
 }
 
-export type TokenOutput = [scopes: string[], user: User];
-
-async function validateToken(token: string): Promise<TokenOutput> {
-    if (token == null) {
-        return [[], null];
-    }
-
-    let decoded = null;
-
-    try {
-        decoded = jwtDecode(token);
-    } catch {
-        return [[], null];
-    }
-    
-    //@ts-ignore
-    if (decoded.appid != ServiceOptions.b2cAuthenticationOptions.clientId) {
-        return [[], null];
-    }
-
-    let now = moment.utc().valueOf()
-
-    // JWT time is in seconds
-    if (now < decoded.nbf * 1000 || now > decoded.exp * 1000) {
-        return [[], null];
-    }
-
-    let upn = (decoded["upn"] && decoded.upn.length > 0) ? decoded.upn : "";
-
-    if (!upn && decoded.email) {
-        // Guest accounts in the directory will generally have email populated rather than upn for email address.
-        upn = decoded.email;
-    }
-
-    //@ts-ignore
-    const user = await User.findOrCreateUser(decoded.oid, decoded.given_name, decoded.family_name, upn);
-
-    //@ts-ignore
-    return [decoded.scp.split(" "), user];
-}
+export {TokenOutput} from "./data-access/auth/tokenVerifier";

@@ -1,18 +1,16 @@
 import * as path from "path";
 import * as fs from "fs";
 
-type B2CAuthenticationOptions = {
-    tenantName: string;
-    audience: string;
-    clientId: string;
-    policyName: string;
+export type EntraAuthenticationOptions = {
+    apiAppId: string;
+    tenantId: string;
 }
 
 type IServiceOptions = {
     port: number;
     graphQLEndpoint: string;
     requireAuthentication: boolean;
-    b2cAuthenticationOptions: B2CAuthenticationOptions;
+    entraAuthenticationOptions: EntraAuthenticationOptions;
     serverAuthenticationKey: string;
     fixturePath: string;
     seedUserItems: boolean;
@@ -26,13 +24,11 @@ const configuration: IServiceOptions = {
     graphQLEndpoint: "/graphql",
     fixturePath: "fixtures",
     requireAuthentication: process.env.NMCP_AUTH_REQUIRED !== "false",
-    b2cAuthenticationOptions: {
-        tenantName: process.env.NMCP_AUTHENTICATION_TENANT_NAME || "",
-        audience: process.env.NMCP_AUTHENTICATION_AUDIENCE || "",
-        clientId: process.env.NMCP_AUTHENTICATION_CLIENT_ID || "",
-        policyName: process.env.NMCP_AUTHENTICATION_POLICY_NAME || "B2C_1_susi"
+    entraAuthenticationOptions: {
+        apiAppId: process.env.NMCP_AUTHENTICATION_API_APP_ID,
+        tenantId: process.env.NMCP_AUTHENTICATION_TENANT_ID
     },
-    serverAuthenticationKey: process.env.NMCP_AUTHENTICATION_KEY || null,
+    serverAuthenticationKey: process.env.NMCP_SERVER_KEY || null,
     seedUserItems: process.env.NMCP_SEED_USER_ITEMS === "true",
     ccfv30OntologyPath: "ccfv30_raw.nrrd",
     allowExperimentalFeatures:  process.env.NMCP_EXPERIMENTAL_ENV === "true",
