@@ -5,7 +5,7 @@ import {NodeStructure} from "./nodeStructure";
 import {Atlas} from "./atlas";
 import {NeuronStructure} from "./neuronStructure";
 
-const debug = require("debug")("mnb:search-api:query-predicate");
+const debug = require("debug")("nmcp:search-api:query-predicate");
 
 export enum PredicateType {
     AnatomicalRegion = 1,

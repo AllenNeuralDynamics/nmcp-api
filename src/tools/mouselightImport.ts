@@ -10,6 +10,7 @@ import {ReconstructionSpace} from "../models/reconstructionSpace";
 import {ReconstructionStatus} from "../models/reconstructionStatus";
 import {Specimen, SpecimenShape} from "../models/specimen";
 import {User} from "../models/user";
+import {normalizeKeywords} from "../util/keywords";
 
 const debug = require("debug")("nmcp:api:mouselight");
 
@@ -103,14 +104,6 @@ const immutableReconstructionStatus = [ReconstructionStatus.Published, Reconstru
 
 function buildBaseUrl(host: string, port?: string): string {
     return port ? `${host}:${port}` : host;
-}
-
-function splitKeywords(keywords?: string): string[] {
-    if (!keywords) {
-        return [];
-    }
-
-    return keywords.split(",").map(kw => kw.trim()).filter(kw => kw.length > 0);
 }
 
 async function queryMouseLight<T>(baseUrl: string, query: string): Promise<T> {
@@ -347,7 +340,9 @@ async function importNeuron(specimen: Specimen, mlNeuron: MlNeuron, exportNeuron
         atlasSoma,
         specimenSoma: {x: 0, y: 0, z: 0},
         atlasStructureId,
-        keywords: splitKeywords(mlNeuron.keywords)
+        // MouseLight supplies keywords as one comma-separated string, a convention that is this source's
+        // alone - the split has to happen here because nothing downstream treats a comma as a separator.
+        keywords: normalizeKeywords((mlNeuron.keywords ?? "").split(","))
     };
 
     const neuron = await Neuron.createOrUpdateForShape(neuronShape, User.SystemAutomationUser, {allowCreate: true, allowMatchLabel: true});

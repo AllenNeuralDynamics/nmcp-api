@@ -1,7 +1,7 @@
 import {ServiceOptions, EntraAuthenticationOptions} from "../../options/serviceOptions";
 import {User} from "../../models/user";
 
-const debug = require("debug")("mnb:nmcp-api:token-verifier");
+const debug = require("debug")("nmcp:nmcp-api:token-verifier");
 
 // Deployment clock skew only.  Anything larger starts to undermine the expiration claim.
 const ClockToleranceSeconds = 30;
