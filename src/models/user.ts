@@ -12,7 +12,7 @@ import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {UnauthorizedError} from "../graphql/secureResolvers";
 import {PortalUser} from "../io/portalFormat";
 
-const debug = require("debug")("mnb:nmcp-api:user");
+const debug = require("debug")("nmcp:nmcp-api:user");
 
 export type UserQueryInput = OffsetAndLimit & {
     includeImported: boolean;

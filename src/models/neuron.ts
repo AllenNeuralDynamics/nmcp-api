@@ -1,4 +1,15 @@
-import {BelongsToGetAssociationMixin, DataTypes, FindOptions, HasManyGetAssociationsMixin, Includeable, literal, Op, Sequelize, Transaction} from "sequelize";
+import {
+    BelongsToGetAssociationMixin,
+    DataTypes,
+    FindOptions,
+    HasManyGetAssociationsMixin,
+    Includeable,
+    IncludeOptions,
+    literal,
+    Op,
+    Sequelize,
+    Transaction
+} from "sequelize";
 import "fs";
 import * as _ from "lodash";
 
@@ -21,6 +32,8 @@ import {SearchQueryMetrics, SearchPredicateMetrics} from "../data-access/searchM
 import {AtlasReconstruction} from "./atlasReconstruction";
 import {User} from "./user";
 import {UnauthorizedError} from "../graphql/secureResolvers";
+import {normalizeKeywords, substringMatchPatterns} from "../util/keywords";
+import {Genotype} from "./genotype";
 import {isNullOrEmpty} from "../util/objectUtil";
 import {Reconstruction} from "./reconstruction";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
@@ -69,6 +82,7 @@ export type NeuronQueryInput =
     & WithAtlasStructureQueryInput
     & {
     keywords?: string[];
+    genotype?: string[];
     somaProperties?: SomaFilterInput;
     status: NeuronStatusFilter;
 };
@@ -135,22 +149,54 @@ export class Neuron extends BaseModel {
         return await Reconstruction.count({where: {status: ReconstructionStatus.Published}, distinct: true, col: "neuronId"});
     }
 
+    /**
+     * The parent specimen include, filtered on genotype when requested.  Deliberately a case-insensitive
+     * substring match so that partial entry works, consistent with keyword filtering.
+     */
+    private static specimenInclude(input: NeuronQueryInput, attributes: string[] = null): IncludeOptions {
+        const include: IncludeOptions = {model: Specimen, as: "Specimen"};
+
+        if (attributes) {
+            include.attributes = attributes;
+        }
+
+        const patterns = substringMatchPatterns(input?.genotype);
+
+        if (patterns.length > 0) {
+            // Inner joins so that a neuron whose specimen has no matching genotype drops out rather than
+            // coming back with a null association.
+            include.required = true;
+            include.include = [{
+                model: Genotype,
+                attributes: [],
+                required: true,
+                where: {name: {[Op.iLike]: {[Op.any]: patterns}}}
+            }];
+        }
+
+        return include;
+    }
+
     private static applyNeuronFilters(options: FindOptions, input: NeuronQueryInput): void {
-        const keywords = input?.keywords?.filter(k => k && k.trim().length > 0) ?? [];
+        // Deliberately a substring match so that partial entry works.
+        const patterns = substringMatchPatterns(input?.keywords);
 
         if (!options) {
             options = {};
         }
 
-        if (keywords.length > 0) {
+        if (patterns.length > 0) {
             if (!options.where) {
                 options.where = {};
             }
+
             options.where["keywords"] = literal(`EXISTS (
             SELECT 1
             FROM jsonb_array_elements_text("Neuron"."keywords") AS elem
-            WHERE elem ILIKE '%${keywords[0]}%'
+            WHERE elem ILIKE ANY(ARRAY[:neuronKeywords])
           )`);
+
+            options["replacements"] = {...(options["replacements"] ?? {}), neuronKeywords: patterns};
         }
 
         if (input?.somaProperties) {
@@ -235,7 +281,7 @@ export class Neuron extends BaseModel {
         //  to have been added to the input args, and will be used for this step instead of hard-coded defaultAtlas.
         options = optionsWhereAtlasStructureIds(input, Atlas.defaultAtlas, options);
 
-        (options.include as Includeable[]).push({model: Specimen, as: "Specimen", attributes: ["id", "label"]});
+        (options.include as Includeable[]).push(this.specimenInclude(input, ["id", "label"]));
 
         if (input.specimenIds && input.specimenIds.length > 0) {
             options.where["$Specimen.id$"] = {[Op.in]: input.specimenIds}
@@ -245,13 +291,9 @@ export class Neuron extends BaseModel {
 
         options["order"] = [["Specimen", "label", "ASC"], ["label", "ASC"]];
 
-        try {
-            const candidateNeurons = await Neuron.findAll(options);
+        const candidateNeurons = await Neuron.findAll(options);
 
-            return {totalCount, offset: options.offset ?? 0, items: candidateNeurons};
-        } catch (e) {
-            return {totalCount: 0, offset: 0, items: []}
-        }
+        return {totalCount, offset: options.offset ?? 0, items: candidateNeurons};
     }
 
     private static async isDuplicate(label: string, specimenId: string, id: string = null): Promise<boolean> {
@@ -307,7 +349,7 @@ export class Neuron extends BaseModel {
 
         const shape: NeuronShape = {
             label: (inputShape.label ?? "").trim(),
-            keywords: inputShape.keywords ?? [],
+            keywords: normalizeKeywords(inputShape.keywords),
             specimenSoma: inputShape.specimenSoma ?? {x: 0, y: 0, z: 0},
             atlasSoma: inputShape.atlasSoma ?? {x: 0, y: 0, z: 0},
             atlasStructureId: inputShape.atlasStructureId,
@@ -345,8 +387,8 @@ export class Neuron extends BaseModel {
         }
 
         // Undefined is ok (no update) - but prefer not null
-        if (shape.keywords === null) {
-            shape.keywords = [];
+        if (shape.keywords !== undefined) {
+            shape.keywords = normalizeKeywords(shape.keywords);
         }
 
         if (shape.specimenSoma === null) {
@@ -456,6 +498,7 @@ export class Neuron extends BaseModel {
         try {
             for (const shape of shapes) {
                 shape.label = `N${String(labelBase + nextNumber++).padStart(3, "0")}`;
+                shape.keywords = normalizeKeywords(shape.keywords);
 
                 if (t) {
                     await this.createWithTransaction(shape, user, t);
@@ -537,8 +580,8 @@ export class Neuron extends BaseModel {
             shape.atlasStructureId = null;
         }
 
-        if (shape.keywords === null) {
-            shape.keywords = [];
+        if (shape.keywords !== undefined) {
+            shape.keywords = normalizeKeywords(shape.keywords);
         }
     }
 
@@ -611,7 +654,7 @@ export class Neuron extends BaseModel {
     }
 
     private static constructFindOptions(input: NeuronQueryInput): FindOptions {
-        let options: FindOptions = optionsWhereIds(input, {where: null, include: [{model: Specimen, as: "Specimen"}]});
+        let options: FindOptions = optionsWhereIds(input, {where: null, include: [this.specimenInclude(input)]});
 
         options = optionsWhereSpecimenIds(input, options);
 
@@ -698,6 +741,7 @@ export const modelInit = (sequelize: Sequelize) => {
         },
         keywords: {
             type: DataTypes.JSONB,
+            allowNull: false,
             defaultValue: []
         },
         specimenSoma: {

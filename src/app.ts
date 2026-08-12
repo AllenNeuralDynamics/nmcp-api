@@ -7,7 +7,7 @@ import {expressMiddleware} from '@apollo/server/express4';
 
 const graphqlUploadExpress = require('graphql-upload/graphqlUploadExpress.js');
 
-const debug = require("debug")("mnb:nmcp-api:server");
+const debug = require("debug")("nmcp:nmcp-api:server");
 
 import {ServiceOptions} from "./options/serviceOptions";
 import {RemoteDatabaseClient} from "./data-access/remoteDatabaseClient";

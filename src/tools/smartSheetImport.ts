@@ -310,6 +310,8 @@ async function specimenDataFromRow(s: SpecimenRowContents, insertReconstructions
             atlasSoma: n.atlasSoma,
             specimenSoma: n.specimenSoma,
             atlasStructureId: somaAtlasStructure,
+            // The whole cell is one keyword whatever it contains - a value such as "Last, First" is a single
+            // entry, not two.
             keywords: assigned.length > 0 ? [assigned] : []
         };
 

@@ -7,7 +7,7 @@ import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {UnauthorizedError} from "../graphql/secureResolvers";
 import {Neuron} from "./neuron";
 
-const debug = require("debug")("mnb:nmcp-api:issue");
+const debug = require("debug")("nmcp:nmcp-api:issue");
 
 export enum IssueKind {
     Uncategorized = 0,

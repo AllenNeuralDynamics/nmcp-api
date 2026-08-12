@@ -23,6 +23,7 @@ import {UnauthorizedError} from "../graphql/secureResolvers";
 import {Atlas} from "./atlas";
 import {parseSomaPropertySteam} from "../io/somaPropertyParser";
 import {PortalSpecimen} from "../io/portalFormat";
+import {normalizeKeywords} from "../util/keywords";
 
 const debug = require("debug")("nmcp:nmcp-api:specimen-model");
 
@@ -59,7 +60,7 @@ export type SpecimenCreateOrUpdateOptions = {
 export type CandidateImportOptions = {
     source?: string;
     specimenId: string;
-    keywords: string[];
+    keywords?: string[];
     shouldLookupSoma: boolean;
     defaultBrightness: number;
     defaultVolume: number;
@@ -149,6 +150,7 @@ export class Specimen extends BaseModel {
 
         shape.label ??= "";
         shape.notes ??= "";
+        shape.keywords = normalizeKeywords(shape.keywords);
         // TODO Atlas Should not use a default until officially supporting multiple atlases.
         shape.atlasId ??= Atlas.defaultAtlas.id;
 
@@ -178,6 +180,10 @@ export class Specimen extends BaseModel {
 
         if (shape.notes === null) {
             shape.notes = "";
+        }
+
+        if (shape.keywords !== undefined) {
+            shape.keywords = normalizeKeywords(shape.keywords);
         }
 
         if (shape.collectionId === null) {
@@ -387,6 +393,7 @@ export const modelInit = (sequelize: Sequelize) => {
         referenceDate: DataTypes.DATE,
         keywords: {
             type: DataTypes.JSONB,
+            allowNull: false,
             defaultValue: []
         },
         notes: {

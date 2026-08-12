@@ -7,6 +7,7 @@ import {
     HasManyGetAssociationsMixin,
     HasOneGetAssociationMixin,
     Includeable,
+    literal,
     Op,
     OrderItem,
     Sequelize,
@@ -20,9 +21,10 @@ import {mapToSpecimenNodeShape, SpecimenNode, SpecimenNodeShape} from "./specime
 import {Neuron} from "./neuron";
 import {User} from "./user";
 import {GqlFile, UnauthorizedError} from "../graphql/secureResolvers";
-import {ReconstructionTableName} from "./tableNames";
+import {NeuronTableName, ReconstructionTableName} from "./tableNames";
 import {ReconstructionSpace} from "./reconstructionSpace";
 import {Specimen} from "./specimen";
+import {substringMatchPatterns} from "../util/keywords";
 import {ReconstructionStatus} from "./reconstructionStatus";
 import {AtlasReconstruction, AtlasReconstructionShape} from "./atlasReconstruction";
 import {AtlasReconstructionStatus} from "./atlasReconstructionStatus";
@@ -226,6 +228,26 @@ export class Reconstruction extends BaseModel {
 
         if (args.specimenIds && args.specimenIds.length > 0) {
             options.where["$Neuron.Specimen.id$"] = {[Op.in]: args.specimenIds}
+        }
+
+        const keywordPatterns = substringMatchPatterns(args.keywords);
+
+        if (keywordPatterns.length > 0) {
+            // Correlated on neuronId rather than the joined "Neuron" alias, so the predicate stays valid even
+            // when Sequelize moves the where clause into a paging sub-query that the join is not part of.
+            options.where[Op.and] = [literal(`EXISTS (
+            SELECT 1
+            FROM "${NeuronTableName}" AS keyword_neuron
+            WHERE keyword_neuron."id" = "${ReconstructionTableName}"."neuronId"
+              AND keyword_neuron."deletedAt" IS NULL
+              AND EXISTS (
+                  SELECT 1
+                  FROM jsonb_array_elements_text(keyword_neuron."keywords") AS elem
+                  WHERE elem ILIKE ANY(ARRAY[:reconstructionKeywords])
+              )
+          )`)];
+
+            options["replacements"] = {...(options["replacements"] ?? {}), reconstructionKeywords: keywordPatterns};
         }
 
         out.total = await this.setSortAndLimiting(options, args);

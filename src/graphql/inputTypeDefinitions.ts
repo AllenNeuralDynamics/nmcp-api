@@ -51,6 +51,7 @@ export const inputTypeDefinitions = gql`
         specimenIds: [String!]
         atlasStructureIds: [String!]
         keywords: [String!]
+        genotype: [String!]
         somaProperties: SomaPropertyInput
         status: Int
         offset: Int
@@ -63,7 +64,7 @@ export const inputTypeDefinitions = gql`
         userOnly: Boolean
         status: [Int!]
         specimenIds: [String!]
-        keywords:  [String!]
+        keywords: [String!]
     }
 
     input InjectionInput {
