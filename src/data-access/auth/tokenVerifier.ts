@@ -180,7 +180,7 @@ export async function createTokenVerifier(configuration: ResolvedAuthenticationC
                 // The signal for when the legacy issuer and audience forms can be removed.  When this stops appearing
                 // for every environment, every app registration has moved to accessTokenAcceptedVersion 2.
                 if (payload?.ver !== "2.0") {
-                    debug(`accepted a v${payload?.ver ?? "1.0"} token from issuer ${payload?.iss}`);
+                    // debug(`accepted a v${payload?.ver ?? "1.0"} token from issuer ${payload?.iss}`);
                 }
 
                 return identityFromPayload(payload);

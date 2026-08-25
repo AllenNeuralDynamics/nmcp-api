@@ -48,6 +48,17 @@ import {PortalAnnotationSpace, PortalNode, PortalReconstruction} from "../io/por
 
 const debug = require("debug")("nmcp:nmcp-api:reconstruction");
 
+/**
+ * Statuses that no longer count as an open annotation when enforcing the single-annotation limit.  Anything not
+ * listed here holds the annotator's one slot.  Revise this list if other statuses should stop counting.
+ */
+export const ClosedReconstructionStatuses: ReconstructionStatus[] = [
+    ReconstructionStatus.Rejected,
+    ReconstructionStatus.Published,
+    ReconstructionStatus.Archived,
+    ReconstructionStatus.Discarded
+];
+
 export type ReconstructionsQueryArgs = {
     status: ReconstructionStatus[];
     offset: number;
@@ -204,7 +215,7 @@ export class Reconstruction extends BaseModel {
     }
 
     public static async getAll(user: User, args: ReconstructionsQueryArgs, include: Includeable[] = [], disregardAuth: boolean = false): Promise<ReconstructionQueryResponse> {
-        if (!disregardAuth && !user?.canViewReconstructions()) {
+        if (!disregardAuth && !user?.canViewData()) {
             throw new UnauthorizedError();
         }
 
@@ -271,7 +282,7 @@ export class Reconstruction extends BaseModel {
     }
 
     public static async findOrOpenReconstruction(neuronId: string, user: User, substituteUser: User = null): Promise<Reconstruction> {
-        if (!user?.canViewReconstructions()) {
+        if (!user?.canViewData()) {
             throw new UnauthorizedError();
         }
 
@@ -286,7 +297,7 @@ export class Reconstruction extends BaseModel {
             return existing;
         }
 
-        const [reconstruction, _] = await this.openReconstruction(neuronId, user, null, substituteUser);
+        const [reconstruction, _] = await this.openReconstruction(neuronId, user, null, substituteUser, false);
 
         return reconstruction;
     }
@@ -372,18 +383,26 @@ export class Reconstruction extends BaseModel {
         }
     }
 
-    public static async openReconstruction(neuronId: string, userOrId: string | User, transaction: Transaction = null, substituteUser: User = null): Promise<[Reconstruction, boolean]> {
+    public static async openReconstruction(neuronId: string, userOrId: string | User, transaction: Transaction = null, substituteUser: User = null, enforceAnnotationLimit: boolean = true): Promise<[Reconstruction, boolean]> {
         const user = await User.findUserOrId(userOrId);
 
         if (!user?.canAnnotate()) {
             throw new UnauthorizedError();
         }
 
+        const enforceLimit = enforceAnnotationLimit && !user.canAnnotateMultiple();
+
         const ownTransaction = transaction == null;
 
         const t = ownTransaction ? await Reconstruction.sequelize.transaction() : transaction;
 
         try {
+            if (enforceLimit) {
+                // Serializes concurrent opens for this annotator so the one-open-annotation check below can not be
+                // read by two transactions at once.  Released when the transaction ends.
+                await User.findByPk(user.id, {transaction: t, lock: Transaction.LOCK.UPDATE});
+            }
+
             // A user cannot open a new reconstruction if they have one that is not in a finalized state such as published or archived.
             const whereStatus = {status: {[Op.notIn]: [ReconstructionStatus.Published, ReconstructionStatus.Archived, ReconstructionStatus.Discarded]}};
 
@@ -396,7 +415,24 @@ export class Reconstruction extends BaseModel {
             });
 
             if (existingReconstruction) {
+                if (ownTransaction) {
+                    await t.commit();
+                }
+
                 return [existingReconstruction, true];
+            }
+
+            if (enforceLimit) {
+                const openCount = await Reconstruction.count({
+                    where: {
+                        annotatorId: user.id,
+                        status: {[Op.notIn]: ClosedReconstructionStatuses}
+                    }, transaction: t
+                });
+
+                if (openCount > 0) {
+                    throw new GraphQLError("You already have an annotation in progress.  Complete or discard it before starting another.", {extensions: {code: 1002}});
+                }
             }
 
             const shape: ReconstructionShape = {

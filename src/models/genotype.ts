@@ -5,9 +5,18 @@ import {Specimen} from "./specimen";
 import {GenotypeTableName} from "./tableNames";
 import {User} from "./user";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
+import {UnauthorizedError} from "../graphql/secureResolvers";
 
 export class Genotype extends BaseModel {
     public name: string;
+
+    public static async getById(user: User, id: string): Promise<Genotype> {
+        if (!user?.canViewData()) {
+            throw new UnauthorizedError();
+        }
+
+        return Genotype.findByPk(id);
+    }
 
     /**
      * Complex where clause to allow for case-insensitive requires defaults property.  Wrapping for consistency.

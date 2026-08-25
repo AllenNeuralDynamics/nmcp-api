@@ -127,6 +127,14 @@ export class Specimen extends BaseModel {
         }, t);
     }
 
+    public static async getById(user: User, id: string): Promise<Specimen> {
+        if (!user?.canViewData()) {
+            throw new UnauthorizedError();
+        }
+
+        return Specimen.findByPk(id);
+    }
+
     public static async getAll(input: SpecimenQueryArgs): Promise<EntityQueryOutput<Specimen>> {
         let options: FindOptions = optionsWhereIds(input, {where: null, include: []});
 
