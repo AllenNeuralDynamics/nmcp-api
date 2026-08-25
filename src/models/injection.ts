@@ -37,7 +37,19 @@ export class Injection extends BaseModel {
     public readonly InjectionVirus?: InjectionVirus;
     public readonly Fluorophore?: Fluorophore;
 
-    public static async getAll(input: InjectionQueryInput): Promise<Injection[]> {
+    public static async getById(user: User, id: string): Promise<Injection> {
+        if (!user?.canViewData()) {
+            throw new UnauthorizedError();
+        }
+
+        return Injection.findByPk(id);
+    }
+
+    public static async getAll(user: User, input: InjectionQueryInput): Promise<Injection[]> {
+        if (!user?.canViewData()) {
+            throw new UnauthorizedError();
+        }
+
         const options = optionsWhereSpecimenIds(input, {where: null, include: []});
 
         return Injection.findAll(options);

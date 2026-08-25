@@ -68,43 +68,23 @@ export const secureResolvers = {
         },
 
         genotype(_: any, args: { id: string }, context: User): Promise<Genotype> {
-            if (context.permissions & UserPermissions.ViewAll) {
-                return Genotype.findByPk(args.id);
-            }
-
-            throw new UnauthorizedError();
+            return Genotype.getById(context, args.id);
         },
 
         injection(_: any, args: { id: string }, context: User): Promise<Injection> {
-            if (context.permissions & UserPermissions.ViewAll) {
-                return Injection.findByPk(args.id);
-            }
-
-            throw new UnauthorizedError();
+            return Injection.getById(context, args.id);
         },
 
         injections(_: any, args: { input: InjectionQueryInput }, context: User): Promise<Injection[]> {
-            if (context.permissions & UserPermissions.ViewAll) {
-                return Injection.getAll(args.input);
-            }
-
-            throw new UnauthorizedError();
+            return Injection.getAll(context, args.input);
         },
 
         specimen(_: any, args: { id: string }, context: User): Promise<Specimen> {
-            if (context.permissions & UserPermissions.ViewAll) {
-                return Specimen.findByPk(args.id);
-            }
-
-            throw new UnauthorizedError();
+            return Specimen.getById(context, args.id);
         },
 
         neurons(_: any, args: { input: NeuronQueryInput }, context: User): Promise<EntityQueryOutput<Neuron>> {
-            if (context.permissions & UserPermissions.ViewAll) {
-                return Neuron.getAll(args.input);
-            }
-
-            throw new UnauthorizedError();
+            return Neuron.getAll(context, args.input);
         },
 
         reconstructions(_: any, args: { queryArgs: ReconstructionsQueryArgs }, user: User): Promise<ReconstructionQueryResponse> {

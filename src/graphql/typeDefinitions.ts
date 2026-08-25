@@ -152,11 +152,13 @@ export const typeDefinitions = gql`
 
         importSomas(file: Upload!, options: ImportSomasOptions!): Int!
 
+        """Opens a new reconstruction for the neuron.  Errors with code 1002 if the user is limited to a single open annotation and already has one."""
         openReconstruction(neuronId: String!): Reconstruction
         pauseReconstruction(reconstructionId: String!): Reconstruction
         resumeReconstruction(reconstructionId: String!): Reconstruction
         requestReview(reconstructionId: String!, targetStatus: Int!, duration: Float, notes: String): Reconstruction
         approveReconstruction(reconstructionId: String!, targetStatus: Int!): Reconstruction
+        """Opens a revision of the reconstruction.  Errors with code 1002 if the user is limited to a single open annotation and already has one."""
         openReconstructionRevision(reconstructionId: String!, revisionKind: Int!): Reconstruction
 
         """Requests the reconstruction be queued for publishing.  May not be immediately available as published."""

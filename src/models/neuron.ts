@@ -246,7 +246,11 @@ export class Neuron extends BaseModel {
         }
     }
 
-    public static async getAll(input: NeuronQueryInput): Promise<EntityQueryOutput<Neuron>> {
+    public static async getAll(user: User, input: NeuronQueryInput): Promise<EntityQueryOutput<Neuron>> {
+        if (!user?.canViewData()) {
+            throw new UnauthorizedError();
+        }
+
         const options = this.constructFindOptions(input);
 
         const count = await this.setSortAndLimiting(options, input);

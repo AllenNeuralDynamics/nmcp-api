@@ -20,10 +20,9 @@ export type UserQueryInput = OffsetAndLimit & {
 
 export enum UserPermissions {
     None = 0x00,
-    View = 0x01,
+    AnnotateOne = 0x01,
     // Any view permutations through 0x80
-    ViewReconstructions = 0x02,
-    ViewAll = View | ViewReconstructions,
+    AnnotateMany = 0x02,
     Edit = 0x10,
     // Any edit permutations through 0x800
     EditAll = Edit,
@@ -40,7 +39,7 @@ export enum UserPermissions {
 
 // All 4883
 
-export const UserPermissionsAll = UserPermissions.ViewAll | UserPermissions.EditAll | UserPermissions.ReviewAll | UserPermissions.AdminAll;
+export const UserPermissionsAll = UserPermissions.AnnotateOne | UserPermissions.AnnotateMany | UserPermissions.EditAll | UserPermissions.ReviewAll | UserPermissions.AdminAll;
 
 // "019a7d99-202b-7000-8000-000000000000" is the earliest/lowest possible value that is a valid UUIDv7 value.  It can not be generated unless a system clock
 // were set and held to the Unix epoch.
@@ -143,7 +142,7 @@ export class User extends BaseModel {
                             firstName: firstName,
                             lastName: lastName,
                             emailAddress: email,
-                            permissions: UserPermissions.ViewReconstructions,
+                            permissions: UserPermissions.AnnotateMany,
                             isAnonymousForAnnotation: false,
                             isAnonymousForPublish: false,
                             isSystemUser: false,
@@ -297,7 +296,7 @@ export class User extends BaseModel {
     }
 
     public canOpenIssue(): boolean {
-        return (this.permissions & UserPermissions.ViewReconstructions) != 0;
+        return this.canViewData();
     }
 
     public canModifyIssue(): boolean {
@@ -324,12 +323,16 @@ export class User extends BaseModel {
         return (this.permissions & UserPermissions.Edit) != 0;
     }
 
-    public canViewReconstructions(): boolean {
-        return (this.permissions & UserPermissions.ViewReconstructions) != 0;
+    public canViewData(): boolean {
+        return this.permissions != UserPermissions.None;
     }
 
     public canAnnotate(): boolean {
-        return (this.permissions & UserPermissions.ViewReconstructions) != 0;
+        return (this.permissions & (UserPermissions.AnnotateOne | UserPermissions.AnnotateMany)) != 0;
+    }
+
+    public canAnnotateMultiple(): boolean {
+        return (this.permissions & UserPermissions.AnnotateMany) != 0;
     }
 
     public canModifyReconstruction(): boolean {
@@ -349,7 +352,7 @@ export class User extends BaseModel {
     }
 
     public canReviseReconstruction(): boolean {
-        return (this.permissions & UserPermissions.ViewReconstructions) != 0;
+        return this.canAnnotate();
     }
 
     public canRejectReconstruction(status: ReconstructionStatus): boolean {
