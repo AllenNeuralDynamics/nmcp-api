@@ -25,6 +25,7 @@ import {NodeStructure} from "../models/nodeStructure";
 import {SpecimenSpacePrecomputed} from "../models/specimenSpacePrecomputed";
 import {EventLogItem} from "../models/eventLogItem";
 import {ApiKey} from "../models/apiKey";
+import {AccessRequest, AccessRequestQueryInput, AccessRequestStatus} from "../models/accessRequest";
 
 export class UnauthorizedError extends GraphQLError {
     public constructor() {
@@ -138,6 +139,10 @@ export const secureResolvers = {
             }
 
             return ApiKey.findByUserId(context.id);
+        },
+
+        accessRequests(_: any, args: { input: AccessRequestQueryInput }, context: User): Promise<EntityQueryOutput<AccessRequest>> {
+            return AccessRequest.getAll(context, args.input);
         }
     },
     Mutation: {
@@ -285,6 +290,10 @@ export const secureResolvers = {
             return ApiKey.deleteApiKey(args.id, user.id);
         },
 
+        updateAccessRequestStatus(_: any, args: { id: string, status: AccessRequestStatus }, user: User): Promise<AccessRequest> {
+            return AccessRequest.updateStatus(user, args.id, args.status);
+        },
+
         openIssue(_: any, args: { kind: number, description: string, references: IssueReference[] }, user: User): Promise<Issue> {
             return Issue.open(user, args.kind, args.description, args.references);
         },
@@ -338,6 +347,14 @@ export const secureResolvers = {
     AtlasNode: {
         nodeStructure(node: AtlasNode): Promise<NodeStructure> {
             return node.getNodeStructure();
+        }
+    },
+    AccessRequest: {
+        admin(request: AccessRequest): Promise<User> {
+            return request.adminId ? request.getAdmin({attributes: ["id", "firstName", "lastName"]}) : null;
+        },
+        assigned(request: AccessRequest): Promise<User> {
+            return request.assignedId ? request.getAssigned({attributes: ["id", "firstName", "lastName"]}) : null;
         }
     },
     Issue: {

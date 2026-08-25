@@ -337,6 +337,21 @@ export const coreTypeDefinitions = gql`
         updatedAt: Date
     }
 
+    type AccessRequest {
+        id: String!
+        firstName: String!
+        lastName: String!
+        emailAddress: String!
+        affiliation: String!
+        purpose: String!
+        notes: String!
+        status: Int!
+        admin: User
+        assigned: User
+        createdAt: Date
+        updatedAt: Date
+    }
+
     enum ExportFormat {
         SWC
         JSON

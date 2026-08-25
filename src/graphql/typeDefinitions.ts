@@ -103,6 +103,9 @@ export const typeDefinitions = gql`
         """Returns all API keys for the authenticated user."""
         apiKeys: [ApiKey!]!
 
+        """Returns access requests, optionally limited to a set of statuses.  Requires admin permissions."""
+        accessRequests(input: AccessRequestQueryInput): QueryAccessRequests
+
         exportedSpecimenReconstruction(id: String!): PortalReconstruction
 
         exportedAtlasReconstruction(id: String!): PortalReconstruction
@@ -171,6 +174,9 @@ export const typeDefinitions = gql`
 
         createApiKey(key: String!, description: String, durationDays: Int, permissions: Int): ApiKey!
         deleteApiKey(id: String!): Boolean!
+
+        """Sets the status of an access request.  Requires admin permissions."""
+        updateAccessRequestStatus(id: String!, status: Int!): AccessRequest
 
         openIssue(kind: Int!, description: String!, references: [IssueReferenceInput!]!): Issue
         modifyIssue(id: String!, status: Int!): Issue

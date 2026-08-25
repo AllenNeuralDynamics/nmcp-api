@@ -84,7 +84,7 @@ const migrateTable = async (queryInterface: QueryInterface, tableName: string): 
     // SELECT rather than UPDATE so that the RETURNING rows come back and the affected count can be reported.
     const updated = await queryInterface.sequelize.query<{ id: string }>(normalizeQuery(tableName), {type: QueryTypes.SELECT});
 
-    console.log(`normalized keywords on ${updated.length} ${tableName} row(s)`);
+    console.log(`   normalized keywords on ${updated.length} ${tableName} row(s)`);
 
     await queryInterface.sequelize.query(setNotNullQuery(tableName));
 };
