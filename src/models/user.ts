@@ -304,6 +304,14 @@ export class User extends BaseModel {
         return (this.permissions & UserPermissions.Admin) != 0;
     }
 
+    public canViewAccessRequests(): boolean {
+        return (this.permissions & UserPermissions.Admin) != 0;
+    }
+
+    public canModifyAccessRequestStatus(): boolean {
+        return (this.permissions & UserPermissions.Admin) != 0;
+    }
+
     public canEditSpecimens(): boolean {
         return (this.permissions & UserPermissions.Edit) != 0;
     }

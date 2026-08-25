@@ -1,10 +1,11 @@
-import {BaseModel} from "./baseModel";
-import {DataTypes, Sequelize, Transaction} from "sequelize";
+import {BaseModel, EntityQueryOutput, OffsetAndLimit} from "./baseModel";
+import {BelongsToGetAssociationMixin, DataTypes, FindOptions, Op, Sequelize, Transaction} from "sequelize";
 
 import {User} from "./user";
 import {AccessRequestTableName,} from "./tableNames";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {FiniteMap} from "../util/finiteMap";
+import {UnauthorizedError} from "../graphql/secureResolvers";
 
 export enum AccessRequestStatus {
     Unreviewed = 0,
@@ -30,6 +31,11 @@ export type AccessRequestShape = {
     purpose?: string;
     notes?: string;
     status?: AccessRequestStatus;
+    adminId?: string;
+}
+
+export type AccessRequestQueryInput = OffsetAndLimit & {
+    status?: AccessRequestStatus[];
 }
 
 const throttleMap = new FiniteMap<string, [number, Date]>(10);
@@ -44,6 +50,11 @@ export class AccessRequest extends BaseModel {
     public purpose: string;
     public notes: string;
     public status: AccessRequestStatus;
+    public adminId: string;
+    public assignedId: string;
+
+    public getAdmin!: BelongsToGetAssociationMixin<User>;
+    public getAssigned!: BelongsToGetAssociationMixin<User>;
 
     private async recordEvent(kind: EventLogItemKind, details: AccessRequestShape, user: User, t: Transaction, substituteUser: User = null): Promise<void> {
         await recordEvent({
@@ -106,6 +117,63 @@ export class AccessRequest extends BaseModel {
         });
 
         return RequestAccessResponse.Accepted;
+    }
+
+    public static async getAll(user: User, input: AccessRequestQueryInput): Promise<EntityQueryOutput<AccessRequest>> {
+        if (!user?.canViewAccessRequests()) {
+            throw new UnauthorizedError();
+        }
+
+        const options: FindOptions = {where: {}};
+
+        if (input?.status?.length > 0) {
+            options.where["status"] = {[Op.in]: input.status};
+        }
+
+        const totalCount = await this.setSortAndLimiting(options, input);
+
+        const items = await AccessRequest.findAll(options);
+
+        return {totalCount: totalCount, offset: options.offset, items: items};
+    }
+
+    public static async updateStatus(user: User, id: string, status: AccessRequestStatus): Promise<AccessRequest> {
+        if (!user?.canModifyAccessRequestStatus()) {
+            throw new UnauthorizedError();
+        }
+
+        if (AccessRequestStatus[status] === undefined) {
+            throw new Error(`${status} is not a valid access request status`);
+        }
+
+        const request = await AccessRequest.findByPk(id);
+
+        if (!request) {
+            throw new Error(`No such access request ${id}`);
+        }
+
+        // The admin is whoever last moved the request, not solely whoever approved it, so that a denial is
+        // attributable in the same way an approval is.
+        const update: AccessRequestShape = {status: status, adminId: user.id};
+
+        return await this.sequelize.transaction(async (t) => {
+            const updated = await request.update(update, {transaction: t});
+
+            await updated.recordEvent(eventKindForStatus(status), update, user, t);
+
+            return updated;
+        });
+    }
+}
+
+function eventKindForStatus(status: AccessRequestStatus): EventLogItemKind {
+    switch (status) {
+        case AccessRequestStatus.Accepted:
+            return EventLogItemKind.AccessRequestApprove;
+        case AccessRequestStatus.Denied:
+            return EventLogItemKind.AccessRequestDeny;
+        default:
+            return EventLogItemKind.AccessRequestUpdate;
     }
 }
 

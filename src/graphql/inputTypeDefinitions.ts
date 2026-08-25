@@ -207,6 +207,12 @@ export const inputTypeDefinitions = gql`
         predicates: [Predicate!]
     }
 
+    input AccessRequestQueryInput {
+        status: [Int!]
+        offset: Int
+        limit: Int
+    }
+
     input AccessRequestInput {
         firstName: String!
         lastName: String!

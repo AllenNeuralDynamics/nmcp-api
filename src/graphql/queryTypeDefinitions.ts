@@ -23,6 +23,12 @@ export const queryTypeDefinitions = gql`
         items: [Specimen!]!
     }
 
+    type QueryAccessRequests {
+        totalCount: Int!
+        offset: Int!
+        items: [AccessRequest!]!
+    }
+
     type QueryNeurons {
         totalCount: Int!
         offset: Int!
