@@ -657,6 +657,28 @@ export class Neuron extends BaseModel {
         return reconstruction?.getAtlasReconstruction();
     }
 
+    /**
+     * A neuron is untraceable when someone gave up on it and nothing else is happening on it: at least one
+     * reconstruction was marked Untraceable and no live work remains.  Marking soft-deletes the row, so this is the one
+     * query that has to look past paranoid - which also surfaces discarded rows, hence testing deletedAt rather than
+     * status for the second half.  Initialized does not clear the flag because it is the column default and an artifact
+     * of legacy import paths rather than live work - openReconstruction creates at InProgress.
+     */
+    public async untraceable(): Promise<boolean> {
+        const reconstructions = await Reconstruction.findAll({
+            where: {neuronId: this.id},
+            attributes: ["status", "deletedAt"],
+            paranoid: false
+        });
+
+        if (!reconstructions.some(reconstruction => reconstruction.status == ReconstructionStatus.Untraceable)) {
+            return false;
+        }
+
+        return reconstructions.every(reconstruction =>
+            reconstruction.deletedAt != null || reconstruction.status == ReconstructionStatus.Initialized);
+    }
+
     private static constructFindOptions(input: NeuronQueryInput): FindOptions {
         let options: FindOptions = optionsWhereIds(input, {where: null, include: [this.specimenInclude(input)]});
 

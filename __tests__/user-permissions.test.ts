@@ -75,6 +75,34 @@ describe("canReviseReconstruction", () => {
     });
 });
 
+describe("canMarkReconstructionUntraceable", () => {
+    function userWithId(permissions: number) {
+        const user = userWithPermissions(permissions);
+        user.id = "annotator-1";
+        return user;
+    }
+
+    test("allows an admin for any annotator", () => {
+        expect(userWithId(UserPermissions.Admin).canMarkReconstructionUntraceable("annotator-2")).toBe(true);
+    });
+
+    test("allows the reconstruction's own annotator", () => {
+        expect(userWithId(UserPermissions.AnnotateOne).canMarkReconstructionUntraceable("annotator-1")).toBe(true);
+    });
+
+    test("allows either review bit for another annotator's reconstruction", () => {
+        expect(userWithId(UserPermissions.PeerReview).canMarkReconstructionUntraceable("annotator-2")).toBe(true);
+        expect(userWithId(UserPermissions.PublishReview).canMarkReconstructionUntraceable("annotator-2")).toBe(true);
+    });
+
+    test("denies a non-reviewer on another annotator's reconstruction", () => {
+        expect(userWithId(UserPermissions.None).canMarkReconstructionUntraceable("annotator-2")).toBe(false);
+        expect(userWithId(UserPermissions.Edit).canMarkReconstructionUntraceable("annotator-2")).toBe(false);
+        expect(userWithId(UserPermissions.AnnotateOne).canMarkReconstructionUntraceable("annotator-2")).toBe(false);
+        expect(userWithId(UserPermissions.AnnotateMany).canMarkReconstructionUntraceable("annotator-2")).toBe(false);
+    });
+});
+
 describe("canOpenIssue", () => {
     test("allows any non-zero permission", () => {
         expect(userWithPermissions(UserPermissions.AnnotateOne).canOpenIssue()).toBe(true);

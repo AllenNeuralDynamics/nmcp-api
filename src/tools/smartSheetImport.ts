@@ -187,7 +187,7 @@ function smartSheetImport(sheetId: number, importQualifier: ImportQualifier, pat
 }
 
 function isReadyToImport(status: Status): boolean {
-    return status == Status.Completed || status == Status.PendingReview || status == Status.InProgress;
+    return status == Status.Completed || status == Status.PendingReview || status == Status.InProgress || status == Status.Untraceable;
 }
 
 function reconstructionStatusForSmartSheetStatus(status: Status): ReconstructionStatus {
@@ -201,7 +201,7 @@ function reconstructionStatusForSmartSheetStatus(status: Status): Reconstruction
         case Status.Completed:
             return ReconstructionStatus.Approved;
         case Status.Untraceable:
-            return ReconstructionStatus.Discarded;
+            return ReconstructionStatus.Untraceable;
     }
 }
 
@@ -228,7 +228,7 @@ function findBrainCompartment(atlas: Atlas, primaryLabel: string, secondaryLabel
     return findBrainCompartmentSimple(atlas, primaryLabel) ?? findBrainCompartmentSimple(atlas, secondaryLabel);
 }
 
-const immutableReconstructionStatus = [ReconstructionStatus.Published, ReconstructionStatus.Archived, ReconstructionStatus.Discarded];
+const immutableReconstructionStatus = [ReconstructionStatus.Published, ReconstructionStatus.Archived, ReconstructionStatus.Untraceable, ReconstructionStatus.Discarded];
 
 // Treats null, undefined, and entries without a usable url (e.g. an empty object) as "no value provided".
 function hasMetadataValue(value: { url?: string } | null | undefined): boolean {
@@ -399,9 +399,11 @@ async function specimenDataFromRow(s: SpecimenRowContents, insertReconstructions
 
             // This tool assumes one instance of a reconstruction per annotator, per candidate.  If the information in SmartSheets is meant to allow a second
             // reconstruction for the same annotator on the same neuron/candidate, this must be changed.
-            let reconstruction = await Reconstruction.findOrOpenReconstruction(n.id, annotator, User.SystemAutomationUser);
+            let reconstruction = await Reconstruction.findOrOpenReconstruction(n.id, annotator, User.SystemAutomationUser, true);
 
-            // Do not modify a published, archived, or discarded reconstructions.
+            // Do not modify a published, archived, untraceable, or discarded reconstruction.  An untraceable row is
+            // soft-deleted and only visible here because findOrOpenReconstruction was asked for it; skipping is what
+            // stops a re-run from marking it a second time or opening a duplicate alongside it.
             if (immutableReconstructionStatus.includes(reconstruction.status)) {
                 importReport.reconstructionsSkippedImmutable.push({
                     id: reconstruction.id,
@@ -464,8 +466,8 @@ async function specimenDataFromRow(s: SpecimenRowContents, insertReconstructions
                         targetStatus: ReconstructionStatus.PublishReview
                     }, annotator, User.SystemAutomationUser, true);
                     break;
-                case ReconstructionStatus.Discarded:
-                    await Reconstruction.discardReconstruction(reconstruction.id, annotator, User.SystemAutomationUser);
+                case ReconstructionStatus.Untraceable:
+                    await Reconstruction.markUntraceable(reconstruction.id, annotator, User.SystemAutomationUser, true);
                     continue;
             }
 

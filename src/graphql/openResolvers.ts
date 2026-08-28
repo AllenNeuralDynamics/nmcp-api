@@ -150,7 +150,7 @@ export const openResolvers = {
         }
     },
     Neuron: {
-        reconstructionCount(neuron: any): Promise<number> {
+        reconstructionCount(neuron: Neuron): Promise<number> {
             return Reconstruction.count({where: {neuronId: neuron.id}})
         },
         atlasStructure(neuron: Neuron): Promise<AtlasStructure> {
@@ -164,6 +164,9 @@ export const openResolvers = {
         },
         published(neuron: Neuron): Promise<AtlasReconstruction> {
             return neuron.published();
+        },
+        untraceable(neuron: Neuron): Promise<boolean> {
+            return neuron.untraceable();
         }
     },
     AtlasReconstruction: {
