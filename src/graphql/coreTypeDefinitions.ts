@@ -169,6 +169,7 @@ export const coreTypeDefinitions = gql`
         published: AtlasReconstruction
         reconstructions: [Reconstruction]
         reconstructionCount: Int
+        untraceable: Boolean
         createdAt: Date
         updatedAt: Date
     }

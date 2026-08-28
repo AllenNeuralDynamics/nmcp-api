@@ -166,6 +166,7 @@ export const typeDefinitions = gql`
         publishAll(reconstructionIds: [String!]!): [Reconstruction!]!
         rejectReconstruction(reconstructionId: String!): Reconstruction
         discardReconstruction(reconstructionId: String!): Reconstruction
+        markReconstructionUntraceable(reconstructionId: String!): Reconstruction
         validateDois: Int!
         requestSpecimenSpaceRegeneration(reconstructionId: String!): Precomputed
         requestQualityControlReassessment(reconstructionId: String!): QualityControl

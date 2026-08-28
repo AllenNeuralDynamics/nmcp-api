@@ -56,7 +56,22 @@ export const ClosedReconstructionStatuses: ReconstructionStatus[] = [
     ReconstructionStatus.Rejected,
     ReconstructionStatus.Published,
     ReconstructionStatus.Archived,
+    ReconstructionStatus.Untraceable,
     ReconstructionStatus.Discarded
+];
+
+/**
+ * Source statuses the API allows a reconstruction to be marked untraceable from.  Terminal states are refused, as are
+ * Approved, ReadyToPublish and Rejected.  PublishReview is allowed even though discardReconstruction refuses it: a
+ * publish reviewer finding the neuron untraceable at that stage is a case this exists for.
+ */
+export const UntraceableSourceStatuses: ReconstructionStatus[] = [
+    ReconstructionStatus.Initialized,
+    ReconstructionStatus.InProgress,
+    ReconstructionStatus.OnHold,
+    ReconstructionStatus.PeerReview,
+    ReconstructionStatus.PublishReview,
+    ReconstructionStatus.WaitingForAtlasReconstruction
 ];
 
 export type ReconstructionsQueryArgs = {
@@ -281,17 +296,29 @@ export class Reconstruction extends BaseModel {
         }
     }
 
-    public static async findOrOpenReconstruction(neuronId: string, user: User, substituteUser: User = null): Promise<Reconstruction> {
+    public static async findOrOpenReconstruction(neuronId: string, user: User, substituteUser: User = null, includeUntraceable: boolean = false): Promise<Reconstruction> {
         if (!user?.canViewData()) {
             throw new UnauthorizedError();
         }
 
-        const existing = await Reconstruction.findOne({
-            where: {
-                annotatorId: user.id,
-                neuronId: neuronId,
-            }
-        });
+        // An annotator can hold more than one live row on a neuron: opening a reconstruction after an earlier one
+        // reached Published or Archived creates a second, and neither is soft-deleted.  The import owns the annotator's
+        // current attempt, so prefer their newest open row and fall back to their newest row of any status.  Falling
+        // back rather than creating is what keeps a repeat import from adding a row every run when the only row is
+        // already closed.
+        const where = {annotatorId: user.id, neuronId: neuronId};
+        const order: OrderItem[] = [["createdAt", "DESC"]];
+
+        // The third query is for the import tools, which pass includeUntraceable: marking untraceable soft-deletes the
+        // row, so neither query above can see it and a re-run would otherwise create and mark a fresh row every time.
+        // It stays opt-in so a caller that has no reason to resurrect a deleted row can not do so by accident, and it
+        // is scoped to Untraceable rather than dropping paranoid wholesale so a discarded row still yields a new
+        // reconstruction as it does today.
+        const existing = await Reconstruction.findOne({where: {...where, status: {[Op.notIn]: ClosedReconstructionStatuses}}, order})
+            ?? await Reconstruction.findOne({where, order})
+            ?? (includeUntraceable
+                ? await Reconstruction.findOne({where: {...where, status: ReconstructionStatus.Untraceable}, order, paranoid: false})
+                : null);
 
         if (existing) {
             return existing;
@@ -404,7 +431,7 @@ export class Reconstruction extends BaseModel {
             }
 
             // A user cannot open a new reconstruction if they have one that is not in a finalized state such as published or archived.
-            const whereStatus = {status: {[Op.notIn]: [ReconstructionStatus.Published, ReconstructionStatus.Archived, ReconstructionStatus.Discarded]}};
+            const whereStatus = {status: {[Op.notIn]: [ReconstructionStatus.Published, ReconstructionStatus.Archived, ReconstructionStatus.Untraceable, ReconstructionStatus.Discarded]}};
 
             const existingReconstruction = await Reconstruction.findOne({
                 where: {
@@ -914,6 +941,45 @@ export class Reconstruction extends BaseModel {
             await reconstruction.destroy({transaction: t});
 
             await reconstruction.recordEvent(EventLogItemKind.ReconstructionDiscard, update, user, t, substituteUser);
+
+            return reconstruction;
+        });
+    }
+
+    public static async markUntraceable(id: string, userOrId: User | string, substituteUser: User = null, disregardAuth: boolean = false): Promise<Reconstruction> {
+        const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(id, userOrId);
+
+        // disregardAuth is for the import tools, which reconcile against an external source of truth and may move a
+        // reconstruction into this status from one the portal would refuse.
+        if (!disregardAuth) {
+            if (!user?.canMarkReconstructionUntraceable(reconstruction.annotatorId)) {
+                throw new UnauthorizedError();
+            }
+
+            if (!UntraceableSourceStatuses.includes(reconstruction.status)) {
+                throw new Error(`Cannot mark a reconstruction with status ${ReconstructionStatus[reconstruction.status]} as untraceable.`);
+            }
+        }
+
+        // Torn down exactly as a discard is: the row and everything downstream of it soft-delete, so the attempt drops
+        // out of every ordinary query.  Neuron.untraceable is the sole reader that needs it back and overrides paranoid
+        // to find it.
+        return await Reconstruction.sequelize.transaction(async (t) => {
+            await AtlasReconstruction.discardForReconstruction(user, reconstruction.id, t);
+
+            await SpecimenNode.destroy({
+                where: {
+                    reconstructionId: reconstruction.id
+                }, transaction: t
+            });
+
+            const update = {status: ReconstructionStatus.Untraceable};
+
+            await reconstruction.update(update, {transaction: t});
+
+            await reconstruction.destroy({transaction: t});
+
+            await reconstruction.recordEvent(EventLogItemKind.ReconstructionUntraceable, update, user, t, substituteUser);
 
             return reconstruction;
         });
