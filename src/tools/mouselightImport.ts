@@ -100,7 +100,7 @@ const neuronsQuery = `{
   }
 }`;
 
-const immutableReconstructionStatus = [ReconstructionStatus.Published, ReconstructionStatus.Archived, ReconstructionStatus.Discarded];
+const immutableReconstructionStatus = [ReconstructionStatus.Published, ReconstructionStatus.Archived, ReconstructionStatus.Untraceable, ReconstructionStatus.Discarded];
 
 function buildBaseUrl(host: string, port?: string): string {
     return port ? `${host}:${port}` : host;
@@ -360,7 +360,8 @@ async function importAtlasReconstruction(neuronId: string, idString: string, swc
     let reconstruction = await Reconstruction.findOrOpenReconstruction(
         neuronId,
         User.SystemAutomationUser,
-        User.SystemAutomationUser
+        User.SystemAutomationUser,
+        true
     );
 
     if (immutableReconstructionStatus.includes(reconstruction.status)) {

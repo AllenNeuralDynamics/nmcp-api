@@ -11,5 +11,6 @@ export enum ReconstructionStatus {
     Publishing = 900,                       // In the process of search indexing, etc.
     Published = 1000,
     Archived = 5000,
+    Untraceable = 6000,
     Discarded = 10000
 }

@@ -226,6 +226,10 @@ export const secureResolvers = {
             return Reconstruction.discardReconstruction(args.reconstructionId, user);
         },
 
+        markReconstructionUntraceable(_: any, args: { reconstructionId: string }, user: User): Promise<Reconstruction> {
+            return Reconstruction.markUntraceable(args.reconstructionId, user);
+        },
+
         validateDois(_: any, __: any, user: User): Promise<number> {
             return Reconstruction.validateDois(user);
         },

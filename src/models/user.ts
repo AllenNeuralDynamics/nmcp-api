@@ -351,6 +351,10 @@ export class User extends BaseModel {
         return this.isAdmin() || annotatorId == this.id;
     }
 
+    public canMarkReconstructionUntraceable(annotatorId: string): boolean {
+        return this.isAdmin() || annotatorId == this.id || (this.permissions & (UserPermissions.PeerReview | UserPermissions.PublishReview)) != 0;
+    }
+
     public canReviseReconstruction(): boolean {
         return this.canAnnotate();
     }

@@ -69,6 +69,7 @@ export enum EventLogItemKind {
     ReconstructionFinalizeApprove = 5225,
     ReconstructionReject = 5230,
     ReconstructionDiscard = 5235,
+    ReconstructionUntraceable = 5240,
 
     ReconstructionPublishing = 5300,
     ReconstructionPublished = 5305,
