@@ -432,6 +432,17 @@ export const coreTypeDefinitions = gql`
         events: [VersionHistoryEvent!]!
     }
 
+    """
+    An address a recent request was attributed to.  Held in memory only, for confirming that a deployment resolves
+    distinct client addresses rather than collapsing every caller onto the gateway.
+    """
+    type RecentRequest {
+        address: String
+        socketAddress: String
+        forwardedFor: String
+        at: Date!
+    }
+
     type NeuronVersionHistory {
         neuronId: String!
         specimen: [VersionHistoryEvent!]!

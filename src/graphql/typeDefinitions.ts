@@ -115,6 +115,8 @@ export const typeDefinitions = gql`
         #
         pendingPrecomputed: [Precomputed!]!
         specimenSpacePendingPrecomputed: [Precomputed!]!
+        """Addresses of the most recent requests, newest first.  In-memory only; never persisted."""
+        recentRequestAddresses: [RecentRequest!]!
     }
 
     type Mutation {

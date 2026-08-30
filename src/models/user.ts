@@ -435,6 +435,28 @@ export class User extends BaseModel {
         return this.isAdmin() || (this.permissions & UserPermissions.InternalAccess) != 0;
     }
 
+    /**
+     * A view of this user carrying the address of one request.
+     *
+     * Users reach a resolver from a cache - SystemNoUser is a singleton shared by every anonymous caller, and
+     * authenticated users come from the User cache - so assigning the address to the instance lets concurrent requests
+     * overwrite each other's, and a caller can end up counted against someone else's rate-limit window.  Delegating to
+     * the cached instance through the prototype chain leaves every attribute and method reading from it while making
+     * `ip` an own property of the view, which is the only per-request state there is.  Copying the instance instead
+     * would mean rebuilding a Sequelize model on every request for the sake of one field.
+     */
+    public withRequestAddress(ip: string): User {
+        const scoped: User = Object.create(this);
+
+        scoped.ip = ip;
+
+        return scoped;
+    }
+
+    public canViewRequestDiagnostics(): boolean {
+        return this.isAdmin() || (this.permissions & UserPermissions.InternalAccess) != 0;
+    }
+
     public canRequestPendingPrecomputed(): boolean {
         return this.isAdmin() || (this.permissions & UserPermissions.InternalAccess) != 0;
     }

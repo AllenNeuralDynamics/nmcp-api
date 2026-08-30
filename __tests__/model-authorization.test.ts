@@ -8,6 +8,7 @@ const {Genotype} = require("../src/models/genotype");
 const {Injection} = require("../src/models/injection");
 const {Specimen} = require("../src/models/specimen");
 const {Neuron} = require("../src/models/neuron");
+const {AccessRequest, AccessRequestStatus} = require("../src/models/accessRequest");
 
 function userWithPermissions(permissions: number) {
     const user = Object.create(User.prototype);
@@ -22,7 +23,14 @@ const entryPoints = [
     {name: "Injection.getById", model: Injection, query: "findByPk", invoke: (user: any) => Injection.getById(user, "id-1")},
     {name: "Injection.getAll", model: Injection, query: "findAll", invoke: (user: any) => Injection.getAll(user, {})},
     {name: "Specimen.getById", model: Specimen, query: "findByPk", invoke: (user: any) => Specimen.getById(user, "id-1")},
-    {name: "Neuron.getAll", model: Neuron, query: "findAll", invoke: (user: any) => Neuron.getAll(user, {})}
+    {name: "Neuron.getAll", model: Neuron, query: "findAll", invoke: (user: any) => Neuron.getAll(user, {})},
+    {name: "AccessRequest.getAll", model: AccessRequest, query: "findAll", invoke: (user: any) => AccessRequest.getAll(user, {})},
+    {
+        name: "AccessRequest.updateStatus",
+        model: AccessRequest,
+        query: "findByPk",
+        invoke: (user: any) => AccessRequest.updateStatus(user, "id-1", AccessRequestStatus.Accepted)
+    }
 ];
 
 afterEach(() => {

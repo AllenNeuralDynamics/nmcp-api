@@ -27,6 +27,32 @@ on the host machine being mapped to `NMCP_CCF_30_ONTOLOGY_PATH` for the api serv
 * `NMCP_EXPERIMENTAL_ENV` (default `false`) - when `true`, enables experimental features and GraphQL introspection
 * `NODE_ENV` - when `development` (or unset), enables GraphQL introspection and resolves the fixture path relative to the source tree
 
+#### Client Address Resolution
+The address a request is attributed to drives the access-request rate limit.  When the service runs behind something
+that terminates the connection — an HTTPS gateway, a load balancer, a CDN — the socket peer is that intermediary rather
+than the caller, so the client address has to be recovered from the `X-Forwarded-For` header instead.
+
+* `NMCP_TRUSTED_PROXY_HOPS` (default `1`) - number of proxies between the client and this service that append to `X-Forwarded-For`
+* `NMCP_RECENT_REQUEST_ADDRESS_LIMIT` (default `50`) - how many recent request addresses to retain in memory for the `recentRequestAddresses` query; `0` disables the tracking entirely
+
+The hop count is an operational trust boundary and must match the real request path.  The last that many entries of the
+forwarding chain are treated as trustworthy, so a value **higher** than reality lets a caller on a shorter path supply
+its own `X-Forwarded-For` and choose the address it is rate limited under.  A value **lower** than reality attributes
+every request to an intermediary, collapsing all callers into a single rate-limit bucket.
+
+* `0` - the service is reachable directly, with nothing in front; forwarding headers are ignored entirely
+* `1` - the deployed shape of client → HTTPS gateway → service
+* `2` - a CDN or a second load balancer in front of that gateway
+
+Network address translation does not count as a hop.  Docker's published-port mapping rewrites the source address but
+appends nothing to `X-Forwarded-For`, so running the service in a container does not change the setting.
+
+`recentRequestAddresses` is an internal GraphQL query, available to the internal server key (`NMCP_SERVER_KEY`) or an
+admin user, and exists to confirm the hop count is right in a given deployment.  Each entry records the resolved address
+alongside the socket peer and the forwarding chain as received.  Resolved and socket addresses that are identical across
+different callers mean the header is not being trusted, and a chain carrying more entries than the configured hop count
+means the count is too low.  The list is held only in memory and is never persisted.
+
 #### Authentication
 Authenticated GraphQL requests are expected to carry a Microsoft Entra ID bearer token in the `Authorization` header
 (`Authorization: Bearer <jwt>`).  The token signature, issuer, audience, and validity window are all verified.
