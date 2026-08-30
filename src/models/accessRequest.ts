@@ -4,7 +4,6 @@ import {BelongsToGetAssociationMixin, DataTypes, FindOptions, Op, Sequelize, Tra
 import {User} from "./user";
 import {AccessRequestTableName,} from "./tableNames";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
-import {FiniteMap} from "../util/finiteMap";
 import {UnauthorizedError} from "../graphql/secureResolvers";
 
 export enum AccessRequestStatus {
@@ -38,9 +37,25 @@ export type AccessRequestQueryInput = OffsetAndLimit & {
     status?: AccessRequestStatus[];
 }
 
-const throttleMap = new FiniteMap<string, [number, Date]>(10);
+type ThrottleWindow = {
+    startedAt: number;
+    count: number;
+}
 
-const fiveMinutesMilliseconds = 5 * 60 * 1000;
+/**
+ * Damps accidental repeat submissions - a stuck client, an impatient form.  Deliberate flooding is handled in front of
+ * the service, so this stays cheap and fails open rather than trying to be airtight.  Keyed by whatever client address
+ * app.ts supplies, so it is only as granular as that value is.
+ */
+const throttleWindows = new Map<string, ThrottleWindow>();
+
+const throttleWindowMilliseconds = 5 * 60 * 1000;
+
+const maxRequestsPerWindow = 5;
+
+// A safety valve, not a working limit: one entry per distinct address seen within a window, which for this endpoint is
+// tens at most.
+const maxTrackedAddresses = 1000;
 
 export class AccessRequest extends BaseModel {
     public firstName: string;
@@ -67,23 +82,53 @@ export class AccessRequest extends BaseModel {
         }, t);
     }
 
+    /**
+     * Fixed window: an address gets maxRequestsPerWindow attempts, and the allowance clears once
+     * throttleWindowMilliseconds have passed since the first of them.  Measuring from the first attempt rather than the
+     * last is deliberate - a client stuck in a retry loop recovers on its own instead of holding itself blocked for as
+     * long as it keeps retrying, which is the wrong outcome when the thing being guarded against is an accident.
+     */
     private static checkThrottle(ip: string): boolean {
-        if (throttleMap.has(ip)) {
-            const [count, when] = throttleMap.get(ip);
+        // A socket with no remote address would otherwise key on undefined and share one window with every other such
+        // caller; naming it keeps that explicit.
+        const address = ip ?? "unknown";
 
-            if (when.valueOf() - Date.now() > fiveMinutesMilliseconds) {
-                throttleMap.delete(ip);
-                return true;
-            }
+        const now = Date.now();
 
-            throttleMap.set(ip, [count + 1, new Date()]);
+        const window = throttleWindows.get(address);
 
-            return count < 5;
+        if (window && now - window.startedAt < throttleWindowMilliseconds) {
+            window.count += 1;
+
+            return window.count <= maxRequestsPerWindow;
         }
 
-        throttleMap.set(ip, [1, new Date()]);
+        if (!window && !this.reserveThrottleSlot(now)) {
+            return true;
+        }
+
+        throttleWindows.set(address, {startedAt: now, count: 1});
 
         return true;
+    }
+
+    /**
+     * Drops windows that have already elapsed, but only once the map reaches its ceiling - there is no timer and no
+     * per-request sweep.  Returns false if it is still full afterwards, in which case the caller goes untracked:
+     * failing open is the right trade for a guard against accidental repeats.
+     */
+    private static reserveThrottleSlot(now: number): boolean {
+        if (throttleWindows.size < maxTrackedAddresses) {
+            return true;
+        }
+
+        for (const [address, window] of throttleWindows) {
+            if (now - window.startedAt >= throttleWindowMilliseconds) {
+                throttleWindows.delete(address);
+            }
+        }
+
+        return throttleWindows.size < maxTrackedAddresses;
     }
 
     public static async createRequest(user: User, data: AccessRequestShape): Promise<RequestAccessResponse> {

@@ -4,6 +4,7 @@ import {SpecimenSpacePrecomputed} from "../models/specimenSpacePrecomputed";
 import {Reconstruction} from "../models/reconstruction";
 import {AtlasReconstruction} from "../models/atlasReconstruction";
 import {PortalReconstruction} from "../io/portalFormat";
+import {RecentRequest, recentRequestLog} from "../util/recentRequestLog";
 
 // noinspection JSUnusedGlobalSymbols
 /**
@@ -26,6 +27,12 @@ export const internalResolvers = {
         },
         specimenSpacePendingPrecomputed(_: any, __: any, user: User): Promise<SpecimenSpacePrecomputed[]> {
             return SpecimenSpacePrecomputed.getPending(user);
+        },
+
+        // Deployment diagnostics - confirms whether client addresses are resolving distinctly or collapsing onto the
+        // gateway.
+        recentRequestAddresses(_: any, __: any, user: User): RecentRequest[] {
+            return recentRequestLog.recent(user);
         },
     },
     Mutation: {
