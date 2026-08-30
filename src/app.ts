@@ -21,6 +21,7 @@ import {merge} from "lodash";
 import {openResolvers} from "./graphql/openResolvers";
 import {secureResolvers} from "./graphql/secureResolvers";
 import {internalResolvers} from "./graphql/internalResolvers";
+import {recentRequestLog} from "./util/recentRequestLog";
 
 start().then().catch((err) => debug(err));
 
@@ -30,6 +31,12 @@ async function start() {
     synchronizationManagerStart();
 
     const app = express();
+
+    // The https gateway in front terminates the connection, so without this every caller looks like the gateway and
+    // shares one rate-limiting bucket.
+    app.set("trust proxy", ServiceOptions.trustedProxyHops);
+
+    debug(`trusting ${ServiceOptions.trustedProxyHops} proxy hop(s) when resolving the client address`);
 
     app.use(bodyParser.urlencoded({extended: true, limit: "1000mb"}));
 
@@ -77,13 +84,16 @@ async function start() {
 
                 user = user ?? User.SystemNoUser;
 
-                // Not really async safe for SystemNoUser.  Is only going to be used for the request access mutation,
-                // and the likelihood of overlapping queries triggering rate limiting seems low.  If that ever becomes
-                // an issue, can property return user an ip as the context.  Will just have to update all the resolvers
-                // to destructure for user.
-                user.ip = req.socket.remoteAddress;
+                // req.ip honors the trust-proxy setting above and so is the client rather than the gateway; the socket
+                // fallback covers a direct connection with no forwarding header.  The address goes on a per-request
+                // view rather than the user itself, which is cached and shared across concurrent requests.
+                const requestUser = user.withRequestAddress(req.ip ?? req.socket.remoteAddress);
 
-                return user;
+                // Every GraphQL operation, but deliberately not /health: the gateway polls it continuously and would
+                // push every real client address out of the window within seconds.
+                recentRequestLog.record(requestUser.ip, req.socket.remoteAddress, req.headers["x-forwarded-for"]);
+
+                return requestUser;
             }
         })
     );
