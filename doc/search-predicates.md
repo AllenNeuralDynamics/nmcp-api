@@ -2,6 +2,11 @@
 
 The `searchNeurons` query accepts a `SearchContext` containing one or more predicates. Each predicate filters published neuron data in the SearchIndex and returns a set of matching neuron IDs. Multiple predicates are composed together using boolean logic to produce the final result set.
 
+## Objective
+This document is intended for a domain expert to determine whether the search predicates meet the requirements for 
+search options.  It is grounded in actual types and database contents for reference but is not intended to be a 
+developer-level reference.
+
 ## SearchContext
 
 | Field | Type | Description |
@@ -22,6 +27,8 @@ Each predicate has a `composition` field that controls how its result set is com
 
 The first predicate's `composition` value is ignored; its results always form the initial set.
 
+Only AND and OR are recognised explicitly; any other value, including leaving `composition` unset, behaves as NOT. A predicate sent without a composition therefore subtracts rather than adds.
+
 Predicates are evaluated left to right. Each predicate runs independently against the SearchIndex, producing a set of neuron IDs. The sets are then combined sequentially using the composition operator.
 
 **Example with three predicates: **
@@ -32,7 +39,7 @@ Predicates are evaluated left to right. Each predicate runs independently agains
 
 ## Collection Filtering
 
-When `collectionIds` is non-empty, every predicate (regardless of type) restricts its SearchIndex query to rows whose `collectionId` is in the provided list. This filter is applied at the database level before any other filtering.
+When `collectionIds` is non-empty, every predicate (regardless of type) restricts its SearchIndex query to rows whose `collectionId` is in the provided list. This filter is applied at the database level alongside the predicate's own filtering, not as a separate pass over the results.
 
 ---
 
@@ -45,7 +52,7 @@ Finds neurons that have morphological data in specified brain regions, optionall
 | Field | Type | Description |
 |---|---|---|
 | `atlasStructureIds` | `[String!]` | Brain region IDs to search. Each selected region implicitly includes all of its descendant regions in the atlas hierarchy. If empty, or if only the whole-brain structure is selected, no region filter is applied (equivalent to searching the entire brain). |
-| `neuronStructureId` | `String` | Neuron compartment type ID (soma, axon, dendrite). If provided, only SearchIndex rows for that compartment are matched. If empty, all compartment types are included. Also determines whether the threshold filter targets a node count or a compartment length (see Threshold Filtering below). |
+| `neuronStructureId` | `String` | Neuron compartment type ID (soma, axon, dendrite). If empty, all compartment types are included. Otherwise it narrows the search to that compartment and, together with `nodeStructureId`, determines whether the threshold targets a node count or a compartment length (see Threshold Filtering below). |
 | `nodeStructureId` | `String` | See Threshold Filtering below. |
 | `operatorId` | `String` | See Threshold Filtering below. |
 | `amount` | `Float` | See Threshold Filtering below. |
@@ -73,9 +80,9 @@ Which SearchIndex column is compared depends on the combination of `neuronStruct
 
 **No `neuronStructureId` (empty or omitted):**
 
-The total `nodeCount` column is compared against the operator/amount threshold.
+The total `nodeCount` column is compared against the operator/amount threshold. No compartment filter is applied, so a row for any compartment can satisfy the comparison.
 
-**`neuronStructureId` is axon or dendrite, with a `nodeStructureId`:**
+**`neuronStructureId` with a `nodeStructureId`:**
 
 The SearchIndex row is filtered to that compartment type, and the column for the specified node type is compared:
 
@@ -84,7 +91,9 @@ The SearchIndex row is filtered to that compartment type, and the column for the
 | Fork point | `branchCount` |
 | End point | `endCount` |
 | Undefined / path | `pathCount` |
-| Soma | No count column (filter is not applied) |
+| Soma, axon, basal dendrite, apical dendrite | None — no count comparison is made |
+
+For the node types with no count column the compartment filter still applies; only the count comparison is dropped, so the predicate reduces to "has data of this compartment type in the region". Any compartment can be paired with a node structure here, not only axon and dendrite.
 
 **`neuronStructureId` is axon or dendrite, without a `nodeStructureId`:**
 
@@ -97,15 +106,19 @@ Instead of a node count, the compartment length column is compared against the o
 
 This allows queries such as "axon length > 5000 micrometers in region X".
 
-**`neuronStructureId` is soma:**
+The length column stands in for the compartment filter here, which is sound for a "more than" threshold — only axon rows carry a non-zero axon length. It is not sound for a threshold that zero satisfies (`= 0`, `< n`, `<= n`, `!= n`): those also match the neuron's soma and opposite-compartment rows, so such a query answers "the neuron has some data in this region with no axon length" rather than "the neuron's axon in this region is shorter than n".
 
-The `neuronStructureId` filter is applied as a presence check. The operator and amount are not used. See the soma note below.
+**`neuronStructureId` is soma, without a `nodeStructureId`:**
+
+The `neuronStructureId` filter is applied as a presence check. The operator and amount are not used. See the soma notes below.
 
 ### Notes
 
-- **Soma as neuron structure**: When `neuronStructureId` selects soma, the search is effectively a presence check — does the neuron's soma reside in one of the specified atlas structures? The operator and amount are meaningless in this case because a soma is a single point: a SearchIndex row for the soma compartment only exists when the soma is located in that atlas structure, and it always has exactly one node.
+- **Soma as neuron structure**: When `neuronStructureId` selects soma, the search is effectively a presence check — is the neuron's soma assigned to one of the specified atlas structures? The operator and amount are meaningless in this case because a soma is a single point: a soma SearchIndex row always has exactly one node.
+- **A soma can be indexed under two atlas structures, and both are searchable.** There is always an automatic soma entry for the structure the soma coordinates resolve to. When the neuron also carries a manually assigned soma structure that differs from the automatic one, a second soma entry is written for it. An AnatomicalRegion search on soma matches either, so selecting the manual structure or the automatic one both return the neuron. This is deliberate — it makes a curator's soma assignment searchable without discarding the coordinate lookup — but it means a soma search is not purely a statement about where the soma coordinates lie.
+- **The soma node is counted toward the axon and dendrite entries** for the structure its coordinates fall in, so those structures have an axon and a dendrite entry with a node count of at least 1 even when no axon or dendrite is present there. The soma contributes nothing to fork, end, path or length values, so only total node count thresholds are affected.
 - Selecting the whole-brain structure is treated as "no region filter" rather than literally filtering to that single ID. This ensures neurons with nodes outside the atlas ontology (e.g., soma-only entries) are not excluded.
-- The atlas hierarchy expansion means selecting a parent region like "Isocortex" will match neurons in any child region (e.g., "MOp", "SSp", etc.).
+- The atlas hierarchy expansion means selecting a parent region like "Isocortex" will match neurons in any child region (e.g., "MOp", "SSp", etc.). Expansion is downward only — selecting a child region does not match neurons indexed against its parent. It is also resolved against the default atlas regardless of which atlas a neuron's specimen uses, which is a limitation once more than one atlas is in play.
 
 ---
 
@@ -158,9 +171,9 @@ The matching strategy depends on the combination of `labelOrDoiExactMatch` and t
 
 A SearchIndex row matches if its `neuronLabel`, `doi`, `canonicalDoi`, or `specimenLabel` is exactly equal to any of the provided terms. Standard case-sensitive equality.
 
-**Exact match with empty terms (`labelsOrDois` is empty):**
+**Empty terms (`labelsOrDois` is empty or omitted):**
 
-Uses exact match logic with an empty list, which matches no rows.
+Matches no rows. This holds whatever `labelOrDoiExactMatch` is set to — an empty substring search returns nothing rather than everything.
 
 **Substring match with one term:**
 
@@ -184,7 +197,7 @@ A row matches if, for any of the provided terms, its `neuronLabel`, `doi`, `cano
 After all predicates are evaluated and composed into a final set of neuron IDs:
 
 1. The full Neuron records are fetched from the database for the matched IDs.
-2. Results are sorted by `label` in descending lexicographic order.
+2. Results are sorted by `label` in descending order. The whole matched set is returned; there is no paging or result cap.
 3. The response includes a `totalCount` field representing the total number of published neurons globally (not the number of search results).
 4. If any error occurs during the search, an empty result set is returned with the error details.
 

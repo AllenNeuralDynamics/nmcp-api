@@ -56,13 +56,13 @@ describe("withRequestAddress", () => {
     });
 
     test("still answers permission predicates", () => {
-        const admin = cachedUser(UserPermissions.Admin).withRequestAddress("203.0.113.1");
+        const internal = cachedUser(UserPermissions.InternalAccess).withRequestAddress("203.0.113.1");
         const reviewer = cachedUser(UserPermissions.PublishReview).withRequestAddress("203.0.113.2");
 
-        expect(admin.isAdmin()).toBe(true);
-        expect(admin.canViewRequestDiagnostics()).toBe(true);
+        expect(internal.canViewRequestDiagnostics()).toBe(true);
         expect(reviewer.isAdmin()).toBe(false);
         expect(reviewer.canViewRequestDiagnostics()).toBe(false);
+        expect(cachedUser(UserPermissions.Admin).withRequestAddress("203.0.113.3").isAdmin()).toBe(true);
     });
 
     test("remains a User, so resolvers and model entry points accept it", () => {

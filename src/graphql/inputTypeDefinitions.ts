@@ -63,6 +63,7 @@ export const inputTypeDefinitions = gql`
         limit: Int
         userOnly: Boolean
         status: [Int!]
+        atlasStatus: [Int!]
         specimenIds: [String!]
         keywords: [String!]
     }

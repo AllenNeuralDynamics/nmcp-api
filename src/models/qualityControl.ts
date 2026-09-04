@@ -8,9 +8,9 @@ import {QualityControlStatus} from "./qualityControlStatus";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {User} from "./user";
 import {QualityCheckService, QualityCheckServiceStatus, QualityControlScore, QualityOutputShape} from "../data-access/qualityCheckService";
-import {Reconstruction} from "./reconstruction";
-import {ReconstructionStatus} from "./reconstructionStatus";
-import {UnauthorizedError} from "../graphql/secureResolvers";
+import {failureText, isTransientDatabaseError, PhaseOutcome, phaseFailureMessage} from "../util/phaseFailure";
+
+const debug = require("debug")("nmcp:nmcp-api:quality-control");
 
 function statusForScore(status: QualityControlScore): QualityControlStatus {
     switch (status) {
@@ -22,6 +22,22 @@ function statusForScore(status: QualityControlScore): QualityControlStatus {
             return QualityControlStatus.Passed;
         case QualityControlScore.PassedWithWarnings:
             return QualityControlStatus.Passed;
+    }
+}
+
+/**
+ * What the child records about a failed check.  The two failure kinds halt identically and wait for a person, so
+ * this text is the only thing that tells a StandardMorph crash apart from a real morphology failure.  Both are
+ * composed from the tool's own output, which the ungated qualityControl query already exposes in full.
+ */
+function failureReasonForOutput(status: QualityControlStatus, output: QualityOutputShape): string | null {
+    switch (status) {
+        case QualityControlStatus.Error:
+            return `quality control tool error (${output.toolError?.kind ?? "unknown"}): ${output.toolError?.description ?? "no description"}`;
+        case QualityControlStatus.Failed:
+            return `quality control failed ${output.errors?.length ?? 0} test(s): ${(output.errors ?? []).map(test => test.name).join(", ")}`;
+        default:
+            return null;
     }
 }
 
@@ -93,6 +109,75 @@ export class QualityControl extends BaseModel {
         });
     }
 
+    /**
+     * One transaction over both rows: this row's status is what getPending selects on, the child's is the phase
+     * pointer the atlasStatus filter and the derived phaseFailure field read.  Compare-and-set on this row only -
+     * the child is whatever the pipeline left it, and a claim that won here owns it.
+     *
+     * The child lock comes first, and unconditionally, even though the compare-and-set below is what decides the
+     * claim.  requestPhaseRetry locks the child and then writes this row through its afterReset hook, so taking them
+     * in the other order here is a deadlock between a claim and a reassessment.
+     */
+    public async claim(): Promise<boolean> {
+        return await this.sequelize.transaction(async (t) => {
+            // reconstructionId on this model is the AtlasReconstruction's id, not the parent Reconstruction's.
+            await AtlasReconstruction.findByPk(this.reconstructionId, {transaction: t, lock: Transaction.LOCK.UPDATE});
+
+            const [affected] = await QualityControl.update(
+                {status: QualityControlStatus.InProgress},
+                {where: {id: this.id, status: QualityControlStatus.Pending}, transaction: t}
+            );
+
+            if (affected !== 1) {
+                return false;
+            }
+
+            this.status = QualityControlStatus.InProgress;
+
+            // Conditional: this row's compare-and-set is what decides the claim, and the child is only moved if it is
+            // still where the claim expects it.
+            await AtlasReconstruction.update(
+                {status: AtlasReconstructionStatus.InQualityControl},
+                {where: {id: this.reconstructionId, status: AtlasReconstructionStatus.PendingQualityControl}, transaction: t}
+            );
+
+            return true;
+        });
+    }
+
+    // The inverse, in the same lock order, for a claim the phase is handing back.
+    public async release(): Promise<void> {
+        await this.sequelize.transaction(async (t) => {
+            await AtlasReconstruction.findByPk(this.reconstructionId, {transaction: t, lock: Transaction.LOCK.UPDATE});
+
+            await QualityControl.update(
+                {status: QualityControlStatus.Pending},
+                {where: {id: this.id, status: QualityControlStatus.InProgress}, transaction: t}
+            );
+
+            this.status = QualityControlStatus.Pending;
+
+            await AtlasReconstruction.update(
+                {status: AtlasReconstructionStatus.PendingQualityControl},
+                {where: {id: this.reconstructionId, status: AtlasReconstructionStatus.InQualityControl}, transaction: t}
+            );
+        });
+    }
+
+    /**
+     * The quality control half of the worker's pass-boundary sweep.  The child half is covered by
+     * AtlasReconstruction.releasePhaseClaims, since InQualityControl is in ClaimedPhaseStatuses.  Selects by status
+     * on one table, so it needs no lock ordering.
+     */
+    public static async releasePhaseClaims(): Promise<number> {
+        const [affected] = await this.update(
+            {status: QualityControlStatus.Pending},
+            {where: {status: QualityControlStatus.InProgress}}
+        );
+
+        return affected;
+    }
+
     public async makePending(user: User, t: Transaction = null): Promise<QualityControl> {
         const update = {
             status: QualityControlStatus.Pending
@@ -105,85 +190,71 @@ export class QualityControl extends BaseModel {
         return qualityControl;
     }
 
-    public async assess(user: User): Promise<boolean> {
-        const {serviceStatus, output} = await QualityCheckService.performQualityCheck(this.reconstructionId);
+    /**
+     * The try opens above performQualityCheck, not below it: that call serializes the reconstruction's nodes before
+     * its own try, so a database error or a null soma throws out of it rather than becoming Unavailable.  Left
+     * unwrapped it would throw with the worker's claim still held and no failure recorded anywhere.
+     */
+    public async assess(user: User): Promise<PhaseOutcome> {
+        try {
+            const {serviceStatus, output} = await QualityCheckService.performQualityCheck(this.reconstructionId);
 
-        if (serviceStatus == QualityCheckServiceStatus.Unavailable || serviceStatus == QualityCheckServiceStatus.Error) {
-            return false;
-        }
+            if (serviceStatus == QualityCheckServiceStatus.Unavailable || serviceStatus == QualityCheckServiceStatus.Error) {
+                await this.release();
 
-        const update: QualityControlShape = {
-            status: statusForScore(output.score),
-            current: output,
-            history: this.history?.slice() ?? []
-        };
-
-        await this.sequelize.transaction(async (t) => {
-            if (this.current) {
-                update.history.push(this.current);
+                return PhaseOutcome.ServiceUnavailable;
             }
 
-            await this.update(update, {transaction: t});
+            const update: QualityControlShape = {
+                status: statusForScore(output.score),
+                current: output,
+                history: this.history?.slice() ?? []
+            };
 
-            await this.recordEvent(eventKindForStatus(update.status), update, user, t);
+            await this.sequelize.transaction(async (t) => {
+                if (this.current) {
+                    update.history.push(this.current);
+                }
 
-            const reconstruction = await this.getReconstruction();
+                // Child lock first, per the one lock order - the same reason claim() takes it before this row.
+                const reconstruction = await AtlasReconstruction.findByPk(this.reconstructionId, {transaction: t, lock: Transaction.LOCK.UPDATE});
 
-            await reconstruction.qualityControlChanged(update.status == QualityControlStatus.Passed, user, t);
-        });
+                await this.update(update, {transaction: t});
 
-        return true;
-    }
+                await this.recordEvent(eventKindForStatus(update.status), update, user, t);
 
-    public static async requestReassessment(user: User, reconstructionId: string): Promise<QualityControl> {
-        if (!user?.canModifyReconstruction()) {
-            throw new UnauthorizedError();
-        }
+                await reconstruction.qualityControlChanged(update.status, failureReasonForOutput(update.status, output), user, t);
+            });
 
-        const reconstruction = await Reconstruction.findByPk(reconstructionId);
+            return PhaseOutcome.Handled;
+        } catch (error) {
+            debug(`quality control failed for ${this.id}: ${failureText(error)}`);
 
-        if (!reconstruction) {
-            throw new Error("Reconstruction not found");
-        }
+            if (isTransientDatabaseError(error)) {
+                await this.release();
 
-        if (reconstruction.status === ReconstructionStatus.Published || reconstruction.status === ReconstructionStatus.Archived) {
-            throw new Error("Cannot reassess quality control for a published or archived reconstruction");
-        }
-
-        const atlasReconstruction = await AtlasReconstruction.findOne({
-            where: {
-                reconstructionId: reconstructionId
+                return PhaseOutcome.Released;
             }
-        });
 
-        if (!atlasReconstruction) {
-            throw new Error("No atlas reconstruction found for this reconstruction");
+            // No usable score, so this row leaves the claim at Error - the same value a tool crash produces, since
+            // from the row's point of view both mean "the check produced no result".  The pair stays recoverable by
+            // hand: qualityControlChanged puts the child at FailedQualityControl, which is what
+            // requestQualityControlReassessment guards on.
+            await this.sequelize.transaction(async (t) => {
+                const reconstruction = await AtlasReconstruction.findByPk(this.reconstructionId, {transaction: t, lock: Transaction.LOCK.UPDATE});
+
+                await this.update({status: QualityControlStatus.Error}, {transaction: t});
+
+                await reconstruction.qualityControlChanged(
+                    QualityControlStatus.Error,
+                    phaseFailureMessage("quality control", error),
+                    user,
+                    t
+                );
+            });
+
+            return PhaseOutcome.Handled;
         }
-
-        const qc = await this.findOne({where: {reconstructionId: atlasReconstruction.id}});
-
-        if (!qc) {
-            throw new Error("No quality control record found");
-        }
-
-        return await this.sequelize.transaction(async (t) => {
-            await qc.makePending(user, t);
-
-            await atlasReconstruction.update(
-                {status: AtlasReconstructionStatus.PendingQualityControl},
-                {transaction: t}
-            );
-
-            await recordEvent({
-                kind: EventLogItemKind.AtlasReconstructionQualityControlRequest,
-                targetId: atlasReconstruction.id,
-                parentId: reconstructionId,
-                details: {status: AtlasReconstructionStatus.PendingQualityControl},
-                userId: user.id
-            }, t);
-
-            return qc;
-        });
     }
 }
 
