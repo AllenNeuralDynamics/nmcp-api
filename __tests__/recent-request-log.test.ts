@@ -28,13 +28,16 @@ function logWith(limit: number, count: number) {
 describe("authorization", () => {
     test.each([
         ["an internal caller", UserPermissions.InternalAccess],
-        ["an admin", UserPermissions.Admin]
+        ["the internal system", UserPermissions.InternalSystem]
     ])("allows %s", (_label: string, permissions: number) => {
         expect(logWith(50, 1).recent(userWithPermissions(permissions))).toHaveLength(1);
     });
 
+    // An admin is refused deliberately: this is a deployment diagnostic served on behalf of the internal system,
+    // and standing in for that user is the bypass the internal gates dropped.
     test.each([
         ["none", UserPermissions.None],
+        ["an admin", UserPermissions.Admin],
         ["a publish reviewer", UserPermissions.PublishReview],
         ["an annotator", UserPermissions.AnnotateMany]
     ])("refuses %s", (_label: string, permissions: number) => {

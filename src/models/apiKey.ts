@@ -1,8 +1,10 @@
 import {DataTypes, BelongsToGetAssociationMixin, Op, Sequelize} from "sequelize";
 import {createHash} from "crypto";
 
+import {GraphQLError} from "graphql/error";
+
 import {BaseModel} from "./baseModel";
-import {User} from "./user";
+import {ApiKeyPermissionsAll, User} from "./user";
 import {ApiKeyTableName} from "./tableNames";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {ServiceOptions} from "../options/serviceOptions";
@@ -41,7 +43,18 @@ export class ApiKey extends BaseModel {
         });
 
         if (apiKey) {
-            return await User.findByPk(apiKey.userId);
+            const owner = await User.findByPk(apiKey.userId);
+
+            // userId is nullable, so a key whose owner cannot be resolved is representable.  It authenticates as null
+            // today, which app.ts turns into SystemNoUser; calling the view method on nothing would turn an invalid
+            // credential into a 500 raised inside context construction.
+            if (!owner) {
+                return null;
+            }
+
+            // The key's own value, honored directly: no intersection with what the owner holds now and no fallback to
+            // it.  The key is the credential.
+            return owner.withKeyPermissions(apiKey.permissions);
         }
 
         if (ServiceOptions.serverAuthenticationKey != null && key === ServiceOptions.serverAuthenticationKey) {
@@ -54,6 +67,14 @@ export class ApiKey extends BaseModel {
     public static async createApiKey(userOrId: User | string, sourceKey: string, description?: string, durationDays?: number, permissions?: number): Promise<ApiKey> {
         const user = await User.findUserOrId(userOrId);
 
+        // Before the transaction opens, and the same shape of test User.updatePermissions applies to a user: the mask
+        // refuses any bit outside what a key may hold - admin and the internal bits alike - and the range test closes
+        // the int32 wrap that would otherwise let a value at or above 2^31 through it.
+        if (permissions !== undefined && permissions !== null
+            && (!Number.isInteger(permissions) || permissions < 0 || permissions > ApiKeyPermissionsAll || (permissions & ~ApiKeyPermissionsAll) !== 0)) {
+            throw new GraphQLError("That permissions value includes bits an API key cannot hold.", {extensions: {code: 1006}});
+        }
+
         return await ApiKey.sequelize.transaction(async (t) => {
             const expiration = new Date();
 
@@ -63,7 +84,9 @@ export class ApiKey extends BaseModel {
 
             const apiKey = await ApiKey.create({
                 userId: user.id,
-                permissions: permissions ?? user.permissions,
+                // The owner's permissions minus anything a key may not carry.  An account holding Admin and nothing
+                // else therefore mints an empty key, which is the rule working rather than failing.
+                permissions: permissions ?? (user.permissions & ApiKeyPermissionsAll),
                 description,
                 expiration,
                 key: keyHash

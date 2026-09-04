@@ -1,13 +1,15 @@
 import {BaseModel, EntityQueryOutput, OffsetAndLimit} from "./baseModel";
 import {DataTypes, Op, Sequelize, Transaction} from "sequelize";
+import {GraphQLError} from "graphql/error";
 import {AtlasReconstruction} from "./atlasReconstruction";
 import {Semaphore} from "../util/semaphore";
 import {FiniteMap} from "../util/finiteMap";
 import {ApiKey} from "./apiKey";
 import {UserTableName} from "./tableNames";
 import {ReconstructionSpace} from "./reconstructionSpace";
-import {Reconstruction} from "./reconstruction";
+import {AdminDiscardableSourceStatuses, DiscardableSourceStatuses, Reconstruction} from "./reconstruction";
 import {ReconstructionStatus} from "./reconstructionStatus";
+import {AbandonableFailureStatuses, AtlasReconstructionStatus} from "./atlasReconstructionStatus";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {UnauthorizedError} from "../graphql/secureResolvers";
 import {PortalUser} from "../io/portalFormat";
@@ -40,6 +42,33 @@ export enum UserPermissions {
 // All 4883
 
 export const UserPermissionsAll = UserPermissions.AnnotateOne | UserPermissions.AnnotateMany | UserPermissions.EditAll | UserPermissions.ReviewAll | UserPermissions.AdminAll;
+
+/**
+ * Everything an API key may carry: the ordinary-user set with the admin bits removed.  Admin power is not delegable to
+ * a credential - a key is used by a script, unattended, and outlives the session that minted it.  The internal bits are
+ * already outside UserPermissionsAll and so are outside this too.
+ */
+export const ApiKeyPermissionsAll = UserPermissionsAll & ~UserPermissions.AdminAll;
+
+/**
+ * The source statuses an upload may arrive at, per space, and the review bit each one requires.  A status absent for a
+ * space is not an upload source there at all.  The bit tracks the status rather than the space: specimen-space nodes
+ * are rewritten by whichever review the reconstruction is actually in, and atlas space only ever admits publish
+ * review.  An admin qualifies at any status in the map without holding the bit.
+ *
+ * Declared here rather than beside the other source-status lists in reconstruction.ts because the values are
+ * UserPermissions bits: reconstruction.ts and user.ts form a require cycle, and dereferencing the enum at module scope
+ * from that side throws whenever user.js is the entry into it.
+ */
+export const UploadSourceStatuses: ReadonlyMap<ReconstructionSpace, ReadonlyMap<ReconstructionStatus, UserPermissions>> = new Map([
+    [ReconstructionSpace.Specimen, new Map([
+        [ReconstructionStatus.PeerReview, UserPermissions.PeerReview],
+        [ReconstructionStatus.PublishReview, UserPermissions.PublishReview]
+    ])],
+    [ReconstructionSpace.Atlas, new Map([
+        [ReconstructionStatus.PublishReview, UserPermissions.PublishReview]
+    ])]
+]);
 
 // "019a7d99-202b-7000-8000-000000000000" is the earliest/lowest possible value that is a valid UUIDv7 value.  It can not be generated unless a system clock
 // were set and held to the Unix epoch.
@@ -243,6 +272,14 @@ export class User extends BaseModel {
             return null;
         }
 
+        // After the target is resolved, so a rejected value cannot distinguish a system user from a missing one, and
+        // outside the try below, whose catch would swallow the throw and report success.  The mask refuses any bit
+        // outside the normal-user set - including the reserved-but-unassigned ones - and the range test closes the
+        // int32 wrap that would otherwise let a value at or above 2^31 through the mask.
+        if (!Number.isInteger(permissions) || permissions < 0 || permissions > UserPermissionsAll || (permissions & ~UserPermissionsAll) !== 0) {
+            throw new GraphQLError("That permissions value includes bits an ordinary account cannot hold.", {extensions: {code: 1006}});
+        }
+
         if (!this.userSemaphores.has(user.authDirectoryId)) {
             this.userSemaphores.set(user.authDirectoryId, new Semaphore());
         }
@@ -339,6 +376,16 @@ export class User extends BaseModel {
         return (this.permissions & UserPermissions.PublishReview) != 0;
     }
 
+    /**
+     * Admin or PublishReview, unlike canModifyReconstruction, which stays PublishReview-only and gates metadata edits.
+     * Restarting a phase or replaying the pipeline is a supervisory action on a reconstruction that is stuck, so an
+     * admin holding no review bit is still the right person to have it - and the replay must not be more available
+     * than the single retry it subsumes.
+     */
+    public canOperateReconstructionPipeline(): boolean {
+        return this.isAdmin() || (this.permissions & UserPermissions.PublishReview) != 0;
+    }
+
     public canPauseReconstruction(annotatorId: string): boolean {
         return this.isAdmin() || annotatorId == this.id;
     }
@@ -347,8 +394,33 @@ export class User extends BaseModel {
         return this.isAdmin() || annotatorId == this.id;
     }
 
-    public canDiscardReconstruction(annotatorId: string): boolean {
-        return this.isAdmin() || annotatorId == this.id;
+    /**
+     * Past approval the parent status alone does not decide: WaitingForAtlasReconstruction is abandonable only when the
+     * child has stopped at a failed phase, never while one is running.  The annotator is deliberately absent - a
+     * reconstruction inside the pipeline is not theirs to abandon.
+     */
+    private static isReviewerAbandonable(status: ReconstructionStatus, childStatus: AtlasReconstructionStatus): boolean {
+        if (status == ReconstructionStatus.ReadyToPublish) {
+            return true;
+        }
+
+        return status == ReconstructionStatus.WaitingForAtlasReconstruction && AbandonableFailureStatuses.includes(childStatus);
+    }
+
+    public canDiscardReconstruction(annotatorId: string, status: ReconstructionStatus, childStatus: AtlasReconstructionStatus = null): boolean {
+        if (DiscardableSourceStatuses.includes(status)) {
+            return this.isAdmin() || annotatorId == this.id;
+        }
+
+        if (AdminDiscardableSourceStatuses.includes(status)) {
+            return this.isAdmin();
+        }
+
+        if (User.isReviewerAbandonable(status, childStatus)) {
+            return this.isAdmin() || (this.permissions & UserPermissions.PublishReview) != 0;
+        }
+
+        return false;
     }
 
     public canMarkReconstructionUntraceable(annotatorId: string): boolean {
@@ -359,7 +431,7 @@ export class User extends BaseModel {
         return this.canAnnotate();
     }
 
-    public canRejectReconstruction(status: ReconstructionStatus): boolean {
+    public canRejectReconstruction(status: ReconstructionStatus, childStatus: AtlasReconstructionStatus = null): boolean {
         if (this.isAdmin()) {
             return true;
         }
@@ -368,29 +440,20 @@ export class User extends BaseModel {
             return (this.permissions & UserPermissions.PeerReview) != 0;
         }
 
-        if (status == ReconstructionStatus.PublishReview) {
+        // The PublishFailed pair is spelled out here rather than folded into isReviewerAbandonable, which
+        // canDiscardReconstruction shares: a discard permission at PublishFailed would only be refused by
+        // Reconstruction.isDiscardable a moment later.
+        if (status == ReconstructionStatus.PublishReview
+            || User.isReviewerAbandonable(status, childStatus)
+            || (status == ReconstructionStatus.PublishFailed && childStatus == AtlasReconstructionStatus.FailedSearchIndexing)) {
             return (this.permissions & UserPermissions.PublishReview) != 0;
         }
 
         return false;
     }
 
-    public canRequestReview(annotatorId: string, currentStatus: ReconstructionStatus, requestedStatus: ReconstructionStatus): boolean {
-        if (this.isAdmin()) {
-            return true;
-        }
-
-        if (requestedStatus == ReconstructionStatus.PeerReview) {
-            // Other than the annotator, only an admin can request peer review.
-            return annotatorId == this.id;
-        } else if (requestedStatus == ReconstructionStatus.PublishReview) {
-            // Peer reviewers can ask for a publish-review if it is going through the peer review process.
-            if (currentStatus == ReconstructionStatus.PeerReview) {
-                return (this.permissions & UserPermissions.PeerReview) != 0;
-            }
-        }
-
-        return false
+    public canRequestReview(annotatorId: string): boolean {
+        return this.isAdmin() || annotatorId == this.id;
     }
 
     public canApproveReconstruction(targetStatus: ReconstructionStatus): boolean {
@@ -411,28 +474,29 @@ export class User extends BaseModel {
         return this.isAdmin() || (this.permissions & UserPermissions.PublishReview) != 0;
     }
 
-    public canValidateDois(): boolean {
-        return this.isAdmin();
+    /**
+     * Admin, or the review bit UploadSourceStatuses pairs with the status the reconstruction is in, for both spaces.
+     * The same map decides the locked re-check in Reconstruction.fromParsedStructures, so the rule is stated once.
+     */
+    public canUploadReconstructionData(space: ReconstructionSpace, currentStatus: ReconstructionStatus): boolean {
+        const requiredPermission = UploadSourceStatuses.get(space)?.get(currentStatus);
+
+        if (requiredPermission === undefined) {
+            return false;
+        }
+
+        return this.isAdmin() || (this.permissions & requiredPermission) != 0;
     }
 
-    public canUploadReconstructionData(space: ReconstructionSpace): boolean {
-        if (this.isAdmin()) {
-            return true;
-        }
-
-        if (space == ReconstructionSpace.Specimen) {
-            return (this.permissions & UserPermissions.PeerReview) != 0 || (this.permissions & UserPermissions.PublishReview) != 0;
-        }
-
-        if (space == ReconstructionSpace.Atlas) {
-            return (this.permissions & UserPermissions.PublishReview) != 0;
-        }
-
-        return false;
-    }
-
+    /**
+     * InternalAccess alone, with no admin bypass, for this and the three gates below.  Each either asserts pipeline
+     * state on behalf of a service or exposes internal data to one, and an admin standing in for the internal system
+     * user is how precomputed generation gets marked complete with no volume behind it.  An admin who needs
+     * automated work redone holds PublishReview and asks for a retry instead.  UserPermissions.InternalSystem
+     * includes this bit, so the system users and the internal services are unaffected.
+     */
     public canRequestReconstructionData(): boolean {
-        return this.isAdmin() || (this.permissions & UserPermissions.InternalAccess) != 0;
+        return (this.permissions & UserPermissions.InternalAccess) != 0;
     }
 
     /**
@@ -453,16 +517,34 @@ export class User extends BaseModel {
         return scoped;
     }
 
+    /**
+     * A view of this user carrying the permissions of the API key a request authenticated with, so that every can...
+     * predicate answers off the key rather than off what its owner happens to hold now.
+     *
+     * The same prototype-chain view withRequestAddress builds, with one difference that is not optional: `ip` is a
+     * plain class field, while `permissions` is a Sequelize attribute whose accessor lives on the prototype and writes
+     * through to `dataValues` - which this view inherits by reference from the cached user.  A plain assignment would
+     * therefore rewrite the permissions of the shared cached instance for every concurrent request on that account.
+     * Defining the own property shadows the accessor instead of invoking it.
+     */
+    public withKeyPermissions(permissions: number): User {
+        const scoped: User = Object.create(this);
+
+        Object.defineProperty(scoped, "permissions", {value: permissions, enumerable: true, configurable: true});
+
+        return scoped;
+    }
+
     public canViewRequestDiagnostics(): boolean {
-        return this.isAdmin() || (this.permissions & UserPermissions.InternalAccess) != 0;
+        return (this.permissions & UserPermissions.InternalAccess) != 0;
     }
 
     public canRequestPendingPrecomputed(): boolean {
-        return this.isAdmin() || (this.permissions & UserPermissions.InternalAccess) != 0;
+        return (this.permissions & UserPermissions.InternalAccess) != 0;
     }
 
     public canUpdatePrecomputed(): boolean {
-        return this.isAdmin() || (this.permissions & UserPermissions.InternalAccess) != 0;
+        return (this.permissions & UserPermissions.InternalAccess) != 0;
     }
 
     public static get SystemNoUser(): User {

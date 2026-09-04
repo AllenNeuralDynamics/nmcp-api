@@ -149,6 +149,9 @@ export const typeDefinitions = gql`
         updateCollection(collection: CollectionInput!): Collection!
         # No delete.  Has implications that are not yet handled.
 
+        """Sets an ordinary user's permissions.  Errors with code 1006 if the value carries any bit outside the
+normal-user set — the internal-access bits belong to the seeded system users and cannot be granted here.  A system
+user is a no-op, returning null."""
         updateUserPermissions(id: String!, permissions: Int!): User
         updateUserAnonymity(id: String!, anonymousAnnotation: Boolean!, anonymousPublish: Boolean!): User
 
@@ -159,19 +162,43 @@ export const typeDefinitions = gql`
         pauseReconstruction(reconstructionId: String!): Reconstruction
         resumeReconstruction(reconstructionId: String!): Reconstruction
         requestReview(reconstructionId: String!, targetStatus: Int!, duration: Float, notes: String): Reconstruction
+        """Errors with code 1005 when approving publish review before the atlas reconstruction data has been uploaded."""
         approveReconstruction(reconstructionId: String!, targetStatus: Int!): Reconstruction
         """Opens a revision of the reconstruction.  Errors with code 1002 if the user is limited to a single open annotation and already has one."""
         openReconstructionRevision(reconstructionId: String!, revisionKind: Int!): Reconstruction
 
-        """Requests the reconstruction be queued for publishing.  May not be immediately available as published."""
+        """Requests the reconstruction be queued for publishing.  May not be immediately available as published.  Errors with
+code 1001 if the neuron has a published reconstruction and replaceExisting is not set, or 1003 if a publish is already
+in progress for the neuron.
+
+publishAll takes at most 50 reconstructions per call: a longer explicit list is refused outright with code 1007, and
+["ALL"] publishes the oldest 50 publishable reconstructions waiting at ReadyToPublish - those whose neuron does not
+already hold a publish - the caller repeating until the queue drains.
+
+publishAll returns the reconstructions that did publish and stops at the first refusal, so a short list means a
+refusal ended the run and the remainder was never attempted.  An error means the attempt itself failed; the
+reconstructions already returned in a successful call are committed regardless.
+
+Error codes in use across these mutations: 1001 an existing published reconstruction, 1002 the single open annotation
+limit, 1003 a publish already in progress, 1004 the request does not apply at the reconstruction's current phase, 1005
+approval requires the atlas data, 1006 a permissions value outside the normal-user set, 1007 more than 50
+reconstructions in one publish call, 1008 the reconstruction's state no longer admits a publish."""
         publish(reconstructionId: String!, replaceExisting: Boolean): Reconstruction
         publishAll(reconstructionIds: [String!]!): [Reconstruction!]!
         rejectReconstruction(reconstructionId: String!): Reconstruction
         discardReconstruction(reconstructionId: String!): Reconstruction
         markReconstructionUntraceable(reconstructionId: String!): Reconstruction
-        validateDois: Int!
         requestSpecimenSpaceRegeneration(reconstructionId: String!): Precomputed
-        requestQualityControlReassessment(reconstructionId: String!): QualityControl
+        """Restarts one automatic phase.  Admissible only from that phase's own failed status.  Errors with code 1004
+from any other, which for a script caller is the benign case of the phase having completed underneath the request."""
+        requestQualityControlReassessment(reconstructionId: String!): AtlasReconstruction
+        requestDoiAssignment(reconstructionId: String!): AtlasReconstruction
+        requestStructureAssignment(reconstructionId: String!): AtlasReconstruction
+        requestPrecomputedRegeneration(reconstructionId: String!): AtlasReconstruction
+        requestSearchIndexing(reconstructionId: String!): AtlasReconstruction
+        """Replays every automatic phase from the beginning.  Admissible from a failed automatic phase or from
+ReadyToPublish.  Registered DOIs are kept.  Errors with code 1004 from any other state."""
+        resetReconstructionPipeline(reconstructionId: String!): AtlasReconstruction
 
         updateReconstruction(reconstructionId: String!, duration: Float, notes: String, started: Date, completed: Date): Reconstruction
         uploadSwcData(uploadArgs: ReconstructionUploadArgs!): Reconstruction

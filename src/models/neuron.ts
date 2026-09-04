@@ -35,7 +35,7 @@ import {UnauthorizedError} from "../graphql/secureResolvers";
 import {normalizeKeywords, substringMatchPatterns} from "../util/keywords";
 import {Genotype} from "./genotype";
 import {isNullOrEmpty} from "../util/objectUtil";
-import {Reconstruction} from "./reconstruction";
+import {CandidateBlockingStatuses, PublishedCandidateBlockingStatuses, Reconstruction} from "./reconstruction";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {Collection} from "./collection";
 import {DataCiteService, DataCiteServiceStatus, DataCiteRelatedIdentifier} from "../data-access/doi/dataCiteService";
@@ -69,6 +69,12 @@ export type SomaProperties = {
 export type SomaImportResponse = {
     count: number;
     error: Error;
+}
+
+export type CanonicalDoiResult = {
+    serviceStatus: DataCiteServiceStatus;
+    serviceError: string | null;
+    doi: string | null;
 }
 
 export enum NeuronStatusFilter {
@@ -265,13 +271,14 @@ export class Neuron extends BaseModel {
     public static async getCandidateNeurons(input: NeuronQueryInput, includeInProgress: boolean = false): Promise<EntityQueryOutput<Neuron>> {
         const neuronIds = (await Neuron.findAll({attributes: ["id"]})).map(n => n.id);
 
-        // TODO TODO Needs to filter out discarded and archived also
-        const reconstructionWhere = includeInProgress ? {status: ReconstructionStatus.Published} : null;
+        // includeInProgress reads backwards: it means only a finished (or in-flight) publication holds the neuron back.
+        // Without it, live work holds it back too.
+        const blocking = includeInProgress ? PublishedCandidateBlockingStatuses : CandidateBlockingStatuses;
 
         const neuronIdsWithCompletedReconstruction = (await Reconstruction.findAll({
-            where: reconstructionWhere,
+            where: {status: {[Op.in]: blocking}},
             attributes: ["id", "neuronId"]
-        })).map(t => t.neuronId);
+        })).map(reconstruction => reconstruction.neuronId);
 
         const neuronsWithCompletedReconstruction = _.uniq(neuronIdsWithCompletedReconstruction);
 
@@ -661,8 +668,7 @@ export class Neuron extends BaseModel {
      * A neuron is untraceable when someone gave up on it and nothing else is happening on it: at least one
      * reconstruction was marked Untraceable and no live work remains.  Marking soft-deletes the row, so this is the one
      * query that has to look past paranoid - which also surfaces discarded rows, hence testing deletedAt rather than
-     * status for the second half.  Initialized does not clear the flag because it is the column default and an artifact
-     * of legacy import paths rather than live work - openReconstruction creates at InProgress.
+     * status for the second half.
      */
     public async untraceable(): Promise<boolean> {
         const reconstructions = await Reconstruction.findAll({
@@ -675,8 +681,7 @@ export class Neuron extends BaseModel {
             return false;
         }
 
-        return reconstructions.every(reconstruction =>
-            reconstruction.deletedAt != null || reconstruction.status == ReconstructionStatus.Initialized);
+        return reconstructions.every(reconstruction => reconstruction.deletedAt != null);
     }
 
     private static constructFindOptions(input: NeuronQueryInput): FindOptions {
@@ -693,9 +698,9 @@ export class Neuron extends BaseModel {
         return options;
     }
 
-    public async assignCanonicalDoi(user: User, publicationYear: number, relatedIdentifiers: DataCiteRelatedIdentifier[], t: Transaction): Promise<string> {
+    public async assignCanonicalDoi(user: User, publicationYear: number, relatedIdentifiers: DataCiteRelatedIdentifier[], t: Transaction): Promise<CanonicalDoiResult> {
         if (this.canonicalDoi) {
-            return this.canonicalDoi;
+            return {serviceStatus: DataCiteServiceStatus.Success, serviceError: null, doi: this.canonicalDoi};
         }
 
         const options = CoreServiceOptions.rest.doiGeneration;
@@ -703,6 +708,8 @@ export class Neuron extends BaseModel {
         const specimen = this.Specimen ?? await this.getSpecimen({include: [{model: Collection}], transaction: t});
         const collection = specimen.Collection ?? await specimen.getCollection({transaction: t});
 
+        // Registered findable in this single call, deliberately: the canonical identifies the neuron rather than any
+        // one reconstruction of it, so it is citable from the moment it exists whatever state the reconstruction is in.
         const doiResult = await DataCiteService.createDoi({
             data: {
                 type: "dois",
@@ -725,8 +732,12 @@ export class Neuron extends BaseModel {
         });
 
         if (doiResult.serviceStatus !== DataCiteServiceStatus.Success) {
-            throw new Error(`Neuron DOI creation failed: ${doiResult.serviceError ?? "unknown error"}`);
+            return {serviceStatus: doiResult.serviceStatus, serviceError: doiResult.serviceError, doi: null};
         }
+
+        // Logged before the local write, not after it: this line is the only trace the registration leaves if the
+        // write or the commit that follows fails, and an orphaned identifier is only findable by hand through it.
+        debug(`canonical doi registered for neuron ${this.label}: ${doiResult.doi}`);
 
         await this.update({canonicalDoi: doiResult.doi}, {transaction: t});
 
@@ -738,9 +749,7 @@ export class Neuron extends BaseModel {
             userId: user.id
         }, t);
 
-        debug(`canonical doi assigned to neuron ${this.label}: ${doiResult.doi}`);
-
-        return doiResult.doi;
+        return {serviceStatus: DataCiteServiceStatus.Success, serviceError: null, doi: doiResult.doi};
     }
 
     public toPortalFormat(): PortalNeuron {

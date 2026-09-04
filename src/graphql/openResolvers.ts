@@ -109,6 +109,7 @@ export const openResolvers = {
             return getNeuronVersionHistory(args.neuronId);
         },
 
+        // Deliberately open at every status, failed test names and affected node indices included.
         qualityControl(_: any, args: { id: string }, context: User): Promise<QualityControl> {
             return QualityControl.findByPk(args.id);
         },
@@ -160,7 +161,9 @@ export const openResolvers = {
             return neuron.getSpecimen();
         },
         reconstructions(neuron: Neuron): Promise<Reconstruction[]> {
-            return neuron.getSpecimenReconstruction();
+            // hasMany, so every revision of the neuron: without the include, phaseFailure and atlasReconstruction
+            // would each fetch the child once per row.
+            return neuron.getSpecimenReconstruction({include: [{model: AtlasReconstruction}]});
         },
         published(neuron: Neuron): Promise<AtlasReconstruction> {
             return neuron.published();

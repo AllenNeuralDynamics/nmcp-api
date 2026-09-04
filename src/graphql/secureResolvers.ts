@@ -6,6 +6,7 @@ import {EntityQueryOutput} from "../models/baseModel";
 import {Injection, InjectionShape, InjectionQueryInput} from "../models/injection";
 import {User, UserPermissions, UserQueryInput} from "../models/user";
 import {AtlasReconstruction} from "../models/atlasReconstruction";
+import {AtlasReconstructionStatus, PhaseFailureStatuses} from "../models/atlasReconstructionStatus";
 import {GraphQLError} from "graphql/error";
 import {Collection, CollectionShape} from "../models/collection";
 import {Issue, IssueReference, IssueResolutionKind, IssueStatus} from "../models/issue";
@@ -49,6 +50,16 @@ export interface GqlFile {
     stream: any;
 }
 
+/**
+ * The Reconstruction.phaseFailure payload: the child's Failed... status, what it recorded, and when.  Derived from
+ * the atlas reconstruction on every read rather than persisted on the parent, so there is no second copy to drift.
+ */
+export interface PhaseFailureShape {
+    phase: AtlasReconstructionStatus;
+    reason: string | null;
+    failedAt: Date | null;
+}
+
 // noinspection JSUnusedGlobalSymbols
 /**
  * All resolvers/functionality that requires any form of authorization except for internal-only.  Any query or mutation must enforce some level authorization
@@ -89,7 +100,10 @@ export const secureResolvers = {
 
         reconstructions(_: any, args: { queryArgs: ReconstructionsQueryArgs }, user: User): Promise<ReconstructionQueryResponse> {
             const queryArgs = {...args.queryArgs, userId: user.id};
-            return Reconstruction.getAll(user, queryArgs);
+            // The has-one include turns what would be two per-row fetches - atlasReconstruction and phaseFailure -
+            // into one join.  Passed here rather than added to getAll's default include, so getAllPublished's own
+            // AtlasReconstruction include is not duplicated into an EagerLoadingError.
+            return Reconstruction.getAll(user, queryArgs, [{model: AtlasReconstruction}]);
         },
 
         async issueCount(_: any, __: any, context: User): Promise<number> {
@@ -230,16 +244,34 @@ export const secureResolvers = {
             return Reconstruction.markUntraceable(args.reconstructionId, user);
         },
 
-        validateDois(_: any, __: any, user: User): Promise<number> {
-            return Reconstruction.validateDois(user);
-        },
-
         requestSpecimenSpaceRegeneration(_: any, args: { reconstructionId: string }, user: User): Promise<SpecimenSpacePrecomputed> {
             return SpecimenSpacePrecomputed.requestRegenerationForReconstruction(user, args.reconstructionId);
         },
 
-        requestQualityControlReassessment(_: any, args: { reconstructionId: string }, user: User): Promise<QualityControl> {
-            return QualityControl.requestReassessment(user, args.reconstructionId);
+        requestQualityControlReassessment(_: any, args: { reconstructionId: string }, user: User): Promise<AtlasReconstruction> {
+            return AtlasReconstruction.requestQualityControlReassessment(user, args.reconstructionId);
+        },
+
+        requestDoiAssignment(_: any, args: { reconstructionId: string }, user: User): Promise<AtlasReconstruction> {
+            return AtlasReconstruction.requestDoiAssignment(user, args.reconstructionId);
+        },
+
+        requestStructureAssignment(_: any, args: { reconstructionId: string }, user: User): Promise<AtlasReconstruction> {
+            return AtlasReconstruction.requestStructureAssignment(user, args.reconstructionId);
+        },
+
+        // Returns the atlas reconstruction rather than the Precomputed row: the child status is what the caller
+        // needs back, and it is what distinguishes this from requestSpecimenSpaceRegeneration above.
+        requestPrecomputedRegeneration(_: any, args: { reconstructionId: string }, user: User): Promise<AtlasReconstruction> {
+            return AtlasReconstruction.requestPrecomputedRegeneration(user, args.reconstructionId);
+        },
+
+        requestSearchIndexing(_: any, args: { reconstructionId: string }, user: User): Promise<AtlasReconstruction> {
+            return AtlasReconstruction.requestSearchIndexing(user, args.reconstructionId);
+        },
+
+        resetReconstructionPipeline(_: any, args: { reconstructionId: string }, user: User): Promise<AtlasReconstruction> {
+            return AtlasReconstruction.resetPipeline(user, args.reconstructionId);
         },
 
         updateReconstruction(_: any, args: ReconstructionMetadataArgs, user: User): Promise<Reconstruction> {
@@ -300,7 +332,22 @@ export const secureResolvers = {
             return reconstruction.getNeuron();
         },
         atlasReconstruction(reconstruction: Reconstruction): Promise<AtlasReconstruction> {
-            return reconstruction.getAtlasReconstruction();
+            // Prefer the eager-loaded child: the list queries include it, and without this the field fetches once
+            // per row alongside phaseFailure doing the same.
+            return Promise.resolve(reconstruction.AtlasReconstruction ?? reconstruction.getAtlasReconstruction());
+        },
+        /**
+         * Which phase is blocked and why, composed on the server so each client does not have to know which parent
+         * statuses are worth pairing with which child status.  Null unless the child sits at a Failed... status.
+         */
+        async phaseFailure(reconstruction: Reconstruction): Promise<PhaseFailureShape | null> {
+            const child = reconstruction.AtlasReconstruction ?? await reconstruction.getAtlasReconstruction();
+
+            if (!child || !PhaseFailureStatuses.includes(child.status)) {
+                return null;
+            }
+
+            return {phase: child.status, reason: child.failureReason ?? null, failedAt: child.failedAt ?? null};
         },
         precomputed(reconstruction: Reconstruction): Promise<SpecimenSpacePrecomputed> {
             return reconstruction.getPrecomputed();

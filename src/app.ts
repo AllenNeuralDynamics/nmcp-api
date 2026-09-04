@@ -86,7 +86,9 @@ async function start() {
 
                 // req.ip honors the trust-proxy setting above and so is the client rather than the gateway; the socket
                 // fallback covers a direct connection with no forwarding header.  The address goes on a per-request
-                // view rather than the user itself, which is cached and shared across concurrent requests.
+                // view rather than the user itself, which is cached and shared across concurrent requests.  For an API
+                // key caller this layers over the key-scoped view authenticateKey returned: the address is shadowed
+                // here, the key's permissions one link further down, and both resolve through the same chain.
                 const requestUser = user.withRequestAddress(req.ip ?? req.socket.remoteAddress);
 
                 // Every GraphQL operation, but deliberately not /health: the gateway polls it continuously and would
