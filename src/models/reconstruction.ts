@@ -343,7 +343,7 @@ export class Reconstruction extends BaseModel {
                 update["durationHours"] = args.duration;
             }
 
-            if (args.started !== undefined) {
+            if (args.notes !== undefined) {
                 update["notes"] = args.notes ?? "";
             }
 
@@ -567,7 +567,7 @@ export class Reconstruction extends BaseModel {
         }
 
         if (isNotNullOrUndefined(duration)) {
-            update["duration"] = duration;
+            update["durationHours"] = duration;
         }
 
         if (isNotNullOrUndefined(notes)) {
@@ -625,7 +625,7 @@ export class Reconstruction extends BaseModel {
                 await r.recordEvent(EventLogItemKind.ReconstructionApprovePublishReview, update, user, t, substituteUser);
 
                 // If other requirements are met, move to finalizing.
-                const atlasReconstruction = await reconstruction.getAtlasReconstruction();
+                const atlasReconstruction = await reconstruction.getAtlasReconstruction({transaction: t});
 
                 if (await atlasReconstruction.approve(user, t, substituteUser)) {
                     const update = {status: ReconstructionStatus.WaitingForAtlasReconstruction};
@@ -645,7 +645,10 @@ export class Reconstruction extends BaseModel {
             throw new UnauthorizedError();
         }
 
-        if (reconstruction.status != ReconstructionStatus.PeerReview && reconstruction.status != ReconstructionStatus.PublishReview && reconstruction.status != ReconstructionStatus.ReadyToPublish) {
+        // Read before the update below, which mutates reconstruction.status in place.
+        const sourceStatus = reconstruction.status;
+
+        if (sourceStatus != ReconstructionStatus.PeerReview && sourceStatus != ReconstructionStatus.PublishReview && sourceStatus != ReconstructionStatus.ReadyToPublish) {
             throw new Error("Requested status must be Peer Review or Publish Review")
         }
 
@@ -653,7 +656,7 @@ export class Reconstruction extends BaseModel {
             status: ReconstructionStatus.Rejected
         };
 
-        if (reconstruction.status == ReconstructionStatus.PeerReview) {
+        if (sourceStatus == ReconstructionStatus.PeerReview) {
             update["reviewerId"] = user.id;
         }
 
@@ -662,8 +665,8 @@ export class Reconstruction extends BaseModel {
 
             await r.recordEvent(EventLogItemKind.ReconstructionReject, update, user, t, substituteUser);
 
-            if (reconstruction.status == ReconstructionStatus.PublishReview) {
-                const atlasReconstruction = await reconstruction.getAtlasReconstruction();
+            if (sourceStatus == ReconstructionStatus.PublishReview) {
+                const atlasReconstruction = await reconstruction.getAtlasReconstruction({transaction: t});
                 await atlasReconstruction.reject(user, t);
             }
 
@@ -697,7 +700,7 @@ export class Reconstruction extends BaseModel {
             throw new Error("The reconstruction is not in a publishable state");
         }
 
-        const existingPublished = await Reconstruction.findOne({where: {neuronId: this.neuronId, status: ReconstructionStatus.Published}});
+        const existingPublished = await Reconstruction.findOne({where: {neuronId: this.neuronId, status: ReconstructionStatus.Published}, transaction: t});
 
         if (existingPublished) {
             if (!replaceExisting) {
@@ -1151,7 +1154,7 @@ export class Reconstruction extends BaseModel {
         await this.update(shape, {transaction: t});
 
 
-        const atlasReconstruction = await this.getAtlasReconstruction();
+        const atlasReconstruction = await this.getAtlasReconstruction({transaction: t});
 
         if (atlasReconstruction) {
             await SearchIndex.destroy({
@@ -1234,7 +1237,7 @@ export class Reconstruction extends BaseModel {
 
                 const updated = await this.replaceNodeData(user, reconstructionData, t);
 
-                let precomputed = await SpecimenSpacePrecomputed.findOne({where: {reconstructionId: this.id}});
+                let precomputed = await SpecimenSpacePrecomputed.findOne({where: {reconstructionId: this.id}, transaction: t});
 
                 if (!precomputed) {
                     precomputed = await SpecimenSpacePrecomputed.createForReconstruction(user, this.id, t);
@@ -1249,7 +1252,7 @@ export class Reconstruction extends BaseModel {
                 throw new Error("The reconstruction data can not be modified when not in publish review");
             }
 
-            const atlasReconstruction = await this.getAtlasReconstruction();
+            const atlasReconstruction = await this.getAtlasReconstruction({transaction: t});
 
             if (!atlasReconstruction) {
                 throw new UploadError(`Atlas reconstruction for ${this.id} not found.`)
@@ -1269,7 +1272,7 @@ export class Reconstruction extends BaseModel {
 
     private async replaceNodeData(user: User, reconstructionData: SimpleReconstruction, t: Transaction): Promise<Reconstruction> {
         try {
-            await this.update({specimenSomaNodeId: null, transaction: t});
+            await this.update({specimenSomaNodeId: null}, {transaction: t});
 
             await SpecimenNode.destroy({
                 where: {reconstructionId: this.id},

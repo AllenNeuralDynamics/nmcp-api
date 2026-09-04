@@ -59,7 +59,7 @@ export class Precomputed extends BaseModel {
     }
 
     protected async precomputedChanged(user: User, complete: boolean, t: Transaction): Promise<void> {
-        const reconstruction = await this.getReconstruction();
+        const reconstruction = await this.getReconstruction({transaction: t});
 
         await reconstruction.precomputedChanged(user,complete, t);
     }
