@@ -27,22 +27,35 @@ export class SearchIndexOperation {
     }
 
     public async process(t: Transaction): Promise<void> {
-        const reconstruction = await this._reconstruction.getReconstruction();
+        if (this._reconstruction.id === null) {
+            debug("can not update reconstruction without id");
+            return;
+        }
+
+        const reconstruction = await this._reconstruction.getReconstruction({transaction: t});
 
         this._neuron = await reconstruction.getNeuron({
             include: [{
                 model: Specimen,
                 as: "Specimen"
-            }]
+            }],
+            transaction: t
         });
 
         this._neuronSomaStructureId = this._neuron.atlasStructureId;
 
-        this._soma = await this._reconstruction.getSoma();
+        this._soma = await this._reconstruction.getSoma({transaction: t});
 
-        const axonNodeCounts = await this.countNodesPerStructure(NeuronStructure.AxonStructureId);
-        const dendriteNodeCounts = await this.countNodesPerStructure(NeuronStructure.DendriteStructureId);
+        const axonNodeCounts = await this.countNodesPerStructure(NeuronStructure.AxonStructureId, t);
+        const dendriteNodeCounts = await this.countNodesPerStructure(NeuronStructure.DendriteStructureId, t);
         const somaCounts = this.createSomaEntries();
+
+        // One delete for the whole rebuild.  It can not live in assignSearchCompartments: inside the transaction each
+        // per-compartment call would see, and remove, the rows the previous one inserted.  Doing it after the counting
+        // also holds the row locks for less time.
+        debug("removing existing SearchIndex entries");
+
+        await SearchIndex.destroy({where: {reconstructionId: this._reconstruction.id}, transaction: t});
 
         await this.assignSearchCompartments(axonNodeCounts, NeuronStructure.AxonStructureId, t);
         await this.assignSearchCompartments(dendriteNodeCounts, NeuronStructure.DendriteStructureId, t);
@@ -64,12 +77,12 @@ export class SearchIndexOperation {
         return nodeCountMap;
     }
 
-    private async countNodesPerStructure(neuronStructureId: string): Promise<StatisticsMap> {
+    private async countNodesPerStructure(neuronStructureId: string, t: Transaction): Promise<StatisticsMap> {
         const nodeCountMap = new Map<string, SearchIndexCounts>();
 
         const where = {reconstructionId: this._reconstruction.id, neuronStructureId: neuronStructureId};
 
-        const count = await AtlasNode.count({where: where});
+        const count = await AtlasNode.count({where: where, transaction: t});
 
         debug(`assigning node counts for ${count} ${neuronStructureId} nodes for reconstruction ${this._reconstruction.id}`);
 
@@ -78,7 +91,8 @@ export class SearchIndexOperation {
                 where: where,
                 offset: idx,
                 limit: preferredDatabaseChunkSize,
-                order: [["index", "ASC"]]
+                order: [["index", "ASC"]],
+                transaction: t
             });
 
             debug(`\tassigning SearchContents for chunk starting at ${idx} for reconstruction ${this._reconstruction.id}`);
@@ -114,15 +128,6 @@ export class SearchIndexOperation {
     }
 
     private async assignSearchCompartments(nodeCountMap: StatisticsMap, neuronStructureId: string, t: Transaction) {
-        if (this._reconstruction.id === null) {
-            debug("\tcan not update reconstruction without id");
-            return;
-        }
-
-        debug("\tremoving exising SearchContent entries");
-
-        await SearchIndex.destroy({where: {reconstructionId: this._reconstruction.id}});
-
         let searchContentByBrainStructure: SearchIndexShape[] = [];
 
         debug(`\tpreparing ${nodeCountMap.size} SearchIndex entries`);

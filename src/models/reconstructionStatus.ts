@@ -1,5 +1,4 @@
 export enum ReconstructionStatus {
-    Initialized = 0,
     InProgress = 100,
     OnHold = 200,
     PeerReview = 300,
@@ -10,6 +9,7 @@ export enum ReconstructionStatus {
     Rejected = 800,
     Publishing = 900,                       // In the process of search indexing, etc.
     Published = 1000,
+    PublishFailed = 1100,                   // Search indexing failed; recovery is forward-only through requestSearchIndexing.
     Archived = 5000,
     Untraceable = 6000,
     Discarded = 10000

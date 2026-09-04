@@ -203,11 +203,18 @@ export const coreTypeDefinitions = gql`
         dendrite: NodeCount
     }
 
+    type PhaseFailure {
+        phase: Int!
+        reason: String
+        failedAt: Date
+    }
+
     type Reconstruction {
         id: String!
         sourceUrl: String
         sourceComments: String
         status: Int
+        phaseFailure: PhaseFailure
         notes: String
         durationHours: Float
         specimenLengthMillimeters: Float
@@ -249,6 +256,8 @@ export const coreTypeDefinitions = gql`
         reviewer: User
         nodeStructureAssignmentAt: Date
         searchIndexedAt: Date
+        failureReason: String
+        failedAt: Date
         publishedAt: Date
         archivedAt: Date
         createdAt: Date

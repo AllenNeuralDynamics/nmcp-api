@@ -140,11 +140,15 @@ export class QueryPredicate implements PredicateShape {
 
         if (operatorId && operatorId.length > 0) {
             const operator = operatorIdValueMap().get(operatorId);
+
+            amount = this.anatomicalPredicate?.amount ?? 0;
+
             if (operator) {
                 opCode = operator.operatorSymbol;
+                debug(`found operator ${operator.display} with opCode ${operator.operator2} for amount ${amount}`);
+            } else {
+                debug(`no operator matches id ${operatorId}`);
             }
-            amount = this.anatomicalPredicate?.amount ?? 0;
-            debug(`found operator ${operator} with opCode ${operator.operator2} for amount ${amount}`);
         } else {
             opCode = Op.gt;
             amount = 0;

@@ -6,6 +6,7 @@ import {Collection} from "../models/collection";
 import {Injection, InjectionShape} from "../models/injection";
 import {Neuron, NeuronShape} from "../models/neuron";
 import {Reconstruction} from "../models/reconstruction";
+import {importMayTransition} from "./importTransitionGuard";
 import {ReconstructionSpace} from "../models/reconstructionSpace";
 import {ReconstructionStatus} from "../models/reconstructionStatus";
 import {Specimen, SpecimenShape} from "../models/specimen";
@@ -369,6 +370,13 @@ async function importAtlasReconstruction(neuronId: string, idString: string, swc
         return;
     }
 
+    // Held to the same source-status rule the portal is, and skipped before the upload and the approve below rather
+    // than throwing out of the park.  No report entry - this tool has no report structure yet.
+    if (!importMayTransition(reconstruction.status, ReconstructionStatus.PublishReview)) {
+        debug(`${reconstruction.id} (${idString}) skipped ${ReconstructionStatus[reconstruction.status]} for Publish Review`);
+        return;
+    }
+
     await Reconstruction.requestReview({
         reconstructionId: reconstruction.id,
         targetStatus: ReconstructionStatus.PublishReview
@@ -387,16 +395,17 @@ async function importAtlasReconstruction(neuronId: string, idString: string, swc
         await atlasReconstruction.update({doi: doi.trim()});
     }
 
-    reconstruction = await Reconstruction.approveReconstruction(
-        reconstruction.id,
-        ReconstructionStatus.Approved,
-        User.SystemAutomationUser,
-        User.SystemAutomationUser,
-        true
-    );
-
-    if (reconstruction.status !== ReconstructionStatus.WaitingForAtlasReconstruction) {
+    try {
+        reconstruction = await Reconstruction.approveReconstruction(
+            reconstruction.id,
+            ReconstructionStatus.Approved,
+            User.SystemAutomationUser,
+            User.SystemAutomationUser,
+            true
+        );
+    } catch (error) {
         debug(`failed to approve MouseLight reconstruction ${reconstruction.id} (${idString})`);
+        debug(error);
     }
 }
 

@@ -30,11 +30,6 @@ describe("Neuron.untraceable", () => {
             expected: true
         },
         {
-            label: "untraceable plus a live initialized row",
-            rows: [deleted(ReconstructionStatus.Untraceable), live(ReconstructionStatus.Initialized)],
-            expected: true
-        },
-        {
             label: "untraceable plus a discarded row",
             rows: [deleted(ReconstructionStatus.Untraceable), deleted(ReconstructionStatus.Discarded)],
             expected: true
@@ -49,7 +44,7 @@ describe("Neuron.untraceable", () => {
             rows: [deleted(ReconstructionStatus.Untraceable), live(ReconstructionStatus.Published)],
             expected: false
         },
-        {label: "only an initialized row", rows: [live(ReconstructionStatus.Initialized)], expected: false}
+        {label: "only a live row", rows: [live(ReconstructionStatus.InProgress)], expected: false}
     ])("$label -> $expected", async ({rows, expected}) => {
         vi.spyOn(Reconstruction, "findAll").mockResolvedValue(rows);
 

@@ -58,10 +58,11 @@ export class Precomputed extends BaseModel {
         }
     }
 
-    protected async precomputedChanged(user: User, complete: boolean, t: Transaction): Promise<void> {
-        const reconstruction = await this.getReconstruction();
+    // The status rather than a boolean, so the child can record which of the two failure kinds produced it.
+    protected async precomputedChanged(user: User, status: PrecomputedGenerationStatus, t: Transaction): Promise<void> {
+        const reconstruction = await this.getReconstruction({transaction: t});
 
-        await reconstruction.precomputedChanged(user,complete, t);
+        await reconstruction.precomputedChanged(user, status, t);
     }
 
     public static async getPending(user: User, limit: number = 10): Promise<Precomputed[]> {
@@ -122,6 +123,12 @@ export class Precomputed extends BaseModel {
         }
 
         return await this.sequelize.transaction(async (t) => {
+            // Child first, per the one lock order stated on QualityControl.claim: requestPhaseRetry locks the child and
+            // then writes this row, so taking them the other way round here is a deadlock between a regeneration
+            // request and a generation result arriving for the same reconstruction.  reconstructionId is the
+            // AtlasReconstruction's id, not the parent Reconstruction's.
+            await AtlasReconstruction.findByPk(precomputed.reconstructionId, {transaction: t, lock: Transaction.LOCK.UPDATE});
+
             const update = {
                 status,
                 version,
@@ -132,7 +139,7 @@ export class Precomputed extends BaseModel {
 
             await updated.recordEvent(this.eventKindForGenerationStatus(status), update, user, t);
 
-            await precomputed.precomputedChanged(user, status == PrecomputedStatus.Complete, t);
+            await precomputed.precomputedChanged(user, status, t);
 
             return updated;
         });

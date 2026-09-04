@@ -10,6 +10,7 @@ import {ReferenceDataset, Specimen, SpecimenShape, SpecimenTomography} from "../
 import {Collection} from "../models/collection";
 import {User} from "../models/user";
 import {Reconstruction} from "../models/reconstruction";
+import {importMayTransition} from "./importTransitionGuard";
 import {ReconstructionStatus} from "../models/reconstructionStatus";
 import {ReconstructionSpace} from "../models/reconstructionSpace";
 import {Atlas} from "../models/atlas";
@@ -137,7 +138,8 @@ const importReport = {
     reconstructionsAdded: new Map<string, ReconstructionReportEntry>(),
     reconstructionsModified: new Map<string, ReconstructionReportEntry>(),
     reconstructionsWithData: new Set<string>(),
-    reconstructionsSkippedImmutable: [] as ReconstructionReportEntry[]
+    reconstructionsSkippedImmutable: [] as ReconstructionReportEntry[],
+    reconstructionsSkippedStatus: [] as ReconstructionReportEntry[]
 };
 
 const neuronSelection = {
@@ -415,6 +417,20 @@ async function specimenDataFromRow(s: SpecimenRowContents, insertReconstructions
                 continue;
             }
 
+            // Before anything below writes to the row: the metadata update overwrites notes, duration and dates, and
+            // the upload after the switch writes atlas data and approves.  A reconstruction the portal has moved into
+            // review or the pipeline gets none of that - the whole row is skipped, as an immutable one is.
+            if (!importMayTransition(reconstruction.status, targetStatus)) {
+                importReport.reconstructionsSkippedStatus.push({
+                    id: reconstruction.id,
+                    subjectId: s.subjectId,
+                    neuron: n.idString,
+                    status: ReconstructionStatus[reconstruction.status]
+                });
+                debug(`${reconstruction.id} (${n.idString}-${s.subjectId}) skipped ${ReconstructionStatus[reconstruction.status]} for ${ReconstructionStatus[targetStatus]}.`)
+                continue;
+            }
+
             if (reconstructionExisted) {
                 importReport.reconstructionsModified.set(reconstruction.id, {
                     id: reconstruction.id,
@@ -451,7 +467,7 @@ async function specimenDataFromRow(s: SpecimenRowContents, insertReconstructions
                 case ReconstructionStatus.InProgress:
                     continue;
                 case ReconstructionStatus.OnHold:
-                    await Reconstruction.pauseReconstruction(reconstruction.id, annotator, User.SystemAutomationUser)
+                    await Reconstruction.pauseReconstruction(reconstruction.id, annotator, User.SystemAutomationUser, true)
                     continue;
                 case ReconstructionStatus.PublishReview:
                     await Reconstruction.requestReview({
@@ -565,10 +581,13 @@ async function loadAtlasReconstruction(reconstruction: Reconstruction, subjectId
                 await Reconstruction.fromSwcFile(proofreader ?? User.SystemAutomationUser, reconstruction.id, jsonPath, ReconstructionSpace.Atlas, User.SystemAutomationUser);
 
                 if (targetStatus == ReconstructionStatus.Approved) {
-                    reconstruction = await Reconstruction.approveReconstruction(reconstruction.id, ReconstructionStatus.Approved, proofreader ?? User.SystemAutomationUser, User.SystemAutomationUser, true);
-                    if (reconstruction.status != ReconstructionStatus.WaitingForAtlasReconstruction) {
+                    // Caught here rather than by the enclosing catch, which reports the failure as a parse error.
+                    try {
+                        reconstruction = await Reconstruction.approveReconstruction(reconstruction.id, ReconstructionStatus.Approved, proofreader ?? User.SystemAutomationUser, User.SystemAutomationUser, true);
+                    } catch (error) {
                         failedToApprove.push(`${reconstruction.id} (${subjectId}-${neuronLabel})`);
                         debug(`failed to approve reconstruction ${reconstruction.id} (${subjectId}-${neuronLabel})`);
+                        debug(error);
                     }
                 }
 
@@ -710,7 +729,8 @@ function writeImportReport(sheetId: number, importQualifier: ImportQualifier) {
         renderReportSection("Reconstructions Added with Reconstruction Data", addedWithoutData.map(reconstructionLabel).sort()),
         renderReportSection("Reconstructions Added without Reconstruction Data", addedWithData.map(reconstructionLabel).sort()),
         renderReportSection("Reconstructions with Updated Reconstruction Data", modifiedWithData.map(reconstructionLabel).sort()),
-        renderReportSection("Reconstructions not Updated (published or other immutable state)", importReport.reconstructionsSkippedImmutable.map(entry => `${entry.subjectId}-${entry.neuron} (${entry.id}) - ${entry.status}`).sort())
+        renderReportSection("Reconstructions not Updated (published or other immutable state)", importReport.reconstructionsSkippedImmutable.map(entry => `${entry.subjectId}-${entry.neuron} (${entry.id}) - ${entry.status}`).sort()),
+        renderReportSection("Reconstructions not Updated (status no longer admits the change)", importReport.reconstructionsSkippedStatus.map(entry => `${entry.subjectId}-${entry.neuron} (${entry.id}) - ${entry.status}`).sort())
     ].filter(notEmpty);
 
     const issueSections = [

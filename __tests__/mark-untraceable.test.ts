@@ -53,6 +53,10 @@ function stub(status: number, user: any) {
     };
 }
 
+const allStatuses = Object.keys(ReconstructionStatus)
+    .filter(key => isNaN(Number(key)))
+    .map(key => ReconstructionStatus[key] as number);
+
 afterEach(() => {
     vi.restoreAllMocks();
     delete (Reconstruction as any).sequelize;
@@ -100,9 +104,12 @@ describe("markUntraceable source status", () => {
     });
 
     test.each([
+        ReconstructionStatus.PeerReview,
+        ReconstructionStatus.PublishReview,
         ReconstructionStatus.Approved,
+        ReconstructionStatus.WaitingForAtlasReconstruction,
         ReconstructionStatus.ReadyToPublish,
-        ReconstructionStatus.Rejected,
+        ReconstructionStatus.Publishing,
         ReconstructionStatus.Published,
         ReconstructionStatus.Archived,
         ReconstructionStatus.Untraceable,
@@ -115,13 +122,28 @@ describe("markUntraceable source status", () => {
         expect(stubs.reconstruction.update).not.toHaveBeenCalled();
     });
 
-    test("disregardAuth bypasses both the predicate and the source-status list", async () => {
-        const stubs = stub(ReconstructionStatus.Published, userWith(UserPermissions.None, "annotator-2"));
+    // The teardown below destroys the child, the quality control row and both node tables, so the state rule matters
+    // more here than anywhere else: disregardAuth buys the import tools out of the permission and nothing more.
+    test.each(UntraceableSourceStatuses as number[])("disregardAuth bypasses the predicate but not the source-status list, from %s", async (status: number) => {
+        const stubs = stub(status, userWith(UserPermissions.None, "annotator-2"));
 
         await Reconstruction.markUntraceable("reconstruction-1", "annotator-2", null, true);
 
         expect(stubs.reconstruction.update).toHaveBeenCalledTimes(1);
     });
+
+    test.each(allStatuses.filter(status => !(UntraceableSourceStatuses as number[]).includes(status)))(
+        "refuses source status %s under disregardAuth",
+        async (status: number) => {
+            const stubs = stub(status, userWith(UserPermissions.None, "annotator-2"));
+
+            await expect(Reconstruction.markUntraceable("reconstruction-1", "annotator-2", null, true)).rejects.toThrow(/as untraceable/);
+
+            expect(stubs.reconstruction.update).not.toHaveBeenCalled();
+            expect(stubs.reconstruction.destroy).not.toHaveBeenCalled();
+            expect(stubs.discardForReconstruction).not.toHaveBeenCalled();
+            expect(stubs.destroyNodes).not.toHaveBeenCalled();
+        });
 });
 
 describe("markUntraceable teardown", () => {
