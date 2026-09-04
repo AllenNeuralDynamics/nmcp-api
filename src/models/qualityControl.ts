@@ -127,7 +127,7 @@ export class QualityControl extends BaseModel {
 
             await this.recordEvent(eventKindForStatus(update.status), update, user, t);
 
-            const reconstruction = await this.getReconstruction();
+            const reconstruction = await this.getReconstruction({transaction: t});
 
             await reconstruction.qualityControlChanged(update.status == QualityControlStatus.Passed, user, t);
         });

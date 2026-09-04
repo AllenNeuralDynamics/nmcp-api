@@ -15,6 +15,10 @@ const qcBackoffMaxMs = 5 * 60 * 1000;                    // cap at 5 minutes
 
 const qcBackoff = new ServiceBackoff(qcBackoffBaseMs, qcBackoffMaxMs);
 
+function failureText(err: unknown): string {
+    return err instanceof Error ? err.stack ?? err.message : String(err);
+}
+
 if (require.main === module) {
     setTimeout(async () => {
         debug("synchronization worker starting");
@@ -33,23 +37,42 @@ if (require.main === module) {
  * @param intervalSeconds - delay in seconds between successive calls when `repeat` is `true` (default `60`)
  */
 async function performSynchronization(repeat: boolean = true, intervalSeconds = defaultIntervalSeconds) {
-    let intervalStart = Date.now();
+    const intervalStart = Date.now();
 
-    // Would like to complete processing, where possible, in batches, rather than doing all QC, before moving on to the next step, etc.
-    let mayBeMore = await performQualityControl(defaultBatchSize);
+    let mayBeMore = false;
 
-    mayBeMore = (await performStructureAssignments(defaultBatchSize)) || mayBeMore;
+    try {
+        // Would like to complete processing, where possible, in batches, rather than doing all QC, before moving on to the next step, etc.
+        mayBeMore = await runPhase("quality control", () => performQualityControl(defaultBatchSize));
 
-    mayBeMore = (await performSearchIndexing(defaultBatchSize)) || mayBeMore;
+        mayBeMore = (await runPhase("structure assignment", () => performStructureAssignments(defaultBatchSize))) || mayBeMore;
 
-    // If the batch size was fulfilled for any of the steps, immediately (ok, 50ms) perform another loop.  Otherwise, wait whatever is left of the polling
-    // interval.
-    const delay = mayBeMore ? 50 : Math.max(0, (intervalSeconds * 1000 - (Date.now() - intervalStart)));
+        mayBeMore = (await runPhase("search indexing", () => performSearchIndexing(defaultBatchSize))) || mayBeMore;
+    } finally {
+        // If the batch size was fulfilled for any of the steps, immediately (ok, 50ms) perform another loop.  Otherwise, wait whatever is left of the polling
+        // interval.
+        const delay = mayBeMore ? 50 : Math.max(0, (intervalSeconds * 1000 - (Date.now() - intervalStart)));
 
-    if (repeat) {
-        setTimeout(async () => {
-            await performSynchronization(repeat, intervalSeconds);
-        }, delay);
+        if (repeat) {
+            // In a finally, and with the recursive call's rejection caught: an unhandled rejection inside a setTimeout
+            // callback terminates the worker, the manager restarts it onto the same row, and the pipeline crash-loops.
+            setTimeout(() => {
+                performSynchronization(repeat, intervalSeconds).catch(err => debug(`synchronization pass failed: ${failureText(err)}`));
+            }, delay);
+        }
+    }
+}
+
+/**
+ * Runs one phase in isolation.  A phase that throws is reported as "no more work" so the remaining phases still run
+ * this pass; whatever it did not reach keeps its current status and is picked up on the next one.
+ */
+async function runPhase(name: string, phase: () => Promise<boolean>): Promise<boolean> {
+    try {
+        return await phase();
+    } catch (err) {
+        debug(`${name} phase failed: ${failureText(err)}`);
+        return false;
     }
 }
 
@@ -86,8 +109,15 @@ async function performQualityControl(batchSize: number): Promise<boolean> {
     let processed = 0;
 
     for (const qc of pending) {
-        // Success == service was available and called, not whether QC passed.
-        const success = await qc.assess(User.SystemInternalUser);
+        let success: boolean;
+
+        try {
+            // Success == service was available and called, not whether QC passed.
+            success = await qc.assess(User.SystemInternalUser);
+        } catch (err) {
+            debug(`quality control threw for ${qc.id}: ${failureText(err)}`);
+            continue;
+        }
 
         if (!success) {
             if (qcBackoff.recordFailure(Date.now())) {
@@ -100,7 +130,8 @@ async function performQualityControl(batchSize: number): Promise<boolean> {
         processed++;
     }
 
-    if (qcBackoff.recordSuccess()) {
+    // Guarded on processed: a batch in which every item threw is not evidence the service recovered.
+    if (processed > 0 && qcBackoff.recordSuccess()) {
         debug(`QC service recovered`);
     }
 
@@ -113,13 +144,21 @@ async function performStructureAssignments(batchSize: number): Promise<boolean> 
     if (pending.length > 0) {
         debug(`${pending.length} or more reconstructions have node structure assignment pending`);
 
+        let processed = 0;
+
         for (let reconstruction of pending) {
-            await reconstruction.calculateStructureAssignments(User.SystemInternalUser);
+            try {
+                await reconstruction.calculateStructureAssignments(User.SystemInternalUser);
+                processed++;
+            } catch (err) {
+                debug(`structure assignment threw for ${reconstruction.id}: ${failureText(err)}`);
+            }
         }
 
         sanityStructureCheckCount = 0;
 
-        return pending.length == batchSize;
+        // Successes, not selections: a batch that fails outright must not drive the 50ms fast loop.
+        return processed == batchSize;
     } else {
         sanityStructureCheckCount++;
 
@@ -138,17 +177,28 @@ async function performSearchIndexing(batchSize: number): Promise<boolean> {
     if (pending.length > 0) {
         debug(`${pending.length} or more atlas reconstructions require indexing`);
 
+        let processed = 0;
+
         for (let reconstruction of pending) {
-            await reconstruction.updateSearchIndex(User.SystemInternalUser);
+            try {
+                await reconstruction.updateSearchIndex(User.SystemInternalUser);
+                processed++;
+            } catch (err) {
+                debug(`search indexing threw for ${reconstruction.id}: ${failureText(err)}`);
+            }
         }
 
         // TODO Update a search index marker that the main process can check to update any caches.
 
-        process.send(SynchronizationWorkerNotification.SearchIndexUpdated);
+        if (processed > 0) {
+            // Optional call: the worker is normally forked and has an IPC channel, but it is also required directly,
+            // where process.send does not exist.
+            process.send?.(SynchronizationWorkerNotification.SearchIndexUpdated);
+        }
 
         sanitySearchContentsCheckCount = 0;
 
-        return pending.length == batchSize;
+        return processed == batchSize;
     } else {
         sanitySearchContentsCheckCount++;
 
@@ -161,4 +211,4 @@ async function performSearchIndexing(batchSize: number): Promise<boolean> {
     return false;
 }
 
-export {performQualityControl, qcBackoff};
+export {performSynchronization, performQualityControl, performStructureAssignments, performSearchIndexing, qcBackoff};

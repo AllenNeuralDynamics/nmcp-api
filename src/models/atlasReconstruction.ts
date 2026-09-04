@@ -134,7 +134,7 @@ export class AtlasReconstruction extends BaseModel {
 
         // Set up next step: QC if needed.
         // TODO change create to only create if needed for one call.
-        let qc = await QualityControl.findOne({where: {reconstructionId: this.id}});
+        let qc = await QualityControl.findOne({where: {reconstructionId: this.id}, transaction: t});
 
         if (!qc) {
             await QualityControl.createForReconstruction(user, this.id, t);
@@ -150,7 +150,7 @@ export class AtlasReconstruction extends BaseModel {
 
         // TODO change create to only create if needed for one call.
         // Set up Precomputed
-        let precomputed = await Precomputed.findOne({where: {reconstructionId: this.id}});
+        let precomputed = await Precomputed.findOne({where: {reconstructionId: this.id}, transaction: t});
 
         // Do not need to reset status.  Precomputed status will be set to pending after node structure assigment (after quality control)
         if (!precomputed) {
@@ -176,7 +176,8 @@ export class AtlasReconstruction extends BaseModel {
             where: {
                 reconstructionId: reconstructionId
             },
-            attributes: ["id"]
+            attributes: ["id"],
+            transaction: t
         });
 
         if (reconstructions.length > 0) {
@@ -206,7 +207,7 @@ export class AtlasReconstruction extends BaseModel {
 
     public async replaceNodeData(user: User, reconstructionData: SimpleReconstruction, t: Transaction): Promise<AtlasReconstruction> {
         try {
-            await this.update({somaNodeId: null, transaction: t});
+            await this.update({somaNodeId: null}, {transaction: t});
 
             await AtlasNode.destroy({
                 where: {reconstructionId: this.id},
@@ -293,7 +294,8 @@ export class AtlasReconstruction extends BaseModel {
                     where: where,
                     offset: idx,
                     limit: AtlasReconstruction.PreferredDatabaseChunkSize,
-                    order: [["index", "ASC"]]
+                    order: [["index", "ASC"]],
+                    transaction: t
                 });
 
                 const structureMap = new Map<string, string[]>();
@@ -327,7 +329,7 @@ export class AtlasReconstruction extends BaseModel {
 
             await this.update(statusUpdate, {transaction: t});
 
-            const precomputed = await this.getPrecomputed();
+            const precomputed = await this.getPrecomputed({transaction: t});
 
             await precomputed.requestGeneration(user, t);
 
@@ -349,7 +351,7 @@ export class AtlasReconstruction extends BaseModel {
 
             await this.recordEvent(kind, update, user, t);
 
-            const reconstruction = await this.getReconstruction();
+            const reconstruction = await this.getReconstruction({transaction: t});
 
             await reconstruction.onAtlasReconstructionStatusChanged(user, update.status, t);
 
