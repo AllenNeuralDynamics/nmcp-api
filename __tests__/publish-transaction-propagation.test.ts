@@ -4,6 +4,7 @@ import {expect, test, vi, describe, afterEach} from "vitest";
 // different module instance than the CJS one the model methods call into, so the spies would not apply.
 const {User, UserPermissions} = require("../src/models/user");
 const {Reconstruction} = require("../src/models/reconstruction");
+const {Neuron} = require("../src/models/neuron");
 const {ReconstructionStatus} = require("../src/models/reconstructionStatus");
 const {ReconstructionSpace} = require("../src/models/reconstructionSpace");
 const {AtlasReconstruction} = require("../src/models/atlasReconstruction");
@@ -115,7 +116,10 @@ describe("publishWithTransaction", () => {
 
         vi.spyOn(Reconstruction.prototype as any, "assignDoi").mockResolvedValue(undefined);
 
-        const findOne = vi.spyOn(Reconstruction, "findOne").mockResolvedValue(existingPublished);
+        // The sibling read is a findAll over the blocking statuses, and the neuron row is locked before it.
+        const findAll = vi.spyOn(Reconstruction, "findAll").mockResolvedValue(existingPublished ? [existingPublished] : []);
+
+        vi.spyOn(Neuron, "findByPk").mockResolvedValue({id: "neuron-1"} as any);
 
         const reconstruction = prototypeStub(Reconstruction, {
             neuronId: "neuron-1",
@@ -123,15 +127,15 @@ describe("publishWithTransaction", () => {
             AtlasReconstruction: {nodeCounts: {}, tryStartPublishing: vi.fn().mockResolvedValue(true)}
         });
 
-        return {reconstruction: reconstruction, findOne: findOne};
+        return {reconstruction: reconstruction, findAll: findAll};
     }
 
-    test("looks for an existing published row through the transaction", async () => {
+    test("looks for sibling rows through the transaction", async () => {
         const stubs = publishable(null);
 
         await stubs.reconstruction.publishWithTransaction(userWith(UserPermissions.Admin), true, transaction);
 
-        expect(stubs.findOne).toHaveBeenCalledWith(carriesTransaction);
+        expect(stubs.findAll).toHaveBeenCalledWith(carriesTransaction);
     });
 
     test("archivePublished reads and deletes through the transaction", async () => {
@@ -140,6 +144,7 @@ describe("publishWithTransaction", () => {
         const existingPublished = prototypeStub(Reconstruction, {
             id: "reconstruction-old",
             neuronId: "neuron-1",
+            status: ReconstructionStatus.Published,
             getAtlasReconstruction: vi.fn().mockResolvedValue(atlasReconstruction)
         });
 
@@ -149,6 +154,7 @@ describe("publishWithTransaction", () => {
 
         await stubs.reconstruction.publishWithTransaction(userWith(UserPermissions.Admin), true, transaction);
 
+        expect(stubs.findAll).toHaveBeenCalledWith(carriesTransaction);
         expect(existingPublished.getAtlasReconstruction).toHaveBeenCalledWith({transaction: transaction});
         expect(destroy).toHaveBeenCalledWith(carriesTransaction);
     });

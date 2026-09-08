@@ -163,7 +163,9 @@ export const typeDefinitions = gql`
         """Opens a revision of the reconstruction.  Errors with code 1002 if the user is limited to a single open annotation and already has one."""
         openReconstructionRevision(reconstructionId: String!, revisionKind: Int!): Reconstruction
 
-        """Requests the reconstruction be queued for publishing.  May not be immediately available as published."""
+        """Requests the reconstruction be queued for publishing.  May not be immediately available as published.  Errors with
+code 1001 if the neuron has a published reconstruction and replaceExisting is not set, or 1003 if a publish is already
+in progress for the neuron."""
         publish(reconstructionId: String!, replaceExisting: Boolean): Reconstruction
         publishAll(reconstructionIds: [String!]!): [Reconstruction!]!
         rejectReconstruction(reconstructionId: String!): Reconstruction

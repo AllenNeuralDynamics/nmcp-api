@@ -112,11 +112,9 @@ export class AtlasReconstruction extends BaseModel {
     }
 
     public async approve(user: User, t: Transaction, substituteUser: User = null): Promise<boolean> {
-        if (!this.nodeCounts) {
-            // Cannot approve until there are nodes.
-            return false;
-        }
-
+        // Who approved publish review is a fact about the approval, not about whether the pipeline can start, and it is
+        // what assignDoi credits as a contributor and toPortalFormat reports as the proofreader.  Recorded here, the
+        // deferred atlas upload does not have to - and must not - supply it.
         const update = {reviewerId: user.id};
 
         await this.update(update, {transaction: t});

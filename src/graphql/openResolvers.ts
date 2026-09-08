@@ -109,6 +109,7 @@ export const openResolvers = {
             return getNeuronVersionHistory(args.neuronId);
         },
 
+        // Deliberately open at every status, failed test names and affected node indices included.
         qualityControl(_: any, args: { id: string }, context: User): Promise<QualityControl> {
             return QualityControl.findByPk(args.id);
         },

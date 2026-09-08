@@ -35,13 +35,13 @@ describe("performQualityControl", () => {
         qcBackoff.recordSuccess();
     });
 
-    test("does not report a full batch when the service is unavailable", async () => {
+    test("abandons the batch but reports the outstanding work when the service is unavailable", async () => {
         const assess = vi.fn<AssessFn>().mockResolvedValue(false);
         vi.spyOn(QualityControl, "getPending").mockResolvedValue(makeBatch(10, assess));
 
         const mayBeMore = await performQualityControl(10);
 
-        expect(mayBeMore).toBe(false);
+        expect(mayBeMore).toBe(true);
         expect(assess).toHaveBeenCalledTimes(1);
     });
 

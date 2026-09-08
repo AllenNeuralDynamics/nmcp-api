@@ -387,16 +387,17 @@ async function importAtlasReconstruction(neuronId: string, idString: string, swc
         await atlasReconstruction.update({doi: doi.trim()});
     }
 
-    reconstruction = await Reconstruction.approveReconstruction(
-        reconstruction.id,
-        ReconstructionStatus.Approved,
-        User.SystemAutomationUser,
-        User.SystemAutomationUser,
-        true
-    );
-
-    if (reconstruction.status !== ReconstructionStatus.WaitingForAtlasReconstruction) {
+    try {
+        reconstruction = await Reconstruction.approveReconstruction(
+            reconstruction.id,
+            ReconstructionStatus.Approved,
+            User.SystemAutomationUser,
+            User.SystemAutomationUser,
+            true
+        );
+    } catch (error) {
         debug(`failed to approve MouseLight reconstruction ${reconstruction.id} (${idString})`);
+        debug(error);
     }
 }
 
