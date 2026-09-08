@@ -100,9 +100,12 @@ describe("markUntraceable source status", () => {
     });
 
     test.each([
+        ReconstructionStatus.PeerReview,
+        ReconstructionStatus.PublishReview,
         ReconstructionStatus.Approved,
+        ReconstructionStatus.WaitingForAtlasReconstruction,
         ReconstructionStatus.ReadyToPublish,
-        ReconstructionStatus.Rejected,
+        ReconstructionStatus.Publishing,
         ReconstructionStatus.Published,
         ReconstructionStatus.Archived,
         ReconstructionStatus.Untraceable,

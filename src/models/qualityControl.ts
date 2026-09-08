@@ -140,34 +140,52 @@ export class QualityControl extends BaseModel {
             throw new UnauthorizedError();
         }
 
-        const reconstruction = await Reconstruction.findByPk(reconstructionId);
-
-        if (!reconstruction) {
-            throw new Error("Reconstruction not found");
-        }
-
-        if (reconstruction.status === ReconstructionStatus.Published || reconstruction.status === ReconstructionStatus.Archived) {
-            throw new Error("Cannot reassess quality control for a published or archived reconstruction");
-        }
-
-        const atlasReconstruction = await AtlasReconstruction.findOne({
-            where: {
-                reconstructionId: reconstructionId
-            }
-        });
-
-        if (!atlasReconstruction) {
-            throw new Error("No atlas reconstruction found for this reconstruction");
-        }
-
-        const qc = await this.findOne({where: {reconstructionId: atlasReconstruction.id}});
-
-        if (!qc) {
-            throw new Error("No quality control record found");
-        }
-
         return await this.sequelize.transaction(async (t) => {
-            await qc.makePending(user, t);
+            const reconstruction = await Reconstruction.findByPk(reconstructionId, {transaction: t});
+
+            if (!reconstruction) {
+                throw new Error("Reconstruction not found");
+            }
+
+            // Locked for the transaction so two requests cannot both read no quality control row and both create one -
+            // QualityControl.reconstructionId carries no unique key to fall back on.  Also serializes against the
+            // approval path, which writes this same row through prepareToFinalize.
+            const atlasReconstruction = await AtlasReconstruction.findOne({
+                where: {reconstructionId: reconstructionId},
+                lock: Transaction.LOCK.UPDATE,
+                transaction: t
+            });
+
+            if (!atlasReconstruction) {
+                throw new Error("No atlas reconstruction found for this reconstruction");
+            }
+
+            // Publish review with atlas data uploaded: quality control run by hand, before the approval that would
+            // normally create the row.  Anything at or past Approved is refused - Approved, ReadyToPublish and
+            // Publishing included - because resetting the check there strands the reconstruction mid-pipeline or
+            // mid-publish.
+            const beforeApproval = reconstruction.status === ReconstructionStatus.PublishReview;
+
+            if (!beforeApproval && reconstruction.status !== ReconstructionStatus.WaitingForAtlasReconstruction) {
+                throw new Error(`Cannot request quality control for a reconstruction with status ${ReconstructionStatus[reconstruction.status]}.`);
+            }
+
+            if (beforeApproval && !atlasReconstruction.nodeCounts) {
+                throw new Error("Quality control cannot run before the atlas reconstruction data has been uploaded");
+            }
+
+            const existing = await this.findOne({where: {reconstructionId: atlasReconstruction.id}, transaction: t});
+
+            // Created pending, which is all the worker needs - getPending selects on this row and not on the child.
+            if (!existing) {
+                return await this.createForReconstruction(user, atlasReconstruction.id, t);
+            }
+
+            await existing.makePending(user, t);
+
+            if (beforeApproval) {
+                return existing;
+            }
 
             await atlasReconstruction.update(
                 {status: AtlasReconstructionStatus.PendingQualityControl},
@@ -182,7 +200,7 @@ export class QualityControl extends BaseModel {
                 userId: user.id
             }, t);
 
-            return qc;
+            return existing;
         });
     }
 }

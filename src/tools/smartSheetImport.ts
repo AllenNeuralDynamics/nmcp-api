@@ -451,7 +451,7 @@ async function specimenDataFromRow(s: SpecimenRowContents, insertReconstructions
                 case ReconstructionStatus.InProgress:
                     continue;
                 case ReconstructionStatus.OnHold:
-                    await Reconstruction.pauseReconstruction(reconstruction.id, annotator, User.SystemAutomationUser)
+                    await Reconstruction.pauseReconstruction(reconstruction.id, annotator, User.SystemAutomationUser, true)
                     continue;
                 case ReconstructionStatus.PublishReview:
                     await Reconstruction.requestReview({
@@ -565,10 +565,13 @@ async function loadAtlasReconstruction(reconstruction: Reconstruction, subjectId
                 await Reconstruction.fromSwcFile(proofreader ?? User.SystemAutomationUser, reconstruction.id, jsonPath, ReconstructionSpace.Atlas, User.SystemAutomationUser);
 
                 if (targetStatus == ReconstructionStatus.Approved) {
-                    reconstruction = await Reconstruction.approveReconstruction(reconstruction.id, ReconstructionStatus.Approved, proofreader ?? User.SystemAutomationUser, User.SystemAutomationUser, true);
-                    if (reconstruction.status != ReconstructionStatus.WaitingForAtlasReconstruction) {
+                    // Caught here rather than by the enclosing catch, which reports the failure as a parse error.
+                    try {
+                        reconstruction = await Reconstruction.approveReconstruction(reconstruction.id, ReconstructionStatus.Approved, proofreader ?? User.SystemAutomationUser, User.SystemAutomationUser, true);
+                    } catch (error) {
                         failedToApprove.push(`${reconstruction.id} (${subjectId}-${neuronLabel})`);
                         debug(`failed to approve reconstruction ${reconstruction.id} (${subjectId}-${neuronLabel})`);
+                        debug(error);
                     }
                 }
 

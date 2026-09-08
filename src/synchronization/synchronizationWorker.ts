@@ -124,7 +124,11 @@ async function performQualityControl(batchSize: number): Promise<boolean> {
                 debug(`QC service unavailable - backing off, next attempt in ${qcBackoff.currentDelay}ms`);
             }
 
-            return false;
+            // Abandoning the rest of the batch is right - the service is a container beside this one, so unavailable
+            // means a restart, not a hiccup - but the pass still has work outstanding.  Reporting it drives the
+            // immediate next cycle, where the backoff skips quality control and the other phases run against statuses
+            // that may since have moved.  It cannot loop: qcBackoff.ready() is false for at least 60 seconds.
+            return true;
         }
 
         processed++;

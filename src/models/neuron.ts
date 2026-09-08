@@ -35,7 +35,7 @@ import {UnauthorizedError} from "../graphql/secureResolvers";
 import {normalizeKeywords, substringMatchPatterns} from "../util/keywords";
 import {Genotype} from "./genotype";
 import {isNullOrEmpty} from "../util/objectUtil";
-import {Reconstruction} from "./reconstruction";
+import {CandidateBlockingStatuses, PublishedCandidateBlockingStatuses, Reconstruction} from "./reconstruction";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {Collection} from "./collection";
 import {DataCiteService, DataCiteServiceStatus, DataCiteRelatedIdentifier} from "../data-access/doi/dataCiteService";
@@ -265,13 +265,14 @@ export class Neuron extends BaseModel {
     public static async getCandidateNeurons(input: NeuronQueryInput, includeInProgress: boolean = false): Promise<EntityQueryOutput<Neuron>> {
         const neuronIds = (await Neuron.findAll({attributes: ["id"]})).map(n => n.id);
 
-        // TODO TODO Needs to filter out discarded and archived also
-        const reconstructionWhere = includeInProgress ? {status: ReconstructionStatus.Published} : null;
+        // includeInProgress reads backwards: it means only a finished (or in-flight) publication holds the neuron back.
+        // Without it, live work holds it back too.
+        const blocking = includeInProgress ? PublishedCandidateBlockingStatuses : CandidateBlockingStatuses;
 
         const neuronIdsWithCompletedReconstruction = (await Reconstruction.findAll({
-            where: reconstructionWhere,
+            where: {status: {[Op.in]: blocking}},
             attributes: ["id", "neuronId"]
-        })).map(t => t.neuronId);
+        })).map(reconstruction => reconstruction.neuronId);
 
         const neuronsWithCompletedReconstruction = _.uniq(neuronIdsWithCompletedReconstruction);
 
@@ -661,8 +662,7 @@ export class Neuron extends BaseModel {
      * A neuron is untraceable when someone gave up on it and nothing else is happening on it: at least one
      * reconstruction was marked Untraceable and no live work remains.  Marking soft-deletes the row, so this is the one
      * query that has to look past paranoid - which also surfaces discarded rows, hence testing deletedAt rather than
-     * status for the second half.  Initialized does not clear the flag because it is the column default and an artifact
-     * of legacy import paths rather than live work - openReconstruction creates at InProgress.
+     * status for the second half.
      */
     public async untraceable(): Promise<boolean> {
         const reconstructions = await Reconstruction.findAll({
@@ -675,8 +675,7 @@ export class Neuron extends BaseModel {
             return false;
         }
 
-        return reconstructions.every(reconstruction =>
-            reconstruction.deletedAt != null || reconstruction.status == ReconstructionStatus.Initialized);
+        return reconstructions.every(reconstruction => reconstruction.deletedAt != null);
     }
 
     private static constructFindOptions(input: NeuronQueryInput): FindOptions {

@@ -61,17 +61,90 @@ export const ClosedReconstructionStatuses: ReconstructionStatus[] = [
 ];
 
 /**
- * Source statuses the API allows a reconstruction to be marked untraceable from.  Terminal states are refused, as are
- * Approved, ReadyToPublish and Rejected.  PublishReview is allowed even though discardReconstruction refuses it: a
- * publish reviewer finding the neuron untraceable at that stage is a case this exists for.
+ * Source statuses a reconstruction may be marked untraceable from.  Only the statuses where the reconstruction is
+ * still the annotator's to abandon: from peer review onwards the atlas child, its quality control row and any
+ * in-flight worker batch are live state this transition destroys.  The import tools reach it from any status through
+ * disregardAuth, subject to what they must leave behind.
  */
 export const UntraceableSourceStatuses: ReconstructionStatus[] = [
-    ReconstructionStatus.Initialized,
     ReconstructionStatus.InProgress,
     ReconstructionStatus.OnHold,
+    ReconstructionStatus.Rejected
+];
+
+/**
+ * Source statuses a review may be requested from, for either review target.  Rejected is InProgress with changes
+ * having been asked for and carries the same rights.  OnHold is absent: a paused reconstruction resumes first.  Once
+ * in the review pipeline a reconstruction advances by approval, so no review status is a source.
+ */
+export const ReviewRequestSourceStatuses: ReconstructionStatus[] = [
+    ReconstructionStatus.InProgress,
+    ReconstructionStatus.Rejected
+];
+
+/**
+ * Source statuses a reconstruction may be paused from.  A review someone else is performing, or work already queued
+ * behind an approval, is not the annotator's to suspend.  Membership is the same as ReviewRequestSourceStatuses
+ * today, but the two are separate rules: a change to one is not a change to the other.
+ */
+export const PausableSourceStatuses: ReconstructionStatus[] = [
+    ReconstructionStatus.InProgress,
+    ReconstructionStatus.Rejected
+];
+
+/**
+ * Source statuses an annotator (or an admin) may discard from.
+ */
+export const DiscardableSourceStatuses: ReconstructionStatus[] = [
+    ReconstructionStatus.InProgress,
+    ReconstructionStatus.OnHold,
+    ReconstructionStatus.Rejected
+];
+
+/**
+ * Source statuses only an admin may discard from.  From Approved onwards - through every automatic phase, Publishing
+ * and the terminal statuses - no one may discard, so those appear in neither list.
+ */
+export const AdminDiscardableSourceStatuses: ReconstructionStatus[] = [
+    ReconstructionStatus.PeerReview,
+    ReconstructionStatus.PublishReview
+];
+
+/**
+ * The source status each approval target requires.  Approval applies only to a reconstruction that has asked for it:
+ * holding the permission, explicitly as a reviewer or implicitly as an admin, is not licence to jump the line.  A
+ * target absent from this map is not an approval target at all.
+ */
+export const ApprovalSourceStatuses: ReadonlyMap<ReconstructionStatus, ReconstructionStatus> = new Map([
+    [ReconstructionStatus.PublishReview, ReconstructionStatus.PeerReview],
+    [ReconstructionStatus.Approved, ReconstructionStatus.PublishReview]
+]);
+
+/**
+ * Reconstruction statuses that hold a neuron out of the candidate pool when only a finished publication counts
+ * (getCandidateNeurons with includeInProgress).  Publishing is included: the DOI is minted and the reconstruction is
+ * in transition to published.
+ */
+export const PublishedCandidateBlockingStatuses: ReconstructionStatus[] = [
+    ReconstructionStatus.Publishing,
+    ReconstructionStatus.Published
+];
+
+/**
+ * Reconstruction statuses that hold a neuron out of the candidate pool when live work counts as well (the default).
+ * OnHold and Archived are absent deliberately: a paused reconstruction releases its neuron, and an archived one is
+ * not a live published version.  Untraceable and Discarded are absent because those rows are soft-deleted and never
+ * reach the query; Neuron.untraceable is what surfaces them.
+ */
+export const CandidateBlockingStatuses: ReconstructionStatus[] = [
+    ReconstructionStatus.InProgress,
     ReconstructionStatus.PeerReview,
     ReconstructionStatus.PublishReview,
-    ReconstructionStatus.WaitingForAtlasReconstruction
+    ReconstructionStatus.Approved,
+    ReconstructionStatus.WaitingForAtlasReconstruction,
+    ReconstructionStatus.ReadyToPublish,
+    ReconstructionStatus.Rejected,
+    ...PublishedCandidateBlockingStatuses
 ];
 
 export type ReconstructionsQueryArgs = {
@@ -509,11 +582,20 @@ export class Reconstruction extends BaseModel {
         return [reconstruction, user];
     }
 
-    public static async pauseReconstruction(id: string, userOrId: User | string, substituteUser: User = null): Promise<Reconstruction> {
+    // TODO When the SmartSheet import is no longer required, remove disregardAuth and don't allow the possibility of
+    //  overriding.  The import reconciles against an external source of truth and pauses from statuses the portal
+    //  refuses, including a row it already left at OnHold on an earlier run.
+    public static async pauseReconstruction(id: string, userOrId: User | string, substituteUser: User = null, disregardAuth: boolean = false): Promise<Reconstruction> {
         const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(id, userOrId);
 
-        if (!user?.canPauseReconstruction(reconstruction.annotatorId)) {
-            throw new UnauthorizedError();
+        if (!disregardAuth) {
+            if (!user?.canPauseReconstruction(reconstruction.annotatorId)) {
+                throw new UnauthorizedError();
+            }
+
+            if (!PausableSourceStatuses.includes(reconstruction.status)) {
+                throw new Error(`Cannot pause a reconstruction with status ${ReconstructionStatus[reconstruction.status]}.`);
+            }
         }
 
         return await this.sequelize.transaction(async (t) => {
@@ -532,6 +614,10 @@ export class Reconstruction extends BaseModel {
 
         if (!user?.canResumeReconstruction(reconstruction.annotatorId)) {
             throw new UnauthorizedError();
+        }
+
+        if (reconstruction.status != ReconstructionStatus.OnHold) {
+            throw new Error(`Cannot resume a reconstruction with status ${ReconstructionStatus[reconstruction.status]}.`);
         }
 
         return await this.sequelize.transaction(async (t) => {
@@ -557,8 +643,14 @@ export class Reconstruction extends BaseModel {
         // TODO When the SmartSheet import is no longer required, remove disregardAuth and don't allow the possibility of overriding. disregardAuth is needed
         //  because SmartSheets contain people as reviewers that we need to make as users in the system, but should not be auto-granted review permissions in
         //  the portal.
-        if (!disregardAuth && !user?.canRequestReview(reconstruction.annotatorId, reconstruction.status, targetStatus)) {
-            throw new UnauthorizedError();
+        if (!disregardAuth) {
+            if (!user?.canRequestReview(reconstruction.annotatorId)) {
+                throw new UnauthorizedError();
+            }
+
+            if (!ReviewRequestSourceStatuses.includes(reconstruction.status)) {
+                throw new Error(`Cannot request a review for a reconstruction with status ${ReconstructionStatus[reconstruction.status]}.`);
+            }
         }
 
         const update = {
@@ -595,15 +687,21 @@ export class Reconstruction extends BaseModel {
         if (disregardAuth && targetStatus == ReconstructionStatus.PublishReview) {
             throw new UnauthorizedError();
         }
-        if (!disregardAuth && !user?.canApproveReconstruction(targetStatus)) {
-            throw new UnauthorizedError();
+
+        const requiredSource = ApprovalSourceStatuses.get(targetStatus);
+
+        if (requiredSource === undefined) {
+            throw new Error("Requested approval status is not supported");
         }
 
-        // TODO - not enough checks that the current status is correct for the request.  Relies on UI at the moment.
+        if (!disregardAuth) {
+            if (!user?.canApproveReconstruction(targetStatus)) {
+                throw new UnauthorizedError();
+            }
 
-        // status argument is the desired status after approval.
-        if (targetStatus != ReconstructionStatus.PublishReview && targetStatus != ReconstructionStatus.Approved) {
-            throw new Error("Requested approval status is not supported")
+            if (reconstruction.status != requiredSource) {
+                throw new Error(`Cannot approve a reconstruction with status ${ReconstructionStatus[reconstruction.status]} to ${ReconstructionStatus[targetStatus]}.`);
+            }
         }
 
         return await this.sequelize.transaction(async (t) => {
@@ -627,10 +725,20 @@ export class Reconstruction extends BaseModel {
                 // If other requirements are met, move to finalizing.
                 const atlasReconstruction = await reconstruction.getAtlasReconstruction({transaction: t});
 
-                if (await atlasReconstruction.approve(user, t, substituteUser)) {
-                    const update = {status: ReconstructionStatus.WaitingForAtlasReconstruction};
+                // approve() records the approver as the child's reviewer whether or not the atlas data has arrived, and
+                // returns false when it cannot start the automatic phases - the legitimate wait at Approved.
+                const advanced = await atlasReconstruction.approve(user, t, substituteUser);
 
-                    r = await reconstruction.update(update, {transaction: t});
+                if (advanced) {
+                    r = await reconstruction.update({status: ReconstructionStatus.WaitingForAtlasReconstruction}, {transaction: t});
+                }
+
+                // An imported Approved reconstruction has to be indistinguishable from one approved in the portal and
+                // continue through the automatic phases unaided.  A portal approval may legitimately wait at Approved
+                // for its atlas data; an import that cannot produce a row the pipeline will pick up has nothing to wait
+                // for, so it fails and leaves the reconstruction where it was.
+                if (disregardAuth && !advanced) {
+                    throw new Error("An imported reconstruction cannot be approved before its atlas reconstruction data is present.");
                 }
 
                 return r;
@@ -700,7 +808,24 @@ export class Reconstruction extends BaseModel {
             throw new Error("The reconstruction is not in a publishable state");
         }
 
-        const existingPublished = await Reconstruction.findOne({where: {neuronId: this.neuronId, status: ReconstructionStatus.Published}, transaction: t});
+        // Serializes concurrent publishes of the same neuron: without it two transactions each read no sibling and both
+        // proceed.  Follows openReconstruction's lock on the annotator and is released when the transaction ends.
+        // Held across assignDoi's DataCite calls, which blocks nothing but another publish of this neuron.
+        await Neuron.findByPk(this.neuronId, {transaction: t, lock: Transaction.LOCK.UPDATE});
+
+        const siblings = await Reconstruction.findAll({
+            where: {neuronId: this.neuronId, status: {[Op.in]: PublishedCandidateBlockingStatuses}},
+            transaction: t
+        });
+
+        // Checked first because a neuron can hold both a Published sibling and one mid-publish, and the refusal wins.
+        // A reconstruction already in transition to published is not something a second publish may displace, and
+        // replaceExisting does not apply to it.
+        if (siblings.some(sibling => sibling.status == ReconstructionStatus.Publishing)) {
+            throw new GraphQLError("A publish is already in progress for this neuron.", {extensions: {code: 1003}});
+        }
+
+        const existingPublished = siblings.find(sibling => sibling.status == ReconstructionStatus.Published);
 
         if (existingPublished) {
             if (!replaceExisting) {
@@ -840,9 +965,6 @@ export class Reconstruction extends BaseModel {
         if (reconstructionIds.length == 1 && reconstructionIds[0] == "ALL") {
             reconstructions = await this.findAll({where: {status: ReconstructionStatus.ReadyToPublish}, include: [{model: AtlasReconstruction}]});
         } else {
-            if (reconstructionIds.length > 100) {
-                throw new Error("Bulk publishing is limited to 100 reconstructions per request");
-            }
             reconstructions = await this.findAll({where: {id: {[Op.in]: reconstructionIds}}, include: [{model: AtlasReconstruction}]});
         }
 
@@ -918,14 +1040,13 @@ export class Reconstruction extends BaseModel {
     public static async discardReconstruction(id: string, userOrId: User | string, substituteUser: User = null): Promise<Reconstruction> {
         const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(id, userOrId);
 
-        if (!user?.canDiscardReconstruction(reconstruction.annotatorId)) {
-            throw new UnauthorizedError();
+        // Status first, so an admin refused for a status reason gets the descriptive error rather than Unauthorized.
+        if (!DiscardableSourceStatuses.includes(reconstruction.status) && !AdminDiscardableSourceStatuses.includes(reconstruction.status)) {
+            throw new Error(`Cannot discard a reconstruction with status ${ReconstructionStatus[reconstruction.status]}.`);
         }
 
-        // TODO This should be more sophisticated in the behavior and the response.  Annotators can discard when in peer review or lower.  Admins should be able
-        // to discard ones in review.  Published or Archived can never be removed.
-        if (reconstruction.status == ReconstructionStatus.Published || reconstruction.status == ReconstructionStatus.PublishReview || reconstruction.status == ReconstructionStatus.Archived) {
-            throw new Error(`Cannot discard a reconstruction with status ${ReconstructionStatus[reconstruction.status]}.`)
+        if (!user?.canDiscardReconstruction(reconstruction.annotatorId, reconstruction.status)) {
+            throw new UnauthorizedError();
         }
 
         return await Reconstruction.sequelize.transaction(async (t) => {
@@ -1001,7 +1122,7 @@ export class Reconstruction extends BaseModel {
 
         const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(args.reconstructionId, userOrId);
 
-        if (!user.canUploadReconstructionData(args.reconstructionSpace)) {
+        if (!user.canUploadReconstructionData(args.reconstructionSpace, reconstruction.status)) {
             throw new UnauthorizedError();
         }
 
@@ -1029,7 +1150,7 @@ export class Reconstruction extends BaseModel {
 
         const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(args.reconstructionId, userOrId);
 
-        if (!user.canUploadReconstructionData(args.reconstructionSpace)) {
+        if (!user.canUploadReconstructionData(args.reconstructionSpace, reconstruction.status)) {
             throw new UnauthorizedError();
         }
 
@@ -1231,7 +1352,7 @@ export class Reconstruction extends BaseModel {
 
         return await this.sequelize.transaction(async (t) => {
             if (space == ReconstructionSpace.Specimen) {
-                if (this.status != ReconstructionStatus.PeerReview && this.status != ReconstructionStatus.PublishReview && !user?.isAdmin()) {
+                if (this.status != ReconstructionStatus.PeerReview && this.status != ReconstructionStatus.PublishReview) {
                     throw new Error("The reconstruction data can not be modified when not in peer or publish review");
                 }
 
@@ -1248,9 +1369,13 @@ export class Reconstruction extends BaseModel {
                 return updated;
             }
 
-            if (this.status != ReconstructionStatus.PublishReview) {
+            if (this.status != ReconstructionStatus.PublishReview && this.status != ReconstructionStatus.Approved) {
                 throw new Error("The reconstruction data can not be modified when not in publish review");
             }
+
+            // Read before replaceNodeData below: Model.prototype.update mutates in place, and the status write at the
+            // end of this branch would otherwise make the test read WaitingForAtlasReconstruction.
+            const approvedBeforeUpload = this.status == ReconstructionStatus.Approved;
 
             const atlasReconstruction = await this.getAtlasReconstruction({transaction: t});
 
@@ -1266,6 +1391,13 @@ export class Reconstruction extends BaseModel {
                 const soma = await atlasReconstruction.getSoma({transaction: t});
 
                 await neuron.update({atlasSoma: {x: soma.x, y: soma.y, z: soma.z}}, {transaction: t});
+            }
+
+            // The approval already happened and stalled for want of this data, so the upload is what starts the
+            // automatic phases.  prepareToFinalize rather than approve: the child's reviewerId is the publish reviewer
+            // who approved, recorded at that approval, and the uploader is not necessarily that person.
+            if (approvedBeforeUpload && await atlasReconstruction.prepareToFinalize(user, t, substituteUser)) {
+                await this.update({status: ReconstructionStatus.WaitingForAtlasReconstruction}, {transaction: t});
             }
         });
     }
@@ -1327,7 +1459,7 @@ export const modelInit = (sequelize: Sequelize) => {
         },
         status: {
             type: DataTypes.INTEGER,
-            defaultValue: 0
+            allowNull: false
         },
         notes: {
             type: DataTypes.TEXT,

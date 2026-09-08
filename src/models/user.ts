@@ -6,7 +6,7 @@ import {FiniteMap} from "../util/finiteMap";
 import {ApiKey} from "./apiKey";
 import {UserTableName} from "./tableNames";
 import {ReconstructionSpace} from "./reconstructionSpace";
-import {Reconstruction} from "./reconstruction";
+import {AdminDiscardableSourceStatuses, DiscardableSourceStatuses, Reconstruction} from "./reconstruction";
 import {ReconstructionStatus} from "./reconstructionStatus";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {UnauthorizedError} from "../graphql/secureResolvers";
@@ -347,8 +347,16 @@ export class User extends BaseModel {
         return this.isAdmin() || annotatorId == this.id;
     }
 
-    public canDiscardReconstruction(annotatorId: string): boolean {
-        return this.isAdmin() || annotatorId == this.id;
+    public canDiscardReconstruction(annotatorId: string, status: ReconstructionStatus): boolean {
+        if (DiscardableSourceStatuses.includes(status)) {
+            return this.isAdmin() || annotatorId == this.id;
+        }
+
+        if (AdminDiscardableSourceStatuses.includes(status)) {
+            return this.isAdmin();
+        }
+
+        return false;
     }
 
     public canMarkReconstructionUntraceable(annotatorId: string): boolean {
@@ -375,22 +383,8 @@ export class User extends BaseModel {
         return false;
     }
 
-    public canRequestReview(annotatorId: string, currentStatus: ReconstructionStatus, requestedStatus: ReconstructionStatus): boolean {
-        if (this.isAdmin()) {
-            return true;
-        }
-
-        if (requestedStatus == ReconstructionStatus.PeerReview) {
-            // Other than the annotator, only an admin can request peer review.
-            return annotatorId == this.id;
-        } else if (requestedStatus == ReconstructionStatus.PublishReview) {
-            // Peer reviewers can ask for a publish-review if it is going through the peer review process.
-            if (currentStatus == ReconstructionStatus.PeerReview) {
-                return (this.permissions & UserPermissions.PeerReview) != 0;
-            }
-        }
-
-        return false
+    public canRequestReview(annotatorId: string): boolean {
+        return this.isAdmin() || annotatorId == this.id;
     }
 
     public canApproveReconstruction(targetStatus: ReconstructionStatus): boolean {
@@ -415,17 +409,23 @@ export class User extends BaseModel {
         return this.isAdmin();
     }
 
-    public canUploadReconstructionData(space: ReconstructionSpace): boolean {
-        if (this.isAdmin()) {
-            return true;
-        }
-
+    public canUploadReconstructionData(space: ReconstructionSpace, currentStatus: ReconstructionStatus): boolean {
         if (space == ReconstructionSpace.Specimen) {
-            return (this.permissions & UserPermissions.PeerReview) != 0 || (this.permissions & UserPermissions.PublishReview) != 0;
+            // The review the reconstruction is actually in is who may rewrite its specimen-space nodes.  No admin
+            // bypass: an admin who needs this grants themselves the matching review permission explicitly.
+            if (currentStatus == ReconstructionStatus.PeerReview) {
+                return (this.permissions & UserPermissions.PeerReview) != 0;
+            }
+
+            if (currentStatus == ReconstructionStatus.PublishReview) {
+                return (this.permissions & UserPermissions.PublishReview) != 0;
+            }
+
+            return false;
         }
 
         if (space == ReconstructionSpace.Atlas) {
-            return (this.permissions & UserPermissions.PublishReview) != 0;
+            return this.isAdmin() || (this.permissions & UserPermissions.PublishReview) != 0;
         }
 
         return false;

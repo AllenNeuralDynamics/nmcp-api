@@ -1,5 +1,4 @@
 export enum ReconstructionStatus {
-    Initialized = 0,
     InProgress = 100,
     OnHold = 200,
     PeerReview = 300,
