@@ -405,10 +405,6 @@ export class User extends BaseModel {
         return this.isAdmin() || (this.permissions & UserPermissions.PublishReview) != 0;
     }
 
-    public canValidateDois(): boolean {
-        return this.isAdmin();
-    }
-
     public canUploadReconstructionData(space: ReconstructionSpace, currentStatus: ReconstructionStatus): boolean {
         if (space == ReconstructionSpace.Specimen) {
             // The review the reconstruction is actually in is who may rewrite its specimen-space nodes.  No admin

@@ -29,7 +29,9 @@ export type DataCiteAlternateIdentifier = {
 }
 
 export type DataCiteAttributes = {
-    event: string;
+    // Optional so a create can land in DataCite's draft state: a draft is reserved but does not resolve and is not a
+    // public record, which is what lets the DOI phase reserve, record locally, and only then promote to findable.
+    event?: string;
     prefix: string;
     creators: DataCiteCreator[];
     titles: DataCiteTitle[];
@@ -176,6 +178,16 @@ export type DataCiteServiceResult = {
     response: DataCiteResponse | null;
 }
 
+export type DataCiteRelatedIdentifiersResult = {
+    serviceStatus: DataCiteServiceStatus;
+    serviceError: string | null;
+    relatedIdentifiers: DataCiteRelatedIdentifier[];
+}
+
+// The DOI assignment phase holds a database transaction open across the read and write of a canonical's related
+// identifiers, so a hung service must not pin a pooled connection for as long as undici's default headers timeout.
+const dataCiteRequestTimeoutMs = 30_000;
+
 export class DataCiteService {
     private static async request(method: string, urlPath: string, body?: object): Promise<DataCiteServiceResult> {
         const options = CoreServiceOptions.rest.doiGeneration;
@@ -197,7 +209,7 @@ export class DataCiteService {
         headers.append("Content-Type", "application/json");
         headers.append("Authorization", `Basic ${credentials}`);
 
-        const fetchOptions: RequestInit = {method, headers};
+        const fetchOptions: RequestInit = {method, headers, signal: AbortSignal.timeout(dataCiteRequestTimeoutMs)};
 
         if (body !== undefined) {
             fetchOptions.body = JSON.stringify(body);
@@ -207,9 +219,18 @@ export class DataCiteService {
             const response = await fetch(url, fetchOptions);
 
             if (!response.ok) {
-                debug(`bad response status: ${response.status}`);
-                const d = await response.json();
-                debug(` ${d}`);
+                // Read for the log only, and defensively: a rejection can carry an empty body or a proxy's HTML error
+                // page, and letting response.json() throw here would reclassify a rejection as Unavailable - which the
+                // DOI phase would retry under backoff forever instead of failing the child.
+                let body: string;
+
+                try {
+                    body = await response.text();
+                } catch {
+                    body = "(unreadable)";
+                }
+
+                debug(`bad response status: ${response.status} ${body}`);
 
                 return {
                     doi: null,
@@ -242,13 +263,26 @@ export class DataCiteService {
         return this.request("POST", "", request);
     }
 
-    public static async updateDoi(doi: string, relatedIdentifiers: DataCiteRelatedIdentifier[]): Promise<DataCiteServiceResult> {
+    // A PUT replaces relatedIdentifiers outright rather than appending, so the caller must send the whole list.  The
+    // optional event lets a cross-reference update carry the promotion to findable in the same request.
+    public static async updateDoi(doi: string, relatedIdentifiers: DataCiteRelatedIdentifier[], event?: string): Promise<DataCiteServiceResult> {
         const request = {
             data: {
                 type: "dois",
-                attributes: {
-                    relatedIdentifiers
-                }
+                attributes: event ? {relatedIdentifiers, event} : {relatedIdentifiers}
+            }
+        };
+
+        return this.request("PUT", `/${doi}`, request);
+    }
+
+    // Idempotent: promoting an already findable DOI changes nothing, which is what lets a retry cover a DOI that was
+    // recorded locally but never promoted without tracking its DataCite state.
+    public static async promoteDoi(doi: string): Promise<DataCiteServiceResult> {
+        const request = {
+            data: {
+                type: "dois",
+                attributes: {event: "publish"}
             }
         };
 
@@ -270,9 +304,15 @@ export class DataCiteService {
         return this.request("PUT", `/${doi}`, request);
     }
 
-    public static async getRelatedIdentifiers(doi: string): Promise<DataCiteRelatedIdentifier[]> {
+    // Carries the service status: an empty list from a failed read is indistinguishable from a genuinely empty one,
+    // and a caller that then PUTs [existing..., new] would replace the whole list with the single new entry.
+    public static async getRelatedIdentifiers(doi: string): Promise<DataCiteRelatedIdentifiersResult> {
         const result = await this.getDoi(doi);
 
-        return result.response?.data?.attributes?.relatedIdentifiers ?? [];
+        return {
+            serviceStatus: result.serviceStatus,
+            serviceError: result.serviceError,
+            relatedIdentifiers: result.response?.data?.attributes?.relatedIdentifiers ?? []
+        };
     }
 }

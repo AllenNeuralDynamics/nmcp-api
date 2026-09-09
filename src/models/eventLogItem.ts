@@ -92,6 +92,8 @@ export enum EventLogItemKind {
     AtlasReconstructionNodeStructureAssignmentComplete = 6520,
     AtlasReconstructionPrecomputedRequest = 6600,
     AtlasReconstructionPrecomputedComplete = 6620,
+    AtlasReconstructionDoiAssignmentRequest = 6650,
+    AtlasReconstructionDoiAssignmentComplete = 6670,
     AtlasReconstructionIndexingRequest = 6700,
     AtlasReconstructionIndexingComplete = 6720,
 

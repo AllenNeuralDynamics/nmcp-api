@@ -40,7 +40,7 @@ function updateMock(instance: any) {
 
 // Instances are built straight off the prototype so the methods under test can be called directly.  Several are
 // private or protected in TypeScript but ordinary prototype methods in the compiled JS, which is what lets a test
-// reach publishWithTransaction without going through publish's guards and assignDoi's live DataCite calls.
+// reach publishWithTransaction without going through publish's guards.
 function prototypeStub(model: any, properties: object = {}) {
     const instance = Object.create(model.prototype);
     Object.assign(instance, {id: "instance-1"}, properties);
@@ -114,17 +114,16 @@ describe("publishWithTransaction", () => {
     function publishable(existingPublished: any) {
         stubEvents();
 
-        vi.spyOn(Reconstruction.prototype as any, "assignDoi").mockResolvedValue(undefined);
-
         // The sibling read is a findAll over the blocking statuses, and the neuron row is locked before it.
         const findAll = vi.spyOn(Reconstruction, "findAll").mockResolvedValue(existingPublished ? [existingPublished] : []);
 
-        vi.spyOn(Neuron, "findByPk").mockResolvedValue({id: "neuron-1"} as any);
+        // Publish asserts both DOIs rather than assigning them, and reads the canonical off the locked neuron row.
+        vi.spyOn(Neuron, "findByPk").mockResolvedValue({id: "neuron-1", canonicalDoi: "10.x/canonical"} as any);
 
         const reconstruction = prototypeStub(Reconstruction, {
             neuronId: "neuron-1",
             status: ReconstructionStatus.ReadyToPublish,
-            AtlasReconstruction: {nodeCounts: {}, tryStartPublishing: vi.fn().mockResolvedValue(true)}
+            AtlasReconstruction: {nodeCounts: {}, doi: "10.x/abc", tryStartPublishing: vi.fn().mockResolvedValue(true)}
         });
 
         return {reconstruction: reconstruction, findAll: findAll};
@@ -226,7 +225,9 @@ describe("calculateStructureAssignments", () => {
 });
 
 describe("AtlasReconstruction.precomputedChanged", () => {
-    test("loads the parent reconstruction through the transaction", async () => {
+    // The parent is not notified here any more - it stays WaitingForAtlasReconstruction until DOI assignment
+    // completes, and assignDois makes that call itself.
+    test("writes the status update through the transaction and does not load the parent", async () => {
         stubEvents();
 
         const atlasReconstruction = prototypeStub(AtlasReconstruction, {
@@ -237,7 +238,12 @@ describe("AtlasReconstruction.precomputedChanged", () => {
 
         await atlasReconstruction.precomputedChanged(userWith(UserPermissions.Admin), true, transaction);
 
-        expect(atlasReconstruction.getReconstruction).toHaveBeenCalledWith({transaction: transaction});
+        expect(atlasReconstruction.update).toHaveBeenCalledWith(
+            {status: AtlasReconstructionStatus.PendingDoiAssignment},
+            {transaction: transaction}
+        );
+
+        expect(atlasReconstruction.getReconstruction).not.toHaveBeenCalled();
     });
 });
 

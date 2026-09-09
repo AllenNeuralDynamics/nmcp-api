@@ -19,36 +19,41 @@ const performSynchronization: (repeat?: boolean, intervalSeconds?: number) => Pr
 
 const performQualityControl: (batchSize: number) => Promise<boolean> = workerModule.performQualityControl;
 const performStructureAssignments: (batchSize: number) => Promise<boolean> = workerModule.performStructureAssignments;
+const performDoiAssignment: (batchSize: number) => Promise<boolean> = workerModule.performDoiAssignment;
 const performSearchIndexing: (batchSize: number) => Promise<boolean> = workerModule.performSearchIndexing;
 
 const qcBackoff: ServiceBackoff = workerModule.qcBackoff;
+const doiBackoff: ServiceBackoff = workerModule.doiBackoff;
 
 // makeBatch hands the same function to every item, so an "item 1 of 3 fails" fixture is one mock with ordered
 // outcomes and the assertion is on its total call count.
 const makeBatch = (count: number, fn: any) =>
-    Array.from({length: count}, (_unused, idx) => ({id: `item-${idx}`, assess: fn, calculateStructureAssignments: fn, updateSearchIndex: fn}));
+    Array.from({length: count}, (_unused, idx) => ({id: `item-${idx}`, assess: fn, calculateStructureAssignments: fn, assignDois: fn, updateSearchIndex: fn}));
 
 const failsOnce = () => vi.fn().mockRejectedValueOnce(new Error("boom")).mockResolvedValue(true);
 const alwaysFails = () => vi.fn().mockRejectedValue(new Error("boom"));
 const alwaysSucceeds = () => vi.fn().mockResolvedValue(true);
 
-function stubPhases(qc: any[], structure: any[], indexable: any[]) {
+function stubPhases(qc: any[], structure: any[], doi: any[], indexable: any[]) {
     return {
         getPending: vi.spyOn(QualityControl, "getPending").mockResolvedValue(qc),
         getPendingStructureAssignment: vi.spyOn(AtlasReconstruction, "getPendingStructureAssignment").mockResolvedValue(structure),
+        getPendingDoiAssignment: vi.spyOn(AtlasReconstruction, "getPendingDoiAssignment").mockResolvedValue(doi),
         getIndexable: vi.spyOn(AtlasReconstruction, "getIndexable").mockResolvedValue(indexable)
     };
 }
 
 beforeEach(() => {
-    // performSynchronization runs the QC phase, so backoff state carries between tests in this file.
+    // performSynchronization runs the QC and DOI phases, so backoff state carries between tests in this file.
     qcBackoff.recordSuccess();
+    doiBackoff.recordSuccess();
 });
 
 afterEach(() => {
     vi.restoreAllMocks();
     vi.useRealTimers();
     qcBackoff.recordSuccess();
+    doiBackoff.recordSuccess();
     delete (process as any).send;
 });
 
@@ -136,31 +141,68 @@ describe("performSearchIndexing containment", () => {
     });
 });
 
+describe("performDoiAssignment containment", () => {
+    test("a throwing item is skipped and the rest of the batch still runs", async () => {
+        const assignDois = failsOnce();
+        const getPending = vi.spyOn(AtlasReconstruction, "getPendingDoiAssignment").mockResolvedValue(makeBatch(3, assignDois));
+
+        const mayBeMore = await performDoiAssignment(10);
+
+        expect(assignDois).toHaveBeenCalledTimes(3);
+        expect(mayBeMore).toBe(false);
+
+        // A throw is not a service-availability signal, so the backoff must not have engaged.
+        await performDoiAssignment(10);
+        expect(getPending).toHaveBeenCalledTimes(2);
+    });
+
+    test("a batch in which everything throws does not engage the backoff", async () => {
+        vi.spyOn(AtlasReconstruction, "getPendingDoiAssignment").mockResolvedValue(makeBatch(3, alwaysFails()));
+
+        expect(await performDoiAssignment(3)).toBe(false);
+        expect(doiBackoff.currentDelay).toBe(0);
+    });
+});
+
 describe("performSynchronization phase isolation", () => {
     test("a failing quality control phase does not stop the later phases", async () => {
-        const stubs = stubPhases([], [], []);
+        const stubs = stubPhases([], [], [], []);
         stubs.getPending.mockRejectedValue(new Error("boom"));
 
         await performSynchronization(false);
 
         expect(stubs.getPendingStructureAssignment).toHaveBeenCalledTimes(1);
+        expect(stubs.getPendingDoiAssignment).toHaveBeenCalledTimes(1);
         expect(stubs.getIndexable).toHaveBeenCalledTimes(1);
     });
 
     test("a failing structure assignment phase does not stop the others", async () => {
-        const stubs = stubPhases([], [], []);
+        const stubs = stubPhases([], [], [], []);
         stubs.getPendingStructureAssignment.mockRejectedValue(new Error("boom"));
 
         await performSynchronization(false);
 
         expect(stubs.getPending).toHaveBeenCalledTimes(1);
+        expect(stubs.getPendingDoiAssignment).toHaveBeenCalledTimes(1);
+        expect(stubs.getIndexable).toHaveBeenCalledTimes(1);
+    });
+
+    test("a failing DOI assignment phase does not stop the others", async () => {
+        const stubs = stubPhases([], [], [], []);
+        stubs.getPendingDoiAssignment.mockRejectedValue(new Error("boom"));
+
+        await performSynchronization(false);
+
+        expect(stubs.getPending).toHaveBeenCalledTimes(1);
+        expect(stubs.getPendingStructureAssignment).toHaveBeenCalledTimes(1);
         expect(stubs.getIndexable).toHaveBeenCalledTimes(1);
     });
 
     test("a pass in which every phase fails still resolves", async () => {
-        const stubs = stubPhases([], [], []);
+        const stubs = stubPhases([], [], [], []);
         stubs.getPending.mockRejectedValue(new Error("boom"));
         stubs.getPendingStructureAssignment.mockRejectedValue(new Error("boom"));
+        stubs.getPendingDoiAssignment.mockRejectedValue(new Error("boom"));
         stubs.getIndexable.mockRejectedValue(new Error("boom"));
 
         await expect(performSynchronization(false)).resolves.toBeUndefined();
@@ -174,9 +216,10 @@ describe("performSynchronization rescheduling", () => {
     test("reschedules exactly once when every phase fails", async () => {
         const timeout = stubTimer();
 
-        const stubs = stubPhases([], [], []);
+        const stubs = stubPhases([], [], [], []);
         stubs.getPending.mockRejectedValue(new Error("boom"));
         stubs.getPendingStructureAssignment.mockRejectedValue(new Error("boom"));
+        stubs.getPendingDoiAssignment.mockRejectedValue(new Error("boom"));
         stubs.getIndexable.mockRejectedValue(new Error("boom"));
 
         await performSynchronization(true);
@@ -187,9 +230,10 @@ describe("performSynchronization rescheduling", () => {
     test("a wholly failed pass waits the full interval rather than fast-looping", async () => {
         const timeout = stubTimer();
 
-        const stubs = stubPhases([], [], []);
+        const stubs = stubPhases([], [], [], []);
         stubs.getPending.mockRejectedValue(new Error("boom"));
         stubs.getPendingStructureAssignment.mockRejectedValue(new Error("boom"));
+        stubs.getPendingDoiAssignment.mockRejectedValue(new Error("boom"));
         stubs.getIndexable.mockRejectedValue(new Error("boom"));
 
         await performSynchronization(true);
@@ -200,10 +244,31 @@ describe("performSynchronization rescheduling", () => {
     test("a full batch still drives the fast loop", async () => {
         const timeout = stubTimer();
 
-        stubPhases(makeBatch(10, alwaysSucceeds()), [], []);
+        stubPhases(makeBatch(10, alwaysSucceeds()), [], [], []);
 
         await performSynchronization(true, 60);
 
         expect(timeout.mock.calls[0][1]).toBe(50);
+    });
+
+    test("a full DOI batch drives the fast loop on its own", async () => {
+        const timeout = stubTimer();
+
+        stubPhases([], [], makeBatch(10, alwaysSucceeds()), []);
+
+        await performSynchronization(true, 60);
+
+        expect(timeout.mock.calls[0][1]).toBe(50);
+    });
+
+    test("a DOI batch in which every item throws does not drive the fast loop", async () => {
+        const timeout = stubTimer();
+
+        stubPhases([], [], makeBatch(10, alwaysFails()), []);
+
+        await performSynchronization(true, 60);
+
+        expect(timeout.mock.calls[0][1]).toBeGreaterThan(50);
+        expect(doiBackoff.currentDelay).toBe(0);
     });
 });

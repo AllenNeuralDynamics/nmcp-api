@@ -28,7 +28,7 @@ import {substringMatchPatterns} from "../util/keywords";
 import {ReconstructionStatus} from "./reconstructionStatus";
 import {AtlasReconstruction, AtlasReconstructionShape} from "./atlasReconstruction";
 import {AtlasReconstructionStatus} from "./atlasReconstructionStatus";
-import {EventLogItem, EventLogItemKind, recordEvent} from "./eventLogItem";
+import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {isNotNullOrUndefined} from "../util/objectUtil";
 import {NodeCounts, parseSwcFile, SimpleReconstruction} from "../io/simpleReconstruction";
 import {parseParquetFile, parseParquetUpload} from "../io/parquetParser";
@@ -42,8 +42,6 @@ import {NodeStructure} from "./nodeStructure";
 import {GraphQLError} from "graphql/error";
 import {SearchIndex} from "./searchIndex";
 import {Precomputed} from "./precomputed";
-import {DataCiteService, DataCiteServiceStatus} from "../data-access/doi/dataCiteService";
-import {CoreServiceOptions} from "../options/coreServicesOptions";
 import {PortalAnnotationSpace, PortalNode, PortalReconstruction} from "../io/portalFormat";
 
 const debug = require("debug")("nmcp:nmcp-api:reconstruction");
@@ -122,8 +120,8 @@ export const ApprovalSourceStatuses: ReadonlyMap<ReconstructionStatus, Reconstru
 
 /**
  * Reconstruction statuses that hold a neuron out of the candidate pool when only a finished publication counts
- * (getCandidateNeurons with includeInProgress).  Publishing is included: the DOI is minted and the reconstruction is
- * in transition to published.
+ * (getCandidateNeurons with includeInProgress).  Publishing is included: the reconstruction is mid-publish and in
+ * transition to published.
  */
 export const PublishedCandidateBlockingStatuses: ReconstructionStatus[] = [
     ReconstructionStatus.Publishing,
@@ -783,7 +781,7 @@ export class Reconstruction extends BaseModel {
     }
 
     public static async publish(userOrId: User, reconstructionId: string, replaceExisting: boolean = false): Promise<Reconstruction> {
-        const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(reconstructionId, userOrId, [{model: AtlasReconstruction}]);
+        const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(reconstructionId, userOrId, [{model: AtlasReconstruction}, {model: Neuron, as: "Neuron"}]);
 
         if (!user?.canPublish()) {
             throw new UnauthorizedError();
@@ -795,6 +793,12 @@ export class Reconstruction extends BaseModel {
 
         if (reconstruction.AtlasReconstruction.nodeCounts == null || reconstruction.status != ReconstructionStatus.ReadyToPublish) {
             throw new Error("The reconstruction is not in a publishable state");
+        }
+
+        // Asserted, not assigned: the DOI assignment phase registers both DOIs before the child reaches
+        // ReadyToPublish, so publish makes no DataCite call at all.
+        if (!reconstruction.AtlasReconstruction.doi || !reconstruction.Neuron?.canonicalDoi) {
+            throw new Error("The reconstruction has no DOI assigned");
         }
 
         return await this.sequelize.transaction(async (t) => {
@@ -810,8 +814,14 @@ export class Reconstruction extends BaseModel {
 
         // Serializes concurrent publishes of the same neuron: without it two transactions each read no sibling and both
         // proceed.  Follows openReconstruction's lock on the annotator and is released when the transaction ends.
-        // Held across assignDoi's DataCite calls, which blocks nothing but another publish of this neuron.
-        await Neuron.findByPk(this.neuronId, {transaction: t, lock: Transaction.LOCK.UPDATE});
+        const neuron = await Neuron.findByPk(this.neuronId, {transaction: t, lock: Transaction.LOCK.UPDATE});
+
+        // Asserted, not assigned: the DOI assignment phase registers both DOIs before the child reaches
+        // ReadyToPublish, so publish makes no DataCite call.  Read off the locked row because Neuron is not
+        // eager-loaded on every path in - publishAll enters through this method directly.
+        if (!this.AtlasReconstruction.doi || !neuron?.canonicalDoi) {
+            throw new Error("The reconstruction has no DOI assigned");
+        }
 
         const siblings = await Reconstruction.findAll({
             where: {neuronId: this.neuronId, status: {[Op.in]: PublishedCandidateBlockingStatuses}},
@@ -845,114 +855,7 @@ export class Reconstruction extends BaseModel {
 
         await updated.recordEvent(EventLogItemKind.ReconstructionPublishing, update, user, t);
 
-        await updated.assignDoi(user, t);
-
         return updated;
-    }
-
-    private async assignDoi(user: User, t: Transaction): Promise<void> {
-        const options = CoreServiceOptions.rest.doiGeneration;
-
-        const atlasReconstruction = this.AtlasReconstruction ?? await this.getAtlasReconstruction({transaction: t});
-        const neuron = this.Neuron ?? await this.getNeuron({include: [{model: Specimen, as: "Specimen", include: [{model: Collection}]}], transaction: t});
-        const specimen = neuron.Specimen ?? await neuron.getSpecimen({include: [{model: Collection}], transaction: t});
-        const collection = specimen.Collection ?? await specimen.getCollection({transaction: t});
-        const annotator = this.Annotator ?? await this.getAnnotator({transaction: t});
-        const peerReviewer = this.reviewerId ? (this.Reviewer ?? await this.getReviewer({transaction: t})) : null;
-        const reviewer = atlasReconstruction.reviewerId ? (atlasReconstruction.Reviewer ?? await atlasReconstruction.getReviewer({transaction: t})) : null;
-
-        const publishEvent = await EventLogItem.findOne({
-            where: {targetId: this.id, kind: EventLogItemKind.ReconstructionPublishing},
-            order: [["createdAt", "DESC"]],
-            transaction: t
-        });
-
-        const contributors = [];
-
-        if (reviewer) {
-            if (!reviewer.isSystemUser) {
-                contributors.push({name: reviewer.DisplayName, affiliation: reviewer.affiliation, contributorType: "Other"});
-            }
-        }
-
-        if (peerReviewer) {
-            if (!peerReviewer.isSystemUser) {
-                contributors.push({name: peerReviewer.DisplayName, affiliation: peerReviewer.affiliation, contributorType: "Other"});
-            }
-        }
-
-        await neuron.assignCanonicalDoi(user, publishEvent.createdAt.getFullYear(), [], t);
-
-        const doiResult = await DataCiteService.createDoi({
-            data: {
-                type: "dois",
-                attributes: {
-                    event: "publish",
-                    prefix: options.prefix,
-                    creators: [{name: annotator.DisplayName}],
-                    titles: [{title: `Neuron ${neuron.label} in the ${collection?.name ?? "(unspecified)"} collection`}],
-                    publisher: "Neuron Morphology Community Portal",
-                    publicationYear: publishEvent.createdAt.getFullYear(),
-                    types: {resourceTypeGeneral: "Dataset"},
-                    url: `${options.url}neuron/${neuron.id}/${this.id}`,
-                    subjects: [{subject: "Neuron reconstruction"}],
-                    contributors,
-                    alternateIdentifiers: [{alternateIdentifier: neuron.label, alternateIdentifierType: "Neuron Label"}],
-                    relatedIdentifiers: neuron.canonicalDoi
-                        ? [{relatedIdentifierType: "DOI", relationType: "IsVersionOf", relatedIdentifier: neuron.canonicalDoi, resourceTypeGeneral: "Dataset"}]
-                        : [],
-                    version: 1,
-                    rights: "CC-BY-4.0"
-                }
-            }
-        });
-
-        if (doiResult.serviceStatus !== DataCiteServiceStatus.Success) {
-            throw new Error(`DOI creation failed: ${doiResult.serviceError ?? "unknown error"}`);
-        }
-
-        await atlasReconstruction.update({doi: doiResult.doi}, {transaction: t});
-
-        await this.recordEvent(EventLogItemKind.ReconstructionAssignDoi, {doi: doiResult.doi} as any, user, t);
-
-        if (neuron.canonicalDoi) {
-            const existingRelated = await DataCiteService.getRelatedIdentifiers(neuron.canonicalDoi);
-
-            await DataCiteService.updateDoi(neuron.canonicalDoi, [
-                ...existingRelated,
-                {relatedIdentifierType: "DOI", relationType: "HasVersion", relatedIdentifier: doiResult.doi, resourceTypeGeneral: "Dataset"}
-            ]);
-        }
-
-        debug(`doi assigned to ${specimen.label}-${neuron.label}: ${doiResult.doi}`);
-    }
-
-    private async assignNeuronDoi(user: User, t: Transaction): Promise<void> {
-        // TODO This is specific to backfilling DOIs as the process is changing.  Should be removable.
-        const atlasReconstruction = this.AtlasReconstruction ?? await this.getAtlasReconstruction({transaction: t});
-        const neuron = this.Neuron ?? await this.getNeuron({include: [{model: Specimen, as: "Specimen", include: [{model: Collection}]}], transaction: t});
-
-        const publishEvent = await EventLogItem.findOne({
-            where: {targetId: this.id, kind: EventLogItemKind.ReconstructionPublishing},
-            order: [["createdAt", "DESC"]],
-            transaction: t
-        });
-
-        const reconstructionDoi = atlasReconstruction.doi;
-
-        const neuronDoi = await neuron.assignCanonicalDoi(
-            user,
-            publishEvent.createdAt.getFullYear(),
-            [{relatedIdentifierType: "DOI", relationType: "HasVersion", relatedIdentifier: reconstructionDoi, resourceTypeGeneral: "Dataset"}],
-            t
-        );
-
-        const existingReconstructionRelated = await DataCiteService.getRelatedIdentifiers(reconstructionDoi);
-
-        await DataCiteService.updateDoi(reconstructionDoi, [
-            ...existingReconstructionRelated,
-            {relatedIdentifierType: "DOI", relationType: "IsVersionOf", relatedIdentifier: neuronDoi, resourceTypeGeneral: "Dataset"}
-        ]);
     }
 
     public static async publishAll(user: User, reconstructionIds: string[]): Promise<Reconstruction[]> {
@@ -988,53 +891,6 @@ export class Reconstruction extends BaseModel {
         }
 
         return updated;
-    }
-
-    public static async validateDois(user: User): Promise<number> {
-        // TODO This is specific to backfilling DOIs as the process is changing.  Should be removable.
-        if (!user?.canValidateDois()) {
-            throw new UnauthorizedError();
-        }
-
-        let count = 0;
-
-        const missingReconstructionDoi = await this.findAll({
-            where: {status: ReconstructionStatus.Published},
-            include: [{
-                model: AtlasReconstruction,
-                where: {doi: {[Op.or]: [null, ""]}}
-            }]
-        });
-
-        for (const reconstruction of missingReconstructionDoi) {
-            await this.sequelize.transaction(async (t) => {
-                await reconstruction.assignDoi(user, t);
-            });
-        }
-
-        count += missingReconstructionDoi.length;
-
-        const missingNeuronDoi = await this.findAll({
-            where: {status: ReconstructionStatus.Published},
-            include: [{
-                model: AtlasReconstruction,
-                where: {doi: {[Op.not]: null, [Op.ne]: ""}}
-            }, {
-                model: Neuron,
-                as: "Neuron",
-                where: {canonicalDoi: {[Op.or]: [null, ""]}}
-            }]
-        });
-
-        for (const reconstruction of missingNeuronDoi) {
-            await this.sequelize.transaction(async (t) => {
-                await reconstruction.assignNeuronDoi(user, t);
-            });
-        }
-
-        count += missingNeuronDoi.length;
-
-        return count;
     }
 
     public static async discardReconstruction(id: string, userOrId: User | string, substituteUser: User = null): Promise<Reconstruction> {

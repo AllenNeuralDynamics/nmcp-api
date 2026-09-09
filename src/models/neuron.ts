@@ -71,6 +71,12 @@ export type SomaImportResponse = {
     error: Error;
 }
 
+export type CanonicalDoiResult = {
+    serviceStatus: DataCiteServiceStatus;
+    serviceError: string | null;
+    doi: string | null;
+}
+
 export enum NeuronStatusFilter {
     Unpublished = 100,
     Published = 200,
@@ -692,9 +698,9 @@ export class Neuron extends BaseModel {
         return options;
     }
 
-    public async assignCanonicalDoi(user: User, publicationYear: number, relatedIdentifiers: DataCiteRelatedIdentifier[], t: Transaction): Promise<string> {
+    public async assignCanonicalDoi(user: User, publicationYear: number, relatedIdentifiers: DataCiteRelatedIdentifier[], t: Transaction): Promise<CanonicalDoiResult> {
         if (this.canonicalDoi) {
-            return this.canonicalDoi;
+            return {serviceStatus: DataCiteServiceStatus.Success, serviceError: null, doi: this.canonicalDoi};
         }
 
         const options = CoreServiceOptions.rest.doiGeneration;
@@ -702,11 +708,12 @@ export class Neuron extends BaseModel {
         const specimen = this.Specimen ?? await this.getSpecimen({include: [{model: Collection}], transaction: t});
         const collection = specimen.Collection ?? await specimen.getCollection({transaction: t});
 
+        // No event, so the canonical is reserved as a draft: it does not resolve until the assignment phase promotes
+        // it, which happens only once the identifier is recorded locally.
         const doiResult = await DataCiteService.createDoi({
             data: {
                 type: "dois",
                 attributes: {
-                    event: "publish",
                     prefix: options.prefix,
                     creators: [{name: "Neuron Morphology Community Portal"}],
                     titles: [{title: `Neuron ${this.label} in the ${collection?.name ?? "(unspecified)"} collection`}],
@@ -724,8 +731,12 @@ export class Neuron extends BaseModel {
         });
 
         if (doiResult.serviceStatus !== DataCiteServiceStatus.Success) {
-            throw new Error(`Neuron DOI creation failed: ${doiResult.serviceError ?? "unknown error"}`);
+            return {serviceStatus: doiResult.serviceStatus, serviceError: doiResult.serviceError, doi: null};
         }
+
+        // Logged before the local write, not after it: this line is the only trace a reserve leaves if the write or
+        // the commit that follows fails, and an abandoned draft is only findable by hand through it.
+        debug(`canonical doi reserved for neuron ${this.label}: ${doiResult.doi}`);
 
         await this.update({canonicalDoi: doiResult.doi}, {transaction: t});
 
@@ -737,9 +748,7 @@ export class Neuron extends BaseModel {
             userId: user.id
         }, t);
 
-        debug(`canonical doi assigned to neuron ${this.label}: ${doiResult.doi}`);
-
-        return doiResult.doi;
+        return {serviceStatus: DataCiteServiceStatus.Success, serviceError: null, doi: doiResult.doi};
     }
 
     public toPortalFormat(): PortalNeuron {
