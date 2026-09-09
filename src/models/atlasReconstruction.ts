@@ -2,7 +2,7 @@ import {BelongsToGetAssociationMixin, DataTypes, FindOptions, HasManyGetAssociat
 
 import {BaseModel} from "./baseModel";
 import {Neuron} from "./neuron";
-import {AtlasReconstructionStatus, PrecomputedStatusKinds, QualityControlStatusKinds} from "./atlasReconstructionStatus";
+import {AtlasReconstructionStatus, DoiAssignmentStatusKinds, PrecomputedStatusKinds, QualityControlStatusKinds} from "./atlasReconstructionStatus";
 import {User} from "./user";
 import {Precomputed} from "./precomputed";
 import {NodeStructure} from "./nodeStructure";
@@ -17,7 +17,7 @@ import {Reconstruction} from "./reconstruction";
 import {AtlasReconstructionTableName} from "./tableNames";
 import {QualityControl} from "./qualityControl";
 import {AtlasNode, AtlasNodeShape, mapToAtlasNodeShape} from "./atlasNode";
-import {EventLogItemKind, recordEvent} from "./eventLogItem";
+import {EventLogItem, EventLogItemKind, recordEvent} from "./eventLogItem";
 import {NeuronStructure} from "./neuronStructure";
 import {NodeCounts, SimpleReconstruction} from "../io/simpleReconstruction";
 import {Atlas} from "./atlas";
@@ -26,8 +26,19 @@ import {SearchIndexOperation} from "../transform/searchIndexOperation";
 import {KDTree} from "../util/kdtree";
 import {FiniteMap} from "../util/finiteMap";
 import {PortalAnnotationSpace, PortalNode, PortalReconstruction} from "../io/portalFormat";
+import {DataCiteRelatedIdentifier, DataCiteService, DataCiteServiceStatus} from "../data-access/doi/dataCiteService";
+import {CoreServiceOptions} from "../options/coreServicesOptions";
 
 const debug = require("debug")("nmcp:nmcp-api:atlas-reconstruction");
+
+function hasRelatedIdentifier(existing: DataCiteRelatedIdentifier[], relationType: string, targetDoi: string): boolean {
+    return existing.some(entry => entry.relationType === relationType && entry.relatedIdentifier === targetDoi);
+}
+
+type DataCiteOutcome = {
+    serviceStatus: DataCiteServiceStatus;
+    serviceError: string | null;
+}
 
 export type NearestNodeOutput = {
     reconstructionId: string;
@@ -93,6 +104,40 @@ export class AtlasReconstruction extends BaseModel {
         });
     }
 
+    // Eager-loads everything the DOI payloads read, so a batch does not repeat the same lazy loads per item.  The
+    // Reconstruction include carries no alias because the association declares none.
+    public static async getPendingDoiAssignment(limit: number = 10): Promise<AtlasReconstruction[]> {
+        return await this.findAll({
+            where: {
+                status: AtlasReconstructionStatus.PendingDoiAssignment
+            },
+            include: [{
+                model: User,
+                as: "Reviewer"
+            }, {
+                model: Reconstruction,
+                include: [{
+                    model: Neuron,
+                    as: "Neuron",
+                    include: [{
+                        model: Specimen,
+                        as: "Specimen",
+                        include: [{
+                            model: Collection
+                        }]
+                    }]
+                }, {
+                    model: User,
+                    as: "Annotator"
+                }, {
+                    model: User,
+                    as: "Reviewer"
+                }]
+            }],
+            limit: limit
+        });
+    }
+
     private static async createWithTransaction(user: User, shape: AtlasReconstructionShape, t: Transaction, substituteUser: User = null): Promise<AtlasReconstruction> {
         const reconstruction = await this.create(shape, {transaction: t});
 
@@ -113,8 +158,8 @@ export class AtlasReconstruction extends BaseModel {
 
     public async approve(user: User, t: Transaction, substituteUser: User = null): Promise<boolean> {
         // Who approved publish review is a fact about the approval, not about whether the pipeline can start, and it is
-        // what assignDoi credits as a contributor and toPortalFormat reports as the proofreader.  Recorded here, the
-        // deferred atlas upload does not have to - and must not - supply it.
+        // what the DOI assignment phase credits as a contributor and toPortalFormat reports as the proofreader.
+        // Recorded here, the deferred atlas upload does not have to - and must not - supply it.
         const update = {reviewerId: user.id};
 
         await this.update(update, {transaction: t});
@@ -340,23 +385,257 @@ export class AtlasReconstruction extends BaseModel {
             await this.recordEvent(EventLogItemKind.AtlasReconstructionPrecomputedComplete, {complete: complete}, user, t);
 
             const update = {
-                status: complete ? AtlasReconstructionStatus.ReadyToPublish : AtlasReconstructionStatus.FailedPrecomputed
+                status: complete ? AtlasReconstructionStatus.PendingDoiAssignment : AtlasReconstructionStatus.FailedPrecomputed
             }
 
             await this.update(update, {transaction: t});
 
-            const kind = EventLogItemKind.AtlasReconstructionUpdate;
+            // No parent notification: the parent stays WaitingForAtlasReconstruction until DOI assignment completes,
+            // and assignDois makes that call itself.
+            const kind = complete ? EventLogItemKind.AtlasReconstructionDoiAssignmentRequest : EventLogItemKind.AtlasReconstructionUpdate;
 
             await this.recordEvent(kind, update, user, t);
-
-            const reconstruction = await this.getReconstruction({transaction: t});
-
-            await reconstruction.onAtlasReconstructionStatusChanged(user, update.status, t);
 
         } else {
             // TODO SystemError
             debug(`received unexpected precomputed update (current status: ${this.status})`);
         }
+    }
+
+    /**
+     * Registers the neuron's canonical DOI and this reconstruction's DOI with DataCite, then advances to
+     * ReadyToPublish.  Returns `false` only when the service was unavailable - the child stays pending and the caller
+     * backs off.  `true` means the item was dealt with, whether it advanced or was recorded as failed.
+     *
+     * Each of the three registration steps is an ensure, so a pass that dies part-way is resumed rather than repeated.
+     * Both DOIs are reserved as DataCite drafts and promoted to findable only once recorded locally: what a crash
+     * between the two strands is then an invisible draft rather than a citable duplicate that cannot be withdrawn.
+     */
+    public async assignDois(user: User): Promise<boolean> {
+        if (!DoiAssignmentStatusKinds.includes(this.status)) {
+            // TODO SystemError
+            debug(`received unexpected doi assignment request (current status: ${this.status})`);
+            return true;
+        }
+
+        const options = CoreServiceOptions.rest.doiGeneration;
+
+        const reconstruction = this.Reconstruction ?? await this.getReconstruction();
+        const neuron = reconstruction.Neuron ?? await reconstruction.getNeuron({include: [{model: Specimen, as: "Specimen", include: [{model: Collection}]}]});
+        const specimen = neuron.Specimen ?? await neuron.getSpecimen({include: [{model: Collection}]});
+        const collection = specimen.Collection ?? await specimen.getCollection();
+        const annotator = reconstruction.Annotator ?? await reconstruction.getAnnotator();
+        const peerReviewer = reconstruction.reviewerId ? (reconstruction.Reviewer ?? await reconstruction.getReviewer()) : null;
+        const reviewer = this.reviewerId ? (this.Reviewer ?? await this.getReviewer()) : null;
+
+        const publicationYear = await this.publicationYear();
+
+        // T1: the neuron row lock covers the canonical's existence check and its minting together, so two sibling
+        // reconstructions of one neuron cannot both read it as unset and both mint.  Committed before the
+        // reconstruction create begins - nothing later in the phase may be able to roll this write back.
+        const canonical = await this.sequelize.transaction(async (t) => {
+            const locked = await Neuron.findByPk(reconstruction.neuronId, {transaction: t, lock: Transaction.LOCK.UPDATE});
+
+            return await locked.assignCanonicalDoi(user, publicationYear, [], t);
+        });
+
+        if (canonical.serviceStatus !== DataCiteServiceStatus.Success) {
+            return await this.recordDoiOutcome(user, canonical, "canonical registration");
+        }
+
+        const canonicalDoi = canonical.doi;
+
+        if (!this.doi) {
+            const contributors = [];
+
+            for (const contributor of [reviewer, peerReviewer]) {
+                if (contributor && !contributor.isSystemUser) {
+                    contributors.push({name: contributor.DisplayName, affiliation: contributor.affiliation, contributorType: "Other"});
+                }
+            }
+
+            // Untransacted, and with no event: a draft nothing points at yet.
+            const created = await DataCiteService.createDoi({
+                data: {
+                    type: "dois",
+                    attributes: {
+                        prefix: options.prefix,
+                        creators: [{name: annotator.DisplayName}],
+                        titles: [{title: `Neuron ${neuron.label} in the ${collection?.name ?? "(unspecified)"} collection`}],
+                        publisher: "Neuron Morphology Community Portal",
+                        publicationYear: publicationYear,
+                        types: {resourceTypeGeneral: "Dataset"},
+                        url: `${options.url}neuron/${neuron.id}/${reconstruction.id}`,
+                        subjects: [{subject: "Neuron reconstruction"}],
+                        contributors,
+                        alternateIdentifiers: [{alternateIdentifier: neuron.label, alternateIdentifierType: "Neuron Label"}],
+                        relatedIdentifiers: [{relatedIdentifierType: "DOI", relationType: "IsVersionOf", relatedIdentifier: canonicalDoi, resourceTypeGeneral: "Dataset"}],
+                        version: 1,
+                        rights: "CC-BY-4.0"
+                    }
+                }
+            });
+
+            if (created.serviceStatus !== DataCiteServiceStatus.Success) {
+                return await this.recordDoiOutcome(user, created, "reconstruction registration");
+            }
+
+            // Logged before the write that records it, so an abandoned reserve is traceable by hand.
+            debug(`doi reserved for reconstruction ${this.id}: ${created.doi}`);
+
+            // T2.
+            await this.sequelize.transaction(async (t) => {
+                await this.update({doi: created.doi}, {transaction: t});
+
+                // Recorded against the parent reconstruction, matching where ReconstructionAssignDoi has always been
+                // written; Reconstruction.recordEvent is private, hence the direct call.
+                await recordEvent({
+                    kind: EventLogItemKind.ReconstructionAssignDoi,
+                    targetId: reconstruction.id,
+                    parentId: reconstruction.neuronId,
+                    details: {doi: created.doi},
+                    userId: user.id
+                }, t);
+            });
+        }
+
+        // Unconditional, whether the DOI was just reserved or recorded by an earlier pass: this is what makes a DOI
+        // stranded in draft state findable without a local column tracking its DataCite state, and promoting an
+        // already findable DOI changes nothing.
+        const promoted = await DataCiteService.promoteDoi(this.doi);
+
+        if (promoted.serviceStatus !== DataCiteServiceStatus.Success) {
+            return await this.recordDoiOutcome(user, promoted, "reconstruction promotion");
+        }
+
+        const crossReference = await this.crossReferenceCanonical(reconstruction.neuronId, canonicalDoi);
+
+        if (crossReference.serviceStatus !== DataCiteServiceStatus.Success) {
+            return await this.recordDoiOutcome(user, crossReference, "canonical cross-reference");
+        }
+
+        // T4.
+        await this.sequelize.transaction(async (t) => {
+            await this.recordEvent(EventLogItemKind.AtlasReconstructionDoiAssignmentComplete, {doi: this.doi, canonicalDoi: canonicalDoi}, user, t);
+
+            const update = {status: AtlasReconstructionStatus.ReadyToPublish};
+
+            await this.update(update, {transaction: t});
+
+            await this.recordEvent(EventLogItemKind.AtlasReconstructionUpdate, update, user, t);
+
+            const parent = await this.getReconstruction({transaction: t});
+
+            await parent.onAtlasReconstructionStatusChanged(user, update.status, t);
+        });
+
+        return true;
+    }
+
+    /**
+     * T3: adds this reconstruction to the canonical's HasVersion list and promotes the canonical in the same request.
+     * The neuron row lock covers the read, the membership check and the write as one critical section - updateDoi
+     * replaces the whole array, so two siblings that each read the same list and append their own entry would
+     * otherwise leave only the later one's.  No local writes, so a rollback here discards nothing.
+     */
+    private async crossReferenceCanonical(neuronId: string, canonicalDoi: string): Promise<DataCiteOutcome> {
+        return await this.sequelize.transaction(async (t) => {
+            await Neuron.findByPk(neuronId, {transaction: t, lock: Transaction.LOCK.UPDATE});
+
+            const existing = await DataCiteService.getRelatedIdentifiers(canonicalDoi);
+
+            if (existing.serviceStatus !== DataCiteServiceStatus.Success) {
+                return existing;
+            }
+
+            const merged = hasRelatedIdentifier(existing.relatedIdentifiers, "HasVersion", this.doi)
+                ? existing.relatedIdentifiers
+                : [...existing.relatedIdentifiers, {
+                    relatedIdentifierType: "DOI" as const,
+                    relationType: "HasVersion" as const,
+                    relatedIdentifier: this.doi,
+                    resourceTypeGeneral: "Dataset"
+                }];
+
+            // Written even when the list is unchanged, because it carries the canonical's promotion to findable.
+            return await DataCiteService.updateDoi(canonicalDoi, merged, "publish");
+        });
+    }
+
+    /**
+     * The year the precomputed generation completed, from the child's own event - recordEvent writes targetId as the
+     * atlas reconstruction id.  Ordered DESC because precomputedChanged records this kind on the failure path too.
+     */
+    private async publicationYear(): Promise<number> {
+        const precomputedEvent = await EventLogItem.findOne({
+            where: {targetId: this.id, kind: EventLogItemKind.AtlasReconstructionPrecomputedComplete},
+            order: [["createdAt", "DESC"]]
+        });
+
+        // A child that reached this phase without the event is a data anomaly, not a service failure, and not a
+        // reason to refuse it a DOI.
+        return precomputedEvent?.createdAt.getFullYear() ?? new Date().getFullYear();
+    }
+
+    /**
+     * Unavailable leaves the child PendingDoiAssignment for the next pass and tells the worker to back off.  Error is
+     * an answer from the service, so the child is failed here and the batch keeps going.  Whatever earlier steps
+     * committed stays committed either way: a recorded DOI is never unwound, and the retry resumes from the ensure
+     * that failed.
+     */
+    private async recordDoiOutcome(user: User, outcome: DataCiteOutcome, step: string): Promise<boolean> {
+        if (outcome.serviceStatus == DataCiteServiceStatus.Unavailable) {
+            debug(`doi service unavailable during ${step} for ${this.id}: ${outcome.serviceError}`);
+
+            return false;
+        }
+
+        debug(`doi service rejected ${step} for ${this.id}: ${outcome.serviceError}`);
+
+        await this.sequelize.transaction(async (t) => {
+            const update = {status: AtlasReconstructionStatus.FailedDoiAssignment};
+
+            await this.update(update, {transaction: t});
+
+            await this.recordEvent(EventLogItemKind.AtlasReconstructionUpdate, update, user, t);
+        });
+
+        return true;
+    }
+
+    /**
+     * Rewinds a child the DOI phase failed on so the worker picks it up again.  Mirrors
+     * QualityControl.requestReassessment; no parent-status check is needed because the parent stays
+     * WaitingForAtlasReconstruction throughout the phase.
+     */
+    public static async requestDoiAssignment(user: User, reconstructionId: string): Promise<AtlasReconstruction> {
+        if (!user?.canModifyReconstruction()) {
+            throw new UnauthorizedError();
+        }
+
+        return await this.sequelize.transaction(async (t) => {
+            const atlasReconstruction = await this.findOne({
+                where: {reconstructionId: reconstructionId},
+                lock: Transaction.LOCK.UPDATE,
+                transaction: t
+            });
+
+            if (!atlasReconstruction) {
+                throw new Error("No atlas reconstruction found for this reconstruction");
+            }
+
+            if (atlasReconstruction.status !== AtlasReconstructionStatus.FailedDoiAssignment) {
+                throw new Error(`Cannot request DOI assignment for a reconstruction with status ${AtlasReconstructionStatus[atlasReconstruction.status]}.`);
+            }
+
+            const update = {status: AtlasReconstructionStatus.PendingDoiAssignment};
+
+            await atlasReconstruction.update(update, {transaction: t});
+
+            await atlasReconstruction.recordEvent(EventLogItemKind.AtlasReconstructionDoiAssignmentRequest, update, user, t);
+
+            return atlasReconstruction;
+        });
     }
 
     public async tryStartPublishing(user: User, t: Transaction): Promise<boolean> {

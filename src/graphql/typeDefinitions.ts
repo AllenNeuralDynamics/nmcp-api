@@ -171,9 +171,9 @@ in progress for the neuron."""
         rejectReconstruction(reconstructionId: String!): Reconstruction
         discardReconstruction(reconstructionId: String!): Reconstruction
         markReconstructionUntraceable(reconstructionId: String!): Reconstruction
-        validateDois: Int!
         requestSpecimenSpaceRegeneration(reconstructionId: String!): Precomputed
         requestQualityControlReassessment(reconstructionId: String!): QualityControl
+        requestDoiAssignment(reconstructionId: String!): AtlasReconstruction
 
         updateReconstruction(reconstructionId: String!, duration: Float, notes: String, started: Date, completed: Date): Reconstruction
         uploadSwcData(uploadArgs: ReconstructionUploadArgs!): Reconstruction

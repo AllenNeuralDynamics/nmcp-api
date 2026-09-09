@@ -230,16 +230,16 @@ export const secureResolvers = {
             return Reconstruction.markUntraceable(args.reconstructionId, user);
         },
 
-        validateDois(_: any, __: any, user: User): Promise<number> {
-            return Reconstruction.validateDois(user);
-        },
-
         requestSpecimenSpaceRegeneration(_: any, args: { reconstructionId: string }, user: User): Promise<SpecimenSpacePrecomputed> {
             return SpecimenSpacePrecomputed.requestRegenerationForReconstruction(user, args.reconstructionId);
         },
 
         requestQualityControlReassessment(_: any, args: { reconstructionId: string }, user: User): Promise<QualityControl> {
             return QualityControl.requestReassessment(user, args.reconstructionId);
+        },
+
+        requestDoiAssignment(_: any, args: { reconstructionId: string }, user: User): Promise<AtlasReconstruction> {
+            return AtlasReconstruction.requestDoiAssignment(user, args.reconstructionId);
         },
 
         updateReconstruction(_: any, args: ReconstructionMetadataArgs, user: User): Promise<Reconstruction> {

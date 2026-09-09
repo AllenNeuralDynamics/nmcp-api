@@ -13,7 +13,11 @@ const defaultIntervalSeconds = 60;
 const qcBackoffBaseMs = defaultIntervalSeconds * 1000;   // 60s: first retry after one normal interval
 const qcBackoffMaxMs = 5 * 60 * 1000;                    // cap at 5 minutes
 
+const doiBackoffBaseMs = defaultIntervalSeconds * 1000;  // 60s: first retry after one normal interval
+const doiBackoffMaxMs = 5 * 60 * 1000;                   // cap at 5 minutes
+
 const qcBackoff = new ServiceBackoff(qcBackoffBaseMs, qcBackoffMaxMs);
+const doiBackoff = new ServiceBackoff(doiBackoffBaseMs, doiBackoffMaxMs);
 
 function failureText(err: unknown): string {
     return err instanceof Error ? err.stack ?? err.message : String(err);
@@ -46,6 +50,8 @@ async function performSynchronization(repeat: boolean = true, intervalSeconds = 
         mayBeMore = await runPhase("quality control", () => performQualityControl(defaultBatchSize));
 
         mayBeMore = (await runPhase("structure assignment", () => performStructureAssignments(defaultBatchSize))) || mayBeMore;
+
+        mayBeMore = (await runPhase("doi assignment", () => performDoiAssignment(defaultBatchSize))) || mayBeMore;
 
         mayBeMore = (await runPhase("search indexing", () => performSearchIndexing(defaultBatchSize))) || mayBeMore;
     } finally {
@@ -81,6 +87,7 @@ const sanityCheckInterval = 1;
 
 let sanityQualityCheckPendingCount = sanityCheckInterval - 1;
 let sanityStructureCheckCount = sanityCheckInterval - 1;
+let sanityDoiCheckCount = sanityCheckInterval - 1;
 let sanitySearchContentsCheckCount = sanityCheckInterval - 1;
 
 async function performQualityControl(batchSize: number): Promise<boolean> {
@@ -175,6 +182,63 @@ async function performStructureAssignments(batchSize: number): Promise<boolean> 
     return false;
 }
 
+async function performDoiAssignment(batchSize: number): Promise<boolean> {
+    if (!doiBackoff.ready(Date.now())) {
+        // Backing off from an unavailable DataCite; skip cheaply so the other steps keep running.
+        return false;
+    }
+
+    const pending = await AtlasReconstruction.getPendingDoiAssignment(batchSize);
+
+    if (pending.length === 0) {
+        sanityDoiCheckCount++;
+
+        if (sanityDoiCheckCount >= sanityCheckInterval) {
+            debug(`there are no reconstructions with DOI assignment pending`);
+            sanityDoiCheckCount = 0;
+        }
+
+        return false;
+    }
+
+    debug(`${pending.length} or more reconstructions have DOI assignment pending`);
+    sanityDoiCheckCount = 0;
+
+    let processed = 0;
+
+    for (const reconstruction of pending) {
+        let available: boolean;
+
+        try {
+            // Available == the service answered, not whether the DOIs were registered: a rejection is recorded on the
+            // child as FailedDoiAssignment by the phase itself.
+            available = await reconstruction.assignDois(User.SystemInternalUser);
+        } catch (err) {
+            debug(`doi assignment threw for ${reconstruction.id}: ${failureText(err)}`);
+            continue;
+        }
+
+        if (!available) {
+            if (doiBackoff.recordFailure(Date.now())) {
+                debug(`DOI service unavailable - backing off, next attempt in ${doiBackoff.currentDelay}ms`);
+            }
+
+            // As with quality control: abandon the rest of the batch but report the work as outstanding, so the next
+            // cycle runs the other phases immediately while the backoff holds this one off.
+            return true;
+        }
+
+        processed++;
+    }
+
+    // Guarded on processed: a batch in which every item threw is not evidence the service recovered.
+    if (processed > 0 && doiBackoff.recordSuccess()) {
+        debug(`DOI service recovered`);
+    }
+
+    return processed === batchSize;
+}
+
 async function performSearchIndexing(batchSize: number): Promise<boolean> {
     const pending = await AtlasReconstruction.getIndexable(batchSize);
 
@@ -215,4 +279,4 @@ async function performSearchIndexing(batchSize: number): Promise<boolean> {
     return false;
 }
 
-export {performSynchronization, performQualityControl, performStructureAssignments, performSearchIndexing, qcBackoff};
+export {performSynchronization, performQualityControl, performStructureAssignments, performDoiAssignment, performSearchIndexing, qcBackoff, doiBackoff};

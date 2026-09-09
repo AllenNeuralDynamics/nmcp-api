@@ -36,14 +36,13 @@ function siblingStub(status: number) {
     return sibling;
 }
 
-function publishable(siblings: any[]) {
+function publishable(siblings: any[], canonicalDoi: string | null = "10.x/canonical", doi: string | null = "10.x/abc") {
     vi.spyOn(EventLogItem, "create").mockResolvedValue({id: "event-1"});
 
-    // assignDoi makes live DataCite calls, which are not what this file is about.
-    vi.spyOn(Reconstruction.prototype as any, "assignDoi").mockResolvedValue(undefined);
-
     const findAll = vi.spyOn(Reconstruction, "findAll").mockResolvedValue(siblings);
-    const lockNeuron = vi.spyOn(Neuron, "findByPk").mockResolvedValue({id: "neuron-1"} as any);
+
+    // Publish asserts the DOIs the assignment phase registered, reading the canonical off the locked neuron row.
+    const lockNeuron = vi.spyOn(Neuron, "findByPk").mockResolvedValue({id: "neuron-1", canonicalDoi: canonicalDoi} as any);
     const destroySearchIndex = vi.spyOn(SearchIndex, "destroy").mockResolvedValue(0);
 
     const reconstruction = Object.create(Reconstruction.prototype);
@@ -51,7 +50,7 @@ function publishable(siblings: any[]) {
     reconstruction.neuronId = "neuron-1";
     reconstruction.status = ReconstructionStatus.ReadyToPublish;
     reconstruction.update = updateMock(reconstruction);
-    reconstruction.AtlasReconstruction = {nodeCounts: {}, tryStartPublishing: vi.fn().mockResolvedValue(true)};
+    reconstruction.AtlasReconstruction = {nodeCounts: {}, doi: doi, tryStartPublishing: vi.fn().mockResolvedValue(true)};
 
     return {reconstruction, findAll, lockNeuron, destroySearchIndex};
 }
@@ -110,6 +109,30 @@ describe("publishWithTransaction sibling guard", () => {
 
         expect(existingPublished.status).toBe(ReconstructionStatus.Published);
         expect(stubs.destroySearchIndex).not.toHaveBeenCalled();
+    });
+});
+
+// Publish makes no DataCite call now, so a reconstruction that never went through the DOI assignment phase has to be
+// refused rather than published without an identifier.
+describe("publishWithTransaction DOI assertion", () => {
+    test("refuses a reconstruction whose child has no DOI", async () => {
+        const stubs = publishable([], "10.x/canonical", null);
+
+        await expect(stubs.reconstruction.publishWithTransaction(userWith(UserPermissions.Admin), false, transaction))
+            .rejects.toThrow("The reconstruction has no DOI assigned");
+
+        expect(stubs.findAll).not.toHaveBeenCalled();
+        expect(stubs.reconstruction.status).toBe(ReconstructionStatus.ReadyToPublish);
+    });
+
+    test("refuses a reconstruction whose neuron has no canonical DOI", async () => {
+        const stubs = publishable([], null, "10.x/abc");
+
+        await expect(stubs.reconstruction.publishWithTransaction(userWith(UserPermissions.Admin), false, transaction))
+            .rejects.toThrow("The reconstruction has no DOI assigned");
+
+        expect(stubs.findAll).not.toHaveBeenCalled();
+        expect(stubs.reconstruction.status).toBe(ReconstructionStatus.ReadyToPublish);
     });
 });
 

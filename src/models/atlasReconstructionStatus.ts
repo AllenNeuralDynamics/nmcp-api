@@ -13,6 +13,9 @@ export enum AtlasReconstructionStatus {
     PendingPrecomputed = 500,
     InPrecomputed = 540,
     FailedPrecomputed = 580,
+    PendingDoiAssignment = 585,
+    InDoiAssignment = 590,
+    FailedDoiAssignment = 595,
     ReadyToPublish = 600,
     PendingSearchIndexing = 700,
     InSearchIndexing = 720,
@@ -31,4 +34,10 @@ export const PrecomputedStatusKinds: AtlasReconstructionStatus[] = [
     AtlasReconstructionStatus.PendingPrecomputed,
     AtlasReconstructionStatus.InPrecomputed,
     AtlasReconstructionStatus.FailedPrecomputed
+];
+
+export const DoiAssignmentStatusKinds: AtlasReconstructionStatus[] = [
+    AtlasReconstructionStatus.PendingDoiAssignment,
+    AtlasReconstructionStatus.InDoiAssignment,
+    AtlasReconstructionStatus.FailedDoiAssignment
 ];
