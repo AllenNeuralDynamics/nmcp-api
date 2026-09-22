@@ -3,6 +3,7 @@ import {DataTypes, BelongsToGetAssociationMixin, Sequelize, Transaction} from "s
 
 import {User} from "./user";
 import {EventLogItemTableName} from "./tableNames";
+import {ReconstructionStatus} from "./reconstructionStatus";
 
 export enum EventLogItemKind {
     Invalid = -1000,
@@ -63,8 +64,10 @@ export enum EventLogItemKind {
     ReconstructionResume = 5110,
 
     ReconstructionRequestPeerReview = 5200,
+    ReconstructionRequestTeamReview = 5202,
     ReconstructionRequestPublishReview = 5205,
     ReconstructionApprovePeerReview = 5210,
+    ReconstructionApproveTeamReview = 5212,
     ReconstructionApprovePublishReview = 5215,
     ReconstructionFinalizeApprove = 5225,
     ReconstructionReject = 5230,
@@ -116,6 +119,21 @@ export enum EventLogItemKind {
     SpecimenPrecomputedComplete = 9100,
     SpecimenPrecomputedError = 9120
 }
+
+/**
+ * The event recorded for each review request target, and the set of targets requestReview admits: a status absent here
+ * is not a review target at all, so the lookup that follows the guard cannot miss.
+ *
+ * Declared here rather than beside the source-status lists in reconstruction.ts, for the reason UploadSourceStatuses is
+ * declared in user.ts: the values are EventLogItemKind members, and reconstruction.ts, user.ts and this file form a
+ * require cycle, so dereferencing the enum at reconstruction.ts's module scope throws whenever the cycle is entered
+ * from anywhere but there.  ReconstructionStatus is a leaf module and safe to read from either side.
+ */
+export const ReviewRequestEventKinds: ReadonlyMap<ReconstructionStatus, EventLogItemKind> = new Map([
+    [ReconstructionStatus.PeerReview, EventLogItemKind.ReconstructionRequestPeerReview],
+    [ReconstructionStatus.TeamReview, EventLogItemKind.ReconstructionRequestTeamReview],
+    [ReconstructionStatus.PublishReview, EventLogItemKind.ReconstructionRequestPublishReview]
+]);
 
 export enum EventLogReferenceKind {
     Specimen = 1000,

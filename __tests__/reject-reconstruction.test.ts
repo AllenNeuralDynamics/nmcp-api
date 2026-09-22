@@ -105,6 +105,24 @@ describe("rejectReconstruction from other allowed sources", () => {
         });
     });
 
+    /**
+     * The second rule with no diff behind it.  AtlasReconstruction.reject unconditionally writes reviewerId, and that
+     * field is the publish reviewer the DOI credits, so neither optional review may reach the child - the rewind is
+     * gated on an explicit two-status test rather than on "every source but peer review".
+     */
+    test("a team review source assigns the team reviewer and leaves the child alone", async () => {
+        const user = userWith(UserPermissions.TeamReview);
+        const stubs = stub(ReconstructionStatus.TeamReview, user, AtlasReconstructionStatus.Initialized);
+
+        await Reconstruction.rejectReconstruction("reconstruction-1", "user-1");
+
+        expect(stubs.atlasReconstruction.reject).not.toHaveBeenCalled();
+        expect(stubs.reconstruction.update.mock.calls[0][0]).toEqual({
+            status: ReconstructionStatus.Rejected,
+            teamReviewerId: user.id
+        });
+    });
+
     // A1: past approval the child records who stopped it, rather than going on naming only the publish reviewer who
     // approved it.
     test("a ready-to-publish source rejects the child too", async () => {
@@ -129,6 +147,7 @@ describe("rejectReconstruction from other allowed sources", () => {
 
     test.each([
         ["peer review", ReconstructionStatus.PeerReview],
+        ["team review", ReconstructionStatus.TeamReview],
         ["publish review", ReconstructionStatus.PublishReview],
         ["ready to publish", ReconstructionStatus.ReadyToPublish]
     ])("records the reject event for a %s source", async (_label: string, status: number) => {
@@ -259,10 +278,27 @@ describe("rejectReconstruction refusals", () => {
         expect(stubs.reconstruction.update).not.toHaveBeenCalled();
     });
 
-    test("refuses a user with no review permission", async () => {
-        const stubs = stub(ReconstructionStatus.PublishReview, userWith(UserPermissions.AnnotateOne, "annotator-1"));
+    test.each([ReconstructionStatus.PeerReview, ReconstructionStatus.TeamReview, ReconstructionStatus.PublishReview])(
+        "refuses a user with no review permission at %s",
+        async (status: number) => {
+            const stubs = stub(status, userWith(UserPermissions.AnnotateOne, "annotator-1"));
 
-        await expect(Reconstruction.rejectReconstruction("reconstruction-1", "annotator-1"))
+            await expect(Reconstruction.rejectReconstruction("reconstruction-1", "annotator-1"))
+                .rejects.toBeInstanceOf(UnauthorizedError);
+
+            expect(stubs.reconstruction.update).not.toHaveBeenCalled();
+        });
+
+    // Which actor may reject depends on the status, so a bit does not travel between review stages.
+    test.each([
+        [UserPermissions.PeerReview, ReconstructionStatus.TeamReview],
+        [UserPermissions.TeamReview, ReconstructionStatus.PeerReview],
+        [UserPermissions.TeamReview, ReconstructionStatus.PublishReview],
+        [UserPermissions.PublishReview, ReconstructionStatus.TeamReview]
+    ])("refuses permission %i at status %i", async (permissions: number, status: number) => {
+        const stubs = stub(status, userWith(permissions));
+
+        await expect(Reconstruction.rejectReconstruction("reconstruction-1", "user-1"))
             .rejects.toBeInstanceOf(UnauthorizedError);
 
         expect(stubs.reconstruction.update).not.toHaveBeenCalled();

@@ -102,23 +102,23 @@ describe("fromParsedStructures in specimen space", () => {
         return {reconstruction: reconstructionStub(status), neuron: neuron};
     }
 
-    test.each([ReconstructionStatus.PeerReview, ReconstructionStatus.PublishReview])("accepts %s", async (status: number) => {
+    test.each([ReconstructionStatus.PeerReview, ReconstructionStatus.TeamReview, ReconstructionStatus.PublishReview])("accepts %s", async (status: number) => {
         const stubs = specimenStubs(status);
 
-        await stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.PeerReview | UserPermissions.PublishReview), ReconstructionSpace.Specimen, reconstructionData());
+        await stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.ReviewAll), ReconstructionSpace.Specimen, reconstructionData());
 
         expect((Reconstruction.prototype as any).replaceNodeData).toHaveBeenCalledTimes(1);
     });
 
     // The admin bypass does not reach these: a status absent from UploadSourceStatuses is not an upload source at all,
     // for anyone, and this is the locked check rather than the permission in any case.
-    test.each(allStatuses.filter(status => status !== ReconstructionStatus.PeerReview && status !== ReconstructionStatus.PublishReview))(
+    test.each(allStatuses.filter(status => status !== ReconstructionStatus.PeerReview && status !== ReconstructionStatus.TeamReview && status !== ReconstructionStatus.PublishReview))(
         "refuses %s even for an admin",
         async (status: number) => {
             const stubs = specimenStubs(status);
 
             await expect(stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.Admin), ReconstructionSpace.Specimen, reconstructionData()))
-                .rejects.toThrow(/not in peer or publish review/);
+                .rejects.toThrow(/not in peer, team or publish review/);
 
             expect((Reconstruction.prototype as any).replaceNodeData).not.toHaveBeenCalled();
         });
@@ -138,10 +138,15 @@ describe("fromParsedStructures in specimen space", () => {
 
     // The permission is re-evaluated against the locked status, so the reviewer who may write depends on where the
     // reconstruction actually is, not on where it was when the file started parsing.
-    test("refuses a peer reviewer at PublishReview", async () => {
-        const stubs = specimenStubs(ReconstructionStatus.PublishReview);
+    test.each([
+        [UserPermissions.PeerReview, ReconstructionStatus.PublishReview],
+        [UserPermissions.PeerReview, ReconstructionStatus.TeamReview],
+        [UserPermissions.TeamReview, ReconstructionStatus.PeerReview],
+        [UserPermissions.TeamReview, ReconstructionStatus.PublishReview]
+    ])("refuses permission %i at status %i", async (permissions: number, status: number) => {
+        const stubs = specimenStubs(status);
 
-        await expect(stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.PeerReview), ReconstructionSpace.Specimen, reconstructionData()))
+        await expect(stubs.reconstruction.fromParsedStructures(userWith(permissions), ReconstructionSpace.Specimen, reconstructionData()))
             .rejects.toBeInstanceOf(UnauthorizedError);
 
         expect((Reconstruction.prototype as any).replaceNodeData).not.toHaveBeenCalled();
@@ -157,7 +162,7 @@ describe("fromParsedStructures in specimen space", () => {
         const refused = specimenStubs(ReconstructionStatus.Approved);
 
         await expect(refused.reconstruction.fromParsedStructures(userWith(UserPermissions.None), ReconstructionSpace.Specimen, reconstructionData(), null, true))
-            .rejects.toThrow(/not in peer or publish review/);
+            .rejects.toThrow(/not in peer, team or publish review/);
     });
 });
 
@@ -190,15 +195,33 @@ describe("fromParsedStructures in atlas space", () => {
         expect(stubs.atlasReconstruction.replaceNodeData).toHaveBeenCalledTimes(1);
     });
 
+    // Atlas space is no longer publish review's alone: a team reviewer uploads in both spaces, so a reconstruction can
+    // arrive at publish review with its atlas data already in place.
+    test("accepts TeamReview", async () => {
+        const stubs = atlasStubs(ReconstructionStatus.TeamReview);
+
+        await stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.TeamReview), ReconstructionSpace.Atlas, reconstructionData());
+
+        expect(stubs.atlasReconstruction.replaceNodeData).toHaveBeenCalledTimes(1);
+    });
+
+    test("backs the atlas soma onto the neuron from a TeamReview upload", async () => {
+        const stubs = atlasStubs(ReconstructionStatus.TeamReview, {atlasSoma: {x: 0, y: 0, z: 0}});
+
+        await stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.TeamReview), ReconstructionSpace.Atlas, reconstructionData());
+
+        expect(stubs.neuron.update).toHaveBeenCalledWith({atlasSoma: {x: 4, y: 5, z: 6}}, {transaction: transaction});
+    });
+
     // Approved is gone as a source with the deferred upload: an approval now requires the data, so an upload arriving
     // after one has committed is a lost race rather than a deferred step.
-    test.each(allStatuses.filter(status => status !== ReconstructionStatus.PublishReview))(
+    test.each(allStatuses.filter(status => status !== ReconstructionStatus.TeamReview && status !== ReconstructionStatus.PublishReview))(
         "refuses %s",
         async (status: number) => {
             const stubs = atlasStubs(status);
 
             await expect(stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.Admin), ReconstructionSpace.Atlas, reconstructionData()))
-                .rejects.toThrow(/not in publish review/);
+                .rejects.toThrow(/not in team or publish review/);
 
             expect(stubs.atlasReconstruction.replaceNodeData).not.toHaveBeenCalled();
         });
@@ -260,13 +283,26 @@ describe("fromParsedStructures in atlas space", () => {
         expect(stubs.neuron.update).not.toHaveBeenCalled();
     });
 
-    test("refuses a caller holding neither Admin nor PublishReview", async () => {
-        const stubs = atlasStubs(ReconstructionStatus.PublishReview);
+    // The bit tracks the status, not the space: holding TeamReview is no licence to write atlas data at publish review.
+    test.each([
+        [UserPermissions.PeerReview, ReconstructionStatus.PublishReview],
+        [UserPermissions.PeerReview, ReconstructionStatus.TeamReview],
+        [UserPermissions.TeamReview, ReconstructionStatus.PublishReview]
+    ])("refuses permission %i at status %i", async (permissions: number, status: number) => {
+        const stubs = atlasStubs(status);
 
-        await expect(stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.PeerReview), ReconstructionSpace.Atlas, reconstructionData()))
+        await expect(stubs.reconstruction.fromParsedStructures(userWith(permissions), ReconstructionSpace.Atlas, reconstructionData()))
             .rejects.toBeInstanceOf(UnauthorizedError);
 
         expect(stubs.atlasReconstruction.replaceNodeData).not.toHaveBeenCalled();
+    });
+
+    test("admits a TeamReview-only holder at TeamReview", async () => {
+        const stubs = atlasStubs(ReconstructionStatus.TeamReview);
+
+        await stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.TeamReview), ReconstructionSpace.Atlas, reconstructionData());
+
+        expect(stubs.atlasReconstruction.replaceNodeData).toHaveBeenCalledTimes(1);
     });
 
     // What fromSwcFile and fromParquetFile pass: an imported proofreader holds no portal review permissions, and the
@@ -281,7 +317,7 @@ describe("fromParsedStructures in atlas space", () => {
         const refused = atlasStubs(ReconstructionStatus.WaitingForAtlasReconstruction);
 
         await expect(refused.reconstruction.fromParsedStructures(userWith(UserPermissions.None), ReconstructionSpace.Atlas, reconstructionData(), null, true))
-            .rejects.toThrow(/not in publish review/);
+            .rejects.toThrow(/not in team or publish review/);
 
         expect(refused.atlasReconstruction.replaceNodeData).not.toHaveBeenCalled();
     });

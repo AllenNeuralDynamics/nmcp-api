@@ -91,7 +91,17 @@ type FixtureOptions = {
     status?: number;
     commitFailsOn?: number;
     neuron?: any;
+    // The three contributors the reconstruction DOI credits: the proofreader hangs off the child, the other two off the
+    // parent.  Absent means the stage was skipped, which is the default every other test here runs with.
+    proofreader?: any;
+    peerReviewer?: any;
+    teamReviewer?: any;
 };
+
+// Only what the contributor loop reads.  isSystemUser is explicit because the omission is the rule being tested.
+function contributor(name: string, isSystemUser: boolean = false) {
+    return {DisplayName: name, affiliation: "An Institute", isSystemUser: isSystemUser};
+}
 
 function fixture(options: FixtureOptions = {}) {
     const transactionFn = stubTransactions(options.commitFailsOn ?? 0);
@@ -119,7 +129,10 @@ function fixture(options: FixtureOptions = {}) {
     const parent = {
         id: "reconstruction-1",
         neuronId: "neuron-1",
-        reviewerId: null,
+        reviewerId: options.peerReviewer ? "peer-reviewer-1" : null,
+        teamReviewerId: options.teamReviewer ? "team-reviewer-1" : null,
+        Reviewer: options.peerReviewer ?? null,
+        TeamReviewer: options.teamReviewer ?? null,
         Neuron: neuron,
         Annotator: {DisplayName: "Ann Otator", isSystemUser: false},
         onAtlasReconstructionStatusChanged: vi.fn().mockResolvedValue(undefined)
@@ -128,7 +141,8 @@ function fixture(options: FixtureOptions = {}) {
     const child = prototypeStub(AtlasReconstruction, {
         id: "atlas-1",
         reconstructionId: "reconstruction-1",
-        reviewerId: null,
+        reviewerId: options.proofreader ? "proofreader-1" : null,
+        Reviewer: options.proofreader ?? null,
         doi: options.doi ?? null,
         status: options.status ?? AtlasReconstructionStatus.PendingDoiAssignment,
         Reconstruction: parent,
@@ -268,6 +282,68 @@ describe("assignDois registration", () => {
         expect(stubs.createDoi).not.toHaveBeenCalled();
         expect(stubs.updateDoi).not.toHaveBeenCalled();
         expect(stubs.child.update).not.toHaveBeenCalled();
+    });
+});
+
+/**
+ * The contributor list on the reconstruction DOI, which nothing asserted for any reviewer before team review made it
+ * three roles.  The loop skips nulls and system users, so a skipped stage contributes nothing.
+ */
+describe("assignDois contributors", () => {
+    const contributorsOf = (createDoi: any) => createdAttributes(createDoi, 1).contributors;
+
+    test("credits a non-system team reviewer exactly once, with the affiliation carried through", async () => {
+        const stubs = fixture({teamReviewer: contributor("Tia Member")});
+
+        await stubs.child.assignDois(systemUser);
+
+        expect(contributorsOf(stubs.createDoi))
+            .toEqual([{name: "Tia Member", affiliation: "An Institute", contributorType: "Other"}]);
+    });
+
+    test("omits a system team reviewer, as it does the other two", async () => {
+        const stubs = fixture({teamReviewer: contributor("System Automation", true)});
+
+        await stubs.child.assignDois(systemUser);
+
+        expect(contributorsOf(stubs.createDoi)).toEqual([]);
+    });
+
+    test("adds nothing for a reconstruction that skipped team review", async () => {
+        const stubs = fixture({peerReviewer: contributor("Pat Reviewer")});
+
+        await stubs.child.assignDois(systemUser);
+
+        expect(contributorsOf(stubs.createDoi))
+            .toEqual([{name: "Pat Reviewer", affiliation: "An Institute", contributorType: "Other"}]);
+    });
+
+    // Proofreader, peer reviewer, team reviewer - the order the loop iterates.
+    test("credits all three when all three are present", async () => {
+        const stubs = fixture({
+            proofreader: contributor("Prue Freader"),
+            peerReviewer: contributor("Pat Reviewer"),
+            teamReviewer: contributor("Tia Member")
+        });
+
+        await stubs.child.assignDois(systemUser);
+
+        expect(contributorsOf(stubs.createDoi).map((entry: any) => entry.name))
+            .toEqual(["Prue Freader", "Pat Reviewer", "Tia Member"]);
+    });
+
+    // assignDois falls back to a lazy load per item for any association the batch query leaves out.
+    test("the pending batch eager-loads every contributor the payload reads", async () => {
+        const findAll = vi.spyOn(AtlasReconstruction, "findAll").mockResolvedValue([]);
+
+        await AtlasReconstruction.getPendingDoiAssignment(10);
+
+        const include = (findAll.mock.calls[0][0] as any).include;
+        const parent = include.find((entry: any) => entry.model !== User);
+
+        expect(include.filter((entry: any) => entry.model === User).map((entry: any) => entry.as)).toEqual(["Reviewer"]);
+        expect(parent.include.filter((entry: any) => entry.model === User).map((entry: any) => entry.as))
+            .toEqual(["Annotator", "Reviewer", "TeamReviewer"]);
     });
 });
 

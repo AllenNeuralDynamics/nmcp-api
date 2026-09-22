@@ -356,7 +356,11 @@ export const secureResolvers = {
             return reconstruction.getAnnotator({attributes: ["id", "firstName", "lastName"]});
         },
         async reviewer(reconstruction: Reconstruction): Promise<User> {
-            const user = await reconstruction.getReviewer({attributes: ["id", "firstName", "lastName"]});
+            const user = await reconstruction.getReviewer({attributes: ["id", "firstName", "lastName", "isSystemUser"]});
+            return user?.isSystemUser ? null : user;
+        },
+        async teamReviewer(reconstruction: Reconstruction): Promise<User> {
+            const user = await reconstruction.getTeamReviewer({attributes: ["id", "firstName", "lastName", "isSystemUser"]});
             return user?.isSystemUser ? null : user;
         },
     },

@@ -28,7 +28,7 @@ import {substringMatchPatterns} from "../util/keywords";
 import {ReconstructionStatus} from "./reconstructionStatus";
 import {AtlasReconstruction, AtlasReconstructionShape} from "./atlasReconstruction";
 import {AbandonableFailureStatuses, AtlasReconstructionStatus} from "./atlasReconstructionStatus";
-import {EventLogItemKind, recordEvent} from "./eventLogItem";
+import {EventLogItemKind, recordEvent, ReviewRequestEventKinds} from "./eventLogItem";
 import {isNotNullOrUndefined} from "../util/objectUtil";
 import {NodeCounts, parseSwcFile, SimpleReconstruction} from "../io/simpleReconstruction";
 import {parseParquetFile, parseParquetUpload} from "../io/parquetParser";
@@ -86,7 +86,7 @@ export const UntraceableSourceStatuses: ReconstructionStatus[] = [
 ];
 
 /**
- * Source statuses a review may be requested from, for either review target.  Rejected is InProgress with changes
+ * Source statuses a review may be requested from, for any review target.  Rejected is InProgress with changes
  * having been asked for and carries the same rights.  OnHold is absent: a paused reconstruction resumes first.  Once
  * in the review pipeline a reconstruction advances by approval, so no review status is a source.
  */
@@ -120,6 +120,7 @@ export const DiscardableSourceStatuses: ReconstructionStatus[] = [
  */
 export const AdminDiscardableSourceStatuses: ReconstructionStatus[] = [
     ReconstructionStatus.PeerReview,
+    ReconstructionStatus.TeamReview,
     ReconstructionStatus.PublishReview
 ];
 
@@ -129,18 +130,21 @@ export const AdminDiscardableSourceStatuses: ReconstructionStatus[] = [
  */
 export const RejectableSourceStatuses: ReconstructionStatus[] = [
     ReconstructionStatus.PeerReview,
+    ReconstructionStatus.TeamReview,
     ReconstructionStatus.PublishReview,
     ReconstructionStatus.ReadyToPublish
 ];
 
 /**
- * The source status each approval target requires.  Approval applies only to a reconstruction that has asked for it:
+ * The source statuses each approval target requires.  Approval applies only to a reconstruction that has asked for it:
  * holding the permission, explicitly as a reviewer or implicitly as an admin, is not licence to jump the line.  A
- * target absent from this map is not an approval target at all.
+ * target absent from this map is not an approval target at all.  A target may have more than one source: team review
+ * is optional, so PublishReview is reached by a sign-off from either of the two stages before it.
  */
-export const ApprovalSourceStatuses: ReadonlyMap<ReconstructionStatus, ReconstructionStatus> = new Map([
-    [ReconstructionStatus.PublishReview, ReconstructionStatus.PeerReview],
-    [ReconstructionStatus.Approved, ReconstructionStatus.PublishReview]
+export const ApprovalSourceStatuses: ReadonlyMap<ReconstructionStatus, ReconstructionStatus[]> = new Map([
+    [ReconstructionStatus.TeamReview, [ReconstructionStatus.PeerReview]],
+    [ReconstructionStatus.PublishReview, [ReconstructionStatus.PeerReview, ReconstructionStatus.TeamReview]],
+    [ReconstructionStatus.Approved, [ReconstructionStatus.PublishReview]]
 ]);
 
 /**
@@ -164,6 +168,7 @@ export const PublishedCandidateBlockingStatuses: ReconstructionStatus[] = [
 export const CandidateBlockingStatuses: ReconstructionStatus[] = [
     ReconstructionStatus.InProgress,
     ReconstructionStatus.PeerReview,
+    ReconstructionStatus.TeamReview,
     ReconstructionStatus.PublishReview,
     ReconstructionStatus.Approved,
     ReconstructionStatus.WaitingForAtlasReconstruction,
@@ -197,7 +202,7 @@ export type PublishedReconstructionQueryResponse = {
 
 export type ReviewRequestArgs = {
     reconstructionId: string
-    targetStatus: ReconstructionStatus.PeerReview | ReconstructionStatus.PublishReview;
+    targetStatus: ReconstructionStatus.PeerReview | ReconstructionStatus.TeamReview | ReconstructionStatus.PublishReview;
     duration?: number;
     notes?: string;
 }
@@ -245,12 +250,14 @@ type ReconstructionShape = {
     startedAt?: Date;
     completedAt?: Date;
     reviewedAt?: Date;
+    teamReviewedAt?: Date;
     approvedAt?: Date;
     publishedAt?: Date;
     archivedAt?: Date;
     specimenSomaNodeId?: string;
     annotatorId?: string;
     reviewerId?: string;
+    teamReviewerId?: string;
     neuronId?: string;
 }
 
@@ -265,12 +272,14 @@ export class Reconstruction extends BaseModel {
     public startedAt: Date;
     public completedAt: Date;
     public reviewedAt: Date;    // Peer review timestamp (specimen-space data)
+    public teamReviewedAt: Date;    // Team review timestamp
     public approvedAt: Date;    // Publish review timestamp (atlas-space data)
     public publishedAt: Date;
     public archivedAt: Date;
     public specimenSomaNodeId: string;
     public annotatorId: string;
     public reviewerId: string;
+    public teamReviewerId: string;
     public neuronId: string;
 
     public getNodes!: HasManyGetAssociationsMixin<SpecimenNode>;
@@ -278,6 +287,7 @@ export class Reconstruction extends BaseModel {
     public getSoma!: BelongsToGetAssociationMixin<SpecimenNode>;
     public getAnnotator!: BelongsToGetAssociationMixin<User>;
     public getReviewer!: BelongsToGetAssociationMixin<User>;
+    public getTeamReviewer!: BelongsToGetAssociationMixin<User>;
     public getAtlasReconstruction!: HasOneGetAssociationMixin<AtlasReconstruction>;
     public getPrecomputed!: HasOneGetAssociationMixin<SpecimenSpacePrecomputed>;
 
@@ -285,6 +295,7 @@ export class Reconstruction extends BaseModel {
     public Nodes?: SpecimenNode[];
     public Annotator?: User;
     public Reviewer?: User;
+    public TeamReviewer?: User;
     public AtlasReconstruction?: AtlasReconstruction;
 
     protected static override defaultSort(): OrderItem[] {
@@ -728,8 +739,8 @@ export class Reconstruction extends BaseModel {
 
         const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(reconstructionId, userOrId);
 
-        if (targetStatus != ReconstructionStatus.PeerReview && targetStatus != ReconstructionStatus.PublishReview) {
-            throw new Error("Requested status must be Peer Review or Publish Review")
+        if (!ReviewRequestEventKinds.has(targetStatus)) {
+            throw new Error("Requested status must be Peer Review, Team Review or Publish Review")
         }
 
         // Both import tools call this to park a reconstruction at PublishReview before uploading and approving, and a
@@ -773,9 +784,7 @@ export class Reconstruction extends BaseModel {
         return await this.sequelize.transaction(async (t) => {
             const r = await reconstruction.update(update, {transaction: t});
 
-            const kind = targetStatus == ReconstructionStatus.PeerReview ? EventLogItemKind.ReconstructionRequestPeerReview : EventLogItemKind.ReconstructionRequestPublishReview;
-
-            await r.recordEvent(kind, update, user, t, substituteUser);
+            await r.recordEvent(ReviewRequestEventKinds.get(targetStatus), update, user, t, substituteUser);
 
             return r;
         });
@@ -787,23 +796,23 @@ export class Reconstruction extends BaseModel {
         // TODO When the SmartSheet import is no longer required, remove disregardAuth and don't allow the possibility of overriding. disregardAuth is needed
         //  because SmartSheets contain people as reviewers that we need to make as users in the system, but should not be auto-granted review permissions in
         //  the portal.
-        // At least block for peer review which is not a part of import.
-        if (disregardAuth && targetStatus == ReconstructionStatus.PublishReview) {
+        // At least block for the optional review sign-offs, neither of which is a part of import.
+        if (disregardAuth && (targetStatus == ReconstructionStatus.TeamReview || targetStatus == ReconstructionStatus.PublishReview)) {
             throw new UnauthorizedError();
         }
 
-        const requiredSource = ApprovalSourceStatuses.get(targetStatus);
+        const requiredSources = ApprovalSourceStatuses.get(targetStatus);
 
-        if (requiredSource === undefined) {
+        if (requiredSources === undefined) {
             throw new Error("Requested approval status is not supported");
         }
 
         if (!disregardAuth) {
-            if (!user?.canApproveReconstruction(targetStatus)) {
+            if (!user?.canApproveReconstruction(targetStatus, reconstruction.status)) {
                 throw new UnauthorizedError();
             }
 
-            if (reconstruction.status != requiredSource) {
+            if (!requiredSources.includes(reconstruction.status)) {
                 throw new Error(`Cannot approve a reconstruction with status ${ReconstructionStatus[reconstruction.status]} to ${ReconstructionStatus[targetStatus]}.`);
             }
         }
@@ -811,8 +820,8 @@ export class Reconstruction extends BaseModel {
         return await this.sequelize.transaction(async (t) => {
             // Child first, then parent.  Reject, discard and the uploads take the same two rows in this order, and
             // approval taking them the other way round is a deadlock between two ordinary publish-reviewer actions on
-            // one reconstruction.  The peer-review branch never touches the child, so it locks the parent alone and
-            // cannot be part of a cycle either way.
+            // one reconstruction.  Neither review sign-off touches the child, so both lock the parent alone and cannot
+            // be part of a cycle either way.
             const atlasReconstruction = targetStatus == ReconstructionStatus.Approved
                 ? await AtlasReconstruction.findOne({
                     where: {reconstructionId: reconstruction.id},
@@ -826,19 +835,33 @@ export class Reconstruction extends BaseModel {
             // Repeated against the locked row, and unconditionally: a reject or another approval can have moved the
             // parent since the check above, and an import approving over a rejection that committed in between would
             // silently reverse it.  disregardAuth buys the import out of the permission, never out of the state rule -
-            // both imports call requestReview(PublishReview) immediately before this, so both satisfy it.  The
-            // permission does not need repeating - canApproveReconstruction keys on the target status, not the source.
-            if (locked.status != requiredSource) {
+            // both imports call requestReview(PublishReview) immediately before this, so both satisfy it.
+            //
+            // The permission is repeated too, because which actor may approve now depends on the source: a peer
+            // reviewer who passed the check above at PeerReview must not approve a reconstruction a request has since
+            // moved to TeamReview.  Admissibility first, so a row that moved reports the clearer error.
+            if (!requiredSources.includes(locked.status)) {
                 throw new Error(`Cannot approve a reconstruction with status ${ReconstructionStatus[locked.status]} to ${ReconstructionStatus[targetStatus]}.`);
             }
 
-            if (targetStatus == ReconstructionStatus.PublishReview) {
-                // Peer review is being approved.
-                const update = {status: ReconstructionStatus.PublishReview, reviewerId: user.id, reviewedAt: new Date()};
+            if (!disregardAuth && !user.canApproveReconstruction(targetStatus, locked.status)) {
+                throw new UnauthorizedError();
+            }
+
+            if (targetStatus != ReconstructionStatus.Approved) {
+                // A review sign-off: peer review to team or publish review, or team review to publish review.  Which
+                // reviewer is recorded follows the stage being left, not the one being entered.
+                const update = locked.status == ReconstructionStatus.TeamReview
+                    ? {status: targetStatus, teamReviewerId: user.id, teamReviewedAt: new Date()}
+                    : {status: targetStatus, reviewerId: user.id, reviewedAt: new Date()};
+
+                const kind = locked.status == ReconstructionStatus.TeamReview
+                    ? EventLogItemKind.ReconstructionApproveTeamReview
+                    : EventLogItemKind.ReconstructionApprovePeerReview;
 
                 const r = await locked.update(update, {transaction: t});
 
-                await r.recordEvent(EventLogItemKind.ReconstructionApprovePeerReview, update, user, t, substituteUser);
+                await r.recordEvent(kind, update, user, t, substituteUser);
 
                 return r;
             }
@@ -916,15 +939,19 @@ export class Reconstruction extends BaseModel {
 
             if (sourceStatus == ReconstructionStatus.PeerReview) {
                 update["reviewerId"] = user.id;
+            } else if (sourceStatus == ReconstructionStatus.TeamReview) {
+                update["teamReviewerId"] = user.id;
             }
 
             const r = await locked.update(update, {transaction: t});
 
             await r.recordEvent(EventLogItemKind.ReconstructionReject, update, user, t, substituteUser);
 
-            // Every source but peer review: the child's reviewerId is the publish reviewer the DOI credits, and a peer
-            // reviewer must not overwrite it.
-            if (sourceStatus != ReconstructionStatus.PeerReview) {
+            // Neither optional review touches the child.  AtlasReconstruction.reject unconditionally writes reviewerId,
+            // and that field is the publish reviewer the DOI credits - neither a peer nor a team reviewer may overwrite
+            // it.  Nothing is lost by skipping it: at either review the child is Initialized or ReadyToProcess, never a
+            // failed phase, so there is no failure state to rewind.
+            if (sourceStatus != ReconstructionStatus.PeerReview && sourceStatus != ReconstructionStatus.TeamReview) {
                 await atlasReconstruction.reject(user, t);
             }
 
@@ -1275,7 +1302,16 @@ export class Reconstruction extends BaseModel {
             throw new UnauthorizedError();
         }
 
-        const includes = [{
+        const includes: any[] = [{
+            model: User,
+            as: "Annotator"
+        }, {
+            model: User,
+            as: "Reviewer"
+        }, {
+            model: User,
+            as: "TeamReviewer"
+        }, {
             model: Neuron,
             as: "Neuron",
             include: [{
@@ -1332,6 +1368,7 @@ export class Reconstruction extends BaseModel {
             neuron: reconstruction.Neuron.toPortalFormat(),
             annotator: reconstruction.Annotator?.toPortalFormat() ?? null,
             peerReviewer: reconstruction.Reviewer?.toPortalFormat() ?? null,
+            teamReviewer: reconstruction.TeamReviewer?.toPortalFormat() ?? null,
             proofreader: null,
             nodes: nodes
         }
@@ -1458,7 +1495,7 @@ export class Reconstruction extends BaseModel {
                 // part - an approval can easily have committed in between, and both the status and who is allowed to
                 // write at that status change with it.
                 if (!UploadSourceStatuses.get(space)?.has(locked.status)) {
-                    throw new Error("The reconstruction data can not be modified when not in peer or publish review");
+                    throw new Error("The reconstruction data can not be modified when not in peer, team or publish review");
                 }
 
                 if (!disregardAuth && !user.canUploadReconstructionData(space, locked.status)) {
@@ -1500,7 +1537,7 @@ export class Reconstruction extends BaseModel {
             // committed is a lost race, not a deferred step, and replaceNodeData would otherwise rewind the child out
             // of the pipeline and strand the parent at WaitingForAtlasReconstruction.
             if (!UploadSourceStatuses.get(space)?.has(locked.status)) {
-                throw new Error("The reconstruction data can not be modified when not in publish review");
+                throw new Error("The reconstruction data can not be modified when not in team or publish review");
             }
 
             if (!disregardAuth && !user.canUploadReconstructionData(space, locked.status)) {
@@ -1597,6 +1634,7 @@ export const modelInit = (sequelize: Sequelize) => {
         startedAt: DataTypes.DATE,
         completedAt: DataTypes.DATE,
         reviewedAt: DataTypes.DATE,
+        teamReviewedAt: DataTypes.DATE,
         approvedAt: DataTypes.DATE,
         publishedAt: DataTypes.DATE,
         archivedAt: DataTypes.DATE
@@ -1613,6 +1651,7 @@ export const modelAssociate = () => {
     Reconstruction.belongsTo(Neuron, {foreignKey: "neuronId"});
     Reconstruction.belongsTo(User, {foreignKey: "annotatorId", as: "Annotator"});
     Reconstruction.belongsTo(User, {foreignKey: "reviewerId", as: "Reviewer"});
+    Reconstruction.belongsTo(User, {foreignKey: "teamReviewerId", as: "TeamReviewer"});
     Reconstruction.belongsTo(SpecimenNode, {foreignKey: "specimenSomaNodeId", as: "Soma"});
     Reconstruction.hasMany(SpecimenNode, {foreignKey: "reconstructionId"});
     Reconstruction.hasOne(SpecimenSpacePrecomputed, {foreignKey: "reconstructionId", as: "Precomputed"});

@@ -2,6 +2,7 @@ export enum ReconstructionStatus {
     InProgress = 100,
     OnHold = 200,
     PeerReview = 300,
+    TeamReview = 350,                       // Optional stage between peer and publish review.
     PublishReview = 400,
     Approved = 500,                         // Approved, but can not run quality checks, node assignment, etc. for some reason
     WaitingForAtlasReconstruction = 600,    // In the process of running quality checks, node assignment, etc.
