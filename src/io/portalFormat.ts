@@ -56,6 +56,7 @@ export type PortalReconstruction = {
     neuron: PortalNeuron;
     annotator: PortalUser | null;
     peerReviewer: PortalUser | null;
+    teamReviewer: PortalUser | null;
     proofreader: PortalUser | null;
     nodes: PortalNode[];
 }

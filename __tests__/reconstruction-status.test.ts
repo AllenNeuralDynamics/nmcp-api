@@ -34,6 +34,7 @@ describe("ClosedReconstructionStatuses", () => {
             ReconstructionStatus.InProgress,
             ReconstructionStatus.OnHold,
             ReconstructionStatus.PeerReview,
+            ReconstructionStatus.TeamReview,
             ReconstructionStatus.PublishReview,
             ReconstructionStatus.Approved,
             ReconstructionStatus.WaitingForAtlasReconstruction,
@@ -63,6 +64,9 @@ describe("UntraceableSourceStatuses", () => {
     test("refuses the review pipeline onwards and every terminal status", () => {
         const refused = [
             ReconstructionStatus.PeerReview,
+            // Decided, not overlooked: a team reviewer who finds a neuron untraceable rejects it, and the annotator
+            // marks it untraceable from Rejected.  See User.canMarkReconstructionUntraceable.
+            ReconstructionStatus.TeamReview,
             ReconstructionStatus.PublishReview,
             ReconstructionStatus.Approved,
             ReconstructionStatus.WaitingForAtlasReconstruction,
@@ -95,6 +99,7 @@ describe("ReviewRequestSourceStatuses", () => {
         const refused = [
             ReconstructionStatus.OnHold,
             ReconstructionStatus.PeerReview,
+            ReconstructionStatus.TeamReview,
             ReconstructionStatus.PublishReview,
             ReconstructionStatus.Approved,
             ReconstructionStatus.WaitingForAtlasReconstruction,
@@ -127,6 +132,7 @@ describe("PausableSourceStatuses", () => {
         const refused = [
             ReconstructionStatus.OnHold,
             ReconstructionStatus.PeerReview,
+            ReconstructionStatus.TeamReview,
             ReconstructionStatus.PublishReview,
             ReconstructionStatus.Approved,
             ReconstructionStatus.WaitingForAtlasReconstruction,
@@ -159,6 +165,7 @@ describe("DiscardableSourceStatuses", () => {
     test("refuses the review pipeline onwards and every terminal status", () => {
         const refused = [
             ReconstructionStatus.PeerReview,
+            ReconstructionStatus.TeamReview,
             ReconstructionStatus.PublishReview,
             ReconstructionStatus.Approved,
             ReconstructionStatus.WaitingForAtlasReconstruction,
@@ -180,9 +187,10 @@ describe("DiscardableSourceStatuses", () => {
 });
 
 describe("AdminDiscardableSourceStatuses", () => {
-    test("admits only the two review statuses", () => {
+    test("admits only the three review statuses", () => {
         expect([...AdminDiscardableSourceStatuses].sort()).toEqual([
             ReconstructionStatus.PeerReview,
+            ReconstructionStatus.TeamReview,
             ReconstructionStatus.PublishReview
         ].sort());
     });
@@ -212,9 +220,13 @@ describe("AdminDiscardableSourceStatuses", () => {
 });
 
 describe("ApprovalSourceStatuses", () => {
-    test("maps each approval target onto the status it must come from", () => {
-        expect(ApprovalSourceStatuses.get(ReconstructionStatus.PublishReview)).toBe(ReconstructionStatus.PeerReview);
-        expect(ApprovalSourceStatuses.get(ReconstructionStatus.Approved)).toBe(ReconstructionStatus.PublishReview);
+    test("maps each approval target onto the statuses it may come from", () => {
+        expect(ApprovalSourceStatuses.get(ReconstructionStatus.TeamReview)).toEqual([ReconstructionStatus.PeerReview]);
+
+        // Team review is optional, so the publish-review target has two sources.
+        expect(ApprovalSourceStatuses.get(ReconstructionStatus.PublishReview)).toEqual([ReconstructionStatus.PeerReview, ReconstructionStatus.TeamReview]);
+
+        expect(ApprovalSourceStatuses.get(ReconstructionStatus.Approved)).toEqual([ReconstructionStatus.PublishReview]);
     });
 
     test("no other status is an approval target", () => {
@@ -255,6 +267,7 @@ describe("PublishedCandidateBlockingStatuses", () => {
             ReconstructionStatus.InProgress,
             ReconstructionStatus.OnHold,
             ReconstructionStatus.PeerReview,
+            ReconstructionStatus.TeamReview,
             ReconstructionStatus.PublishReview,
             ReconstructionStatus.Approved,
             ReconstructionStatus.WaitingForAtlasReconstruction,
@@ -278,6 +291,7 @@ describe("CandidateBlockingStatuses", () => {
         expect([...CandidateBlockingStatuses].sort()).toEqual([
             ReconstructionStatus.InProgress,
             ReconstructionStatus.PeerReview,
+            ReconstructionStatus.TeamReview,
             ReconstructionStatus.PublishReview,
             ReconstructionStatus.Approved,
             ReconstructionStatus.WaitingForAtlasReconstruction,

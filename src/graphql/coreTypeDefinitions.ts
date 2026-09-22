@@ -223,6 +223,8 @@ export const coreTypeDefinitions = gql`
         annotator: User
         reviewerId: String
         reviewer: User
+        teamReviewerId: String
+        teamReviewer: User
         neuronId: String
         neuron: Neuron
         atlasReconstructionId: String
@@ -231,6 +233,7 @@ export const coreTypeDefinitions = gql`
         startedAt: Date
         completedAt: Date
         reviewedAt: Date
+        teamReviewedAt: Date
         approvedAt: Date
         publishedAt: Date
         archivedAt: Date
@@ -420,6 +423,7 @@ export const coreTypeDefinitions = gql`
         neuron: PortalNeuron
         annotator: PortalUser
         peerReviewer: PortalUser
+        teamReviewer: PortalUser
         proofreader: PortalUser
         nodes: [PortalNode!]!
     }

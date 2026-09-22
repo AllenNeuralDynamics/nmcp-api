@@ -228,3 +228,51 @@ describe("the reconstructions list query loads the child once", () => {
         expect(failures.filter(Boolean)).toHaveLength(2);
     });
 });
+
+/**
+ * tsc proves the field exists; it cannot prove the resolver reads the right association alias or asks for the column
+ * the system-user check depends on.  Under an explicit attribute projection an unrequested isSystemUser is undefined,
+ * so the check would pass every system user through.
+ */
+describe.each([
+    {field: "reviewer", getter: "getReviewer", foreignKey: "reviewerId", permission: UserPermissions.PeerReview},
+    {field: "teamReviewer", getter: "getTeamReviewer", foreignKey: "teamReviewerId", permission: UserPermissions.TeamReview}
+] as const)("Reconstruction.$field", ({field, getter, foreignKey, permission}) => {
+    const resolve = (reconstruction: any) => secureResolvers.Reconstruction[field](reconstruction);
+
+    function parent(associated: any) {
+        const instance = Object.create(Reconstruction.prototype);
+
+        Object.assign(instance, {
+            id: "reconstruction-1",
+            [foreignKey]: associated ? "associated-1" : null,
+            [getter]: vi.fn().mockResolvedValue(associated)
+        });
+
+        return instance;
+    }
+
+    test("returns the user the association resolves", async () => {
+        const user = Object.assign(userWith(permission, "associated-1"), {isSystemUser: false});
+
+        expect(await resolve(parent(user))).toBe(user);
+    });
+
+    test("requests isSystemUser, without which the check below is worthless", async () => {
+        const instance = parent(Object.assign(userWith(permission, "associated-1"), {isSystemUser: false}));
+
+        await resolve(instance);
+
+        expect(instance[getter]).toHaveBeenCalledWith({attributes: ["id", "firstName", "lastName", "isSystemUser"]});
+    });
+
+    test("returns null for a system user", async () => {
+        const system = Object.assign(userWith(UserPermissions.InternalSystem, "system-1"), {isSystemUser: true});
+
+        expect(await resolve(parent(system))).toBeNull();
+    });
+
+    test("returns null when there is none", async () => {
+        expect(await resolve(parent(null))).toBeNull();
+    });
+});

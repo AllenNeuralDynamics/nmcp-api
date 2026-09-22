@@ -258,7 +258,7 @@ describe("admissibility lost between the reads", () => {
         });
 
         await expect(stubs.eager.fromParsedStructures(userWith(UserPermissions.PublishReview), ReconstructionSpace.Atlas, reconstructionData()))
-            .rejects.toThrow(/not in publish review/);
+            .rejects.toThrow(/not in team or publish review/);
 
         expect(stubs.lockedChild.replaceNodeData).not.toHaveBeenCalled();
         expect(stubs.lockedChild.status).toBe(AtlasReconstructionStatus.PendingQualityControl);
@@ -278,7 +278,7 @@ describe("admissibility lost between the reads", () => {
             .mockResolvedValue({requestGeneration: vi.fn().mockResolvedValue(undefined)} as any);
 
         await expect(stubs.eager.fromParsedStructures(userWith(UserPermissions.PublishReview), ReconstructionSpace.Specimen, reconstructionData()))
-            .rejects.toThrow(/not in peer or publish review/);
+            .rejects.toThrow(/not in peer, team or publish review/);
 
         expect(replaceNodeData).not.toHaveBeenCalled();
         expect(findPrecomputed).not.toHaveBeenCalled();

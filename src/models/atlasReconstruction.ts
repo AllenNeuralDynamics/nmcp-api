@@ -211,6 +211,9 @@ export class AtlasReconstruction extends BaseModel {
                 }, {
                     model: User,
                     as: "Reviewer"
+                }, {
+                    model: User,
+                    as: "TeamReviewer"
                 }]
             }],
             limit: limit
@@ -584,6 +587,7 @@ export class AtlasReconstruction extends BaseModel {
         const collection = specimen.Collection ?? await specimen.getCollection();
         const annotator = reconstruction.Annotator ?? await reconstruction.getAnnotator();
         const peerReviewer = reconstruction.reviewerId ? (reconstruction.Reviewer ?? await reconstruction.getReviewer()) : null;
+        const teamReviewer = reconstruction.teamReviewerId ? (reconstruction.TeamReviewer ?? await reconstruction.getTeamReviewer()) : null;
         const reviewer = this.reviewerId ? (this.Reviewer ?? await this.getReviewer()) : null;
 
         const publicationYear = await this.publicationYear();
@@ -606,7 +610,7 @@ export class AtlasReconstruction extends BaseModel {
         if (!this.doi) {
             const contributors = [];
 
-            for (const contributor of [reviewer, peerReviewer]) {
+            for (const contributor of [reviewer, peerReviewer, teamReviewer]) {
                 if (contributor && !contributor.isSystemUser) {
                     contributors.push({name: contributor.DisplayName, affiliation: contributor.affiliation, contributorType: "Other"});
                 }
@@ -1131,6 +1135,9 @@ export class AtlasReconstruction extends BaseModel {
                 model: User,
                 as: "Reviewer"
             }, {
+                model: User,
+                as: "TeamReviewer"
+            }, {
                 model: Neuron,
                 as: "Neuron",
                 include: [{
@@ -1193,6 +1200,7 @@ export class AtlasReconstruction extends BaseModel {
             annotator: reconstruction.Reconstruction.Annotator?.toPortalFormat() ?? null,
             proofreader: reconstruction.Reviewer?.toPortalFormat() ?? null,
             peerReviewer: reconstruction.Reconstruction.Reviewer?.toPortalFormat() ?? null,
+            teamReviewer: reconstruction.Reconstruction.TeamReviewer?.toPortalFormat() ?? null,
             nodes: nodes
         }
     }

@@ -200,7 +200,7 @@ describe("requestReview", () => {
         const stubs = stub(ReconstructionStatus.InProgress, annotator());
 
         await expect(Reconstruction.requestReview(args({targetStatus: ReconstructionStatus.Approved}), "annotator-1"))
-            .rejects.toThrow(/Peer Review or Publish Review/);
+            .rejects.toThrow(/Peer Review, Team Review or Publish Review/);
 
         expect(stubs.reconstruction.update).not.toHaveBeenCalled();
     });

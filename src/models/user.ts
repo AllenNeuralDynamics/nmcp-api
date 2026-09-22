@@ -30,8 +30,9 @@ export enum UserPermissions {
     EditAll = Edit,
     PublishReview = 0x100,
     PeerReview = 0x200,
+    TeamReview = 0x400,
     // Any review permutations through 0x8000
-    ReviewAll = PublishReview | PeerReview,
+    ReviewAll = PublishReview | PeerReview | TeamReview,
     Admin = 0x1000,
     // Any admin permutations through 0x80000
     AdminAll = Admin,
@@ -39,7 +40,7 @@ export enum UserPermissions {
     InternalSystem = 0xFFFFFFF
 }
 
-// All 4883
+// All 5907
 
 export const UserPermissionsAll = UserPermissions.AnnotateOne | UserPermissions.AnnotateMany | UserPermissions.EditAll | UserPermissions.ReviewAll | UserPermissions.AdminAll;
 
@@ -53,8 +54,9 @@ export const ApiKeyPermissionsAll = UserPermissionsAll & ~UserPermissions.AdminA
 /**
  * The source statuses an upload may arrive at, per space, and the review bit each one requires.  A status absent for a
  * space is not an upload source there at all.  The bit tracks the status rather than the space: specimen-space nodes
- * are rewritten by whichever review the reconstruction is actually in, and atlas space only ever admits publish
- * review.  An admin qualifies at any status in the map without holding the bit.
+ * are rewritten by whichever review the reconstruction is actually in, and holding TeamReview is no licence to rewrite
+ * specimen data at peer review or atlas data at publish review.  An admin qualifies at any status in the map without
+ * holding the bit.
  *
  * Declared here rather than beside the other source-status lists in reconstruction.ts because the values are
  * UserPermissions bits: reconstruction.ts and user.ts form a require cycle, and dereferencing the enum at module scope
@@ -63,9 +65,11 @@ export const ApiKeyPermissionsAll = UserPermissionsAll & ~UserPermissions.AdminA
 export const UploadSourceStatuses: ReadonlyMap<ReconstructionSpace, ReadonlyMap<ReconstructionStatus, UserPermissions>> = new Map([
     [ReconstructionSpace.Specimen, new Map([
         [ReconstructionStatus.PeerReview, UserPermissions.PeerReview],
+        [ReconstructionStatus.TeamReview, UserPermissions.TeamReview],
         [ReconstructionStatus.PublishReview, UserPermissions.PublishReview]
     ])],
     [ReconstructionSpace.Atlas, new Map([
+        [ReconstructionStatus.TeamReview, UserPermissions.TeamReview],
         [ReconstructionStatus.PublishReview, UserPermissions.PublishReview]
     ])]
 ]);
@@ -423,6 +427,11 @@ export class User extends BaseModel {
         return false;
     }
 
+    /**
+     * The TeamReview bit is deliberately absent.  A team reviewer who finds a neuron untraceable rejects the
+     * reconstruction, and the annotator marks it untraceable from Rejected - team review is not a source for the
+     * transition either, and from that stage on the atlas child may hold node data a teardown destroys permanently.
+     */
     public canMarkReconstructionUntraceable(annotatorId: string): boolean {
         return this.isAdmin() || annotatorId == this.id || (this.permissions & (UserPermissions.PeerReview | UserPermissions.PublishReview)) != 0;
     }
@@ -438,6 +447,10 @@ export class User extends BaseModel {
 
         if (status == ReconstructionStatus.PeerReview) {
             return (this.permissions & UserPermissions.PeerReview) != 0;
+        }
+
+        if (status == ReconstructionStatus.TeamReview) {
+            return (this.permissions & UserPermissions.TeamReview) != 0;
         }
 
         // The PublishFailed pair is spelled out here rather than folded into isReviewerAbandonable, which
@@ -456,14 +469,26 @@ export class User extends BaseModel {
         return this.isAdmin() || annotatorId == this.id;
     }
 
-    public canApproveReconstruction(targetStatus: ReconstructionStatus): boolean {
+    /**
+     * The source decides for the two review sign-offs and the target decides for the final approval, which is why both
+     * arguments are present: PublishReview as a target is reachable from peer review and from team review, so the
+     * target alone no longer names a bit.  ApprovalSourceStatuses is what refuses an inadmissible pair; this answers
+     * only who may act on an admissible one.
+     */
+    public canApproveReconstruction(targetStatus: ReconstructionStatus, currentStatus: ReconstructionStatus): boolean {
         if (this.isAdmin()) {
             return true;
         }
 
-        if (targetStatus == ReconstructionStatus.PublishReview) {
+        if (currentStatus == ReconstructionStatus.PeerReview) {
             return (this.permissions & UserPermissions.PeerReview) != 0;
-        } else if (targetStatus == ReconstructionStatus.Approved) {
+        }
+
+        if (currentStatus == ReconstructionStatus.TeamReview) {
+            return (this.permissions & UserPermissions.TeamReview) != 0;
+        }
+
+        if (targetStatus == ReconstructionStatus.Approved) {
             return (this.permissions & UserPermissions.PublishReview) != 0;
         }
 
@@ -666,6 +691,7 @@ export const modelInit = (sequelize: Sequelize) => {
 export const modelAssociate = () => {
     User.hasMany(Reconstruction, {foreignKey: "annotatorId", as: "Annotator"});
     User.hasMany(Reconstruction, {foreignKey: "reviewerId", as: "PeerReviewer"});
+    User.hasMany(Reconstruction, {foreignKey: "teamReviewerId", as: "TeamReviewer"});
     User.hasMany(AtlasReconstruction, {foreignKey: "reviewerId", as: "Proofreader"});
     User.hasMany(ApiKey, {foreignKey: "userId"});
 };

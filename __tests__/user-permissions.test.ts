@@ -67,6 +67,7 @@ describe("canViewData", () => {
             UserPermissions.AnnotateMany,
             UserPermissions.Edit,
             UserPermissions.PeerReview,
+            UserPermissions.TeamReview,
             UserPermissions.PublishReview,
             UserPermissions.Admin,
             UserPermissions.InternalAccess
@@ -108,6 +109,12 @@ describe("canMarkReconstructionUntraceable", () => {
     test("allows either review bit for another annotator's reconstruction", () => {
         expect(userWithId(UserPermissions.PeerReview).canMarkReconstructionUntraceable("annotator-2")).toBe(true);
         expect(userWithId(UserPermissions.PublishReview).canMarkReconstructionUntraceable("annotator-2")).toBe(true);
+    });
+
+    // The one rule with no diff behind it: the TeamReview bit is deliberately absent from the reviewer mask, so this
+    // test is what holds it.  A team reviewer who finds a neuron untraceable rejects it instead.
+    test("denies a team reviewer on another annotator's reconstruction", () => {
+        expect(userWithId(UserPermissions.TeamReview).canMarkReconstructionUntraceable("annotator-2")).toBe(false);
     });
 
     test("denies a non-reviewer on another annotator's reconstruction", () => {
@@ -199,9 +206,14 @@ describe("canDiscardReconstruction", () => {
 describe("canRejectReconstruction", () => {
     test("the review bit matching the review the reconstruction is in", () => {
         expect(userWithPermissions(UserPermissions.PeerReview).canRejectReconstruction(ReconstructionStatus.PeerReview)).toBe(true);
+        expect(userWithPermissions(UserPermissions.TeamReview).canRejectReconstruction(ReconstructionStatus.TeamReview)).toBe(true);
         expect(userWithPermissions(UserPermissions.PublishReview).canRejectReconstruction(ReconstructionStatus.PublishReview)).toBe(true);
         expect(userWithPermissions(UserPermissions.PeerReview).canRejectReconstruction(ReconstructionStatus.PublishReview)).toBe(false);
+        expect(userWithPermissions(UserPermissions.PeerReview).canRejectReconstruction(ReconstructionStatus.TeamReview)).toBe(false);
+        expect(userWithPermissions(UserPermissions.TeamReview).canRejectReconstruction(ReconstructionStatus.PeerReview)).toBe(false);
+        expect(userWithPermissions(UserPermissions.TeamReview).canRejectReconstruction(ReconstructionStatus.PublishReview)).toBe(false);
         expect(userWithPermissions(UserPermissions.PublishReview).canRejectReconstruction(ReconstructionStatus.PeerReview)).toBe(false);
+        expect(userWithPermissions(UserPermissions.PublishReview).canRejectReconstruction(ReconstructionStatus.TeamReview)).toBe(false);
     });
 
     // B2: ReadyToPublish was admin-only, and is now the publish reviewer's to reject as well.
@@ -284,6 +296,8 @@ describe("canUploadReconstructionData", () => {
     test("specimen space requires the bit matching the review the reconstruction is in", () => {
         expect(userWithPermissions(UserPermissions.PeerReview)
             .canUploadReconstructionData(ReconstructionSpace.Specimen, ReconstructionStatus.PeerReview)).toBe(true);
+        expect(userWithPermissions(UserPermissions.TeamReview)
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, ReconstructionStatus.TeamReview)).toBe(true);
         expect(userWithPermissions(UserPermissions.PublishReview)
             .canUploadReconstructionData(ReconstructionSpace.Specimen, ReconstructionStatus.PublishReview)).toBe(true);
     });
@@ -296,9 +310,11 @@ describe("canUploadReconstructionData", () => {
     });
 
     // The admin bypass now applies in both spaces, which is what lets one status-to-bit map serve them both.
-    test("specimen space exempts an admin who holds neither review bit", () => {
+    test("specimen space exempts an admin who holds no review bit", () => {
         expect(userWithPermissions(UserPermissions.Admin)
             .canUploadReconstructionData(ReconstructionSpace.Specimen, ReconstructionStatus.PeerReview)).toBe(true);
+        expect(userWithPermissions(UserPermissions.Admin)
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, ReconstructionStatus.TeamReview)).toBe(true);
         expect(userWithPermissions(UserPermissions.Admin)
             .canUploadReconstructionData(ReconstructionSpace.Specimen, ReconstructionStatus.PublishReview)).toBe(true);
     });
@@ -314,31 +330,49 @@ describe("canUploadReconstructionData", () => {
         ReconstructionStatus.Published,
         ReconstructionStatus.Archived
     ])("specimen space denies status %s outright", (status: number) => {
-        expect(userWithPermissions(UserPermissions.Admin | UserPermissions.PeerReview | UserPermissions.PublishReview)
+        expect(userWithPermissions(UserPermissions.Admin | UserPermissions.ReviewAll)
             .canUploadReconstructionData(ReconstructionSpace.Specimen, status)).toBe(false);
     });
 
-    test("atlas space allows an admin or the publish-review bit, at publish review only", () => {
+    test("atlas space allows an admin or the publish-review bit, at publish review", () => {
         expect(userWithPermissions(UserPermissions.Admin)
             .canUploadReconstructionData(ReconstructionSpace.Atlas, ReconstructionStatus.PublishReview)).toBe(true);
         expect(userWithPermissions(UserPermissions.PublishReview)
             .canUploadReconstructionData(ReconstructionSpace.Atlas, ReconstructionStatus.PublishReview)).toBe(true);
     });
 
+    // A team reviewer uploads in both spaces, so atlas space is no longer publish review's alone.
+    test("atlas space allows an admin or the team-review bit, at team review", () => {
+        expect(userWithPermissions(UserPermissions.Admin)
+            .canUploadReconstructionData(ReconstructionSpace.Atlas, ReconstructionStatus.TeamReview)).toBe(true);
+        expect(userWithPermissions(UserPermissions.TeamReview)
+            .canUploadReconstructionData(ReconstructionSpace.Atlas, ReconstructionStatus.TeamReview)).toBe(true);
+    });
+
     // The status rule the model's locked check used to carry alone: the eager predicate now refuses an atlas upload at
     // an inadmissible status rather than letting the file be parsed first.
-    test.each(allStatuses.filter(status => status != ReconstructionStatus.PublishReview))(
+    test.each(allStatuses.filter(status => status != ReconstructionStatus.TeamReview && status != ReconstructionStatus.PublishReview))(
         "atlas space denies status %s, for an admin as well",
         (status: number) => {
-            expect(userWithPermissions(UserPermissions.Admin | UserPermissions.PeerReview | UserPermissions.PublishReview)
+            expect(userWithPermissions(UserPermissions.Admin | UserPermissions.ReviewAll)
                 .canUploadReconstructionData(ReconstructionSpace.Atlas, status)).toBe(false);
         });
 
     test("atlas space denies a peer reviewer and an annotator", () => {
         expect(userWithPermissions(UserPermissions.PeerReview)
             .canUploadReconstructionData(ReconstructionSpace.Atlas, ReconstructionStatus.PublishReview)).toBe(false);
+        expect(userWithPermissions(UserPermissions.PeerReview)
+            .canUploadReconstructionData(ReconstructionSpace.Atlas, ReconstructionStatus.TeamReview)).toBe(false);
         expect(userWithPermissions(UserPermissions.AnnotateOne)
             .canUploadReconstructionData(ReconstructionSpace.Atlas, ReconstructionStatus.PublishReview)).toBe(false);
+    });
+
+    // The bit tracks the status, not the space: holding TeamReview is no licence to write atlas data at publish review.
+    test("atlas space still pairs each review status with its own bit", () => {
+        expect(userWithPermissions(UserPermissions.TeamReview)
+            .canUploadReconstructionData(ReconstructionSpace.Atlas, ReconstructionStatus.PublishReview)).toBe(false);
+        expect(userWithPermissions(UserPermissions.PublishReview)
+            .canUploadReconstructionData(ReconstructionSpace.Atlas, ReconstructionStatus.TeamReview)).toBe(false);
     });
 
     // Specimen space keeps the bit tracking the status even with the bypass in place: the peer reviewer is not admitted
@@ -346,8 +380,72 @@ describe("canUploadReconstructionData", () => {
     test("specimen space still pairs each review status with its own bit", () => {
         expect(userWithPermissions(UserPermissions.PeerReview)
             .canUploadReconstructionData(ReconstructionSpace.Specimen, ReconstructionStatus.PublishReview)).toBe(false);
+        expect(userWithPermissions(UserPermissions.PeerReview)
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, ReconstructionStatus.TeamReview)).toBe(false);
+        expect(userWithPermissions(UserPermissions.TeamReview)
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, ReconstructionStatus.PeerReview)).toBe(false);
+        expect(userWithPermissions(UserPermissions.TeamReview)
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, ReconstructionStatus.PublishReview)).toBe(false);
         expect(userWithPermissions(UserPermissions.PublishReview)
             .canUploadReconstructionData(ReconstructionSpace.Specimen, ReconstructionStatus.PeerReview)).toBe(false);
+        expect(userWithPermissions(UserPermissions.PublishReview)
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, ReconstructionStatus.TeamReview)).toBe(false);
+    });
+});
+
+/**
+ * The source decides for the two review sign-offs and the target for the final approval, because PublishReview as a
+ * target is now reachable from peer review and from team review alike.
+ */
+describe("canApproveReconstruction", () => {
+    test("a peer reviewer signs off out of peer review, to either target", () => {
+        expect(userWithPermissions(UserPermissions.PeerReview)
+            .canApproveReconstruction(ReconstructionStatus.TeamReview, ReconstructionStatus.PeerReview)).toBe(true);
+        expect(userWithPermissions(UserPermissions.PeerReview)
+            .canApproveReconstruction(ReconstructionStatus.PublishReview, ReconstructionStatus.PeerReview)).toBe(true);
+    });
+
+    test("a peer reviewer is refused out of team review", () => {
+        expect(userWithPermissions(UserPermissions.PeerReview)
+            .canApproveReconstruction(ReconstructionStatus.PublishReview, ReconstructionStatus.TeamReview)).toBe(false);
+    });
+
+    test("a team reviewer signs off out of team review", () => {
+        expect(userWithPermissions(UserPermissions.TeamReview)
+            .canApproveReconstruction(ReconstructionStatus.PublishReview, ReconstructionStatus.TeamReview)).toBe(true);
+    });
+
+    test("a team reviewer is refused out of peer review", () => {
+        expect(userWithPermissions(UserPermissions.TeamReview)
+            .canApproveReconstruction(ReconstructionStatus.TeamReview, ReconstructionStatus.PeerReview)).toBe(false);
+        expect(userWithPermissions(UserPermissions.TeamReview)
+            .canApproveReconstruction(ReconstructionStatus.PublishReview, ReconstructionStatus.PeerReview)).toBe(false);
+    });
+
+    test("only the publish-review bit approves to Approved", () => {
+        expect(userWithPermissions(UserPermissions.PublishReview)
+            .canApproveReconstruction(ReconstructionStatus.Approved, ReconstructionStatus.PublishReview)).toBe(true);
+        expect(userWithPermissions(UserPermissions.PeerReview)
+            .canApproveReconstruction(ReconstructionStatus.Approved, ReconstructionStatus.PublishReview)).toBe(false);
+        expect(userWithPermissions(UserPermissions.TeamReview)
+            .canApproveReconstruction(ReconstructionStatus.Approved, ReconstructionStatus.PublishReview)).toBe(false);
+    });
+
+    // Neither review bit reaches a sign-off it does not own, and the publish reviewer's does not reach the earlier two.
+    test("a publish reviewer is refused out of either review", () => {
+        expect(userWithPermissions(UserPermissions.PublishReview)
+            .canApproveReconstruction(ReconstructionStatus.TeamReview, ReconstructionStatus.PeerReview)).toBe(false);
+        expect(userWithPermissions(UserPermissions.PublishReview)
+            .canApproveReconstruction(ReconstructionStatus.PublishReview, ReconstructionStatus.TeamReview)).toBe(false);
+    });
+
+    test.each([
+        [ReconstructionStatus.TeamReview, ReconstructionStatus.PeerReview],
+        [ReconstructionStatus.PublishReview, ReconstructionStatus.PeerReview],
+        [ReconstructionStatus.PublishReview, ReconstructionStatus.TeamReview],
+        [ReconstructionStatus.Approved, ReconstructionStatus.PublishReview]
+    ])("an admin approves to %s from %s", (targetStatus: number, currentStatus: number) => {
+        expect(userWithPermissions(UserPermissions.Admin).canApproveReconstruction(targetStatus, currentStatus)).toBe(true);
     });
 });
 
@@ -407,7 +505,8 @@ describe("permission bit values", () => {
     test("no stored permission integer changed meaning", () => {
         expect(UserPermissions.AnnotateOne).toBe(0x01);
         expect(UserPermissions.AnnotateMany).toBe(0x02);
-        expect(UserPermissionsAll).toBe(4883);
+        expect(UserPermissions.TeamReview).toBe(0x400);
+        expect(UserPermissionsAll).toBe(5907);
     });
 });
 

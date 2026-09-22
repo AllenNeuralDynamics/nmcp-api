@@ -6,7 +6,7 @@ const {User, UserPermissions} = require("../src/models/user");
 const {Reconstruction, ReviewRequestSourceStatuses} = require("../src/models/reconstruction");
 const {ReconstructionStatus} = require("../src/models/reconstructionStatus");
 const {AtlasReconstruction} = require("../src/models/atlasReconstruction");
-const {EventLogItem} = require("../src/models/eventLogItem");
+const {EventLogItem, EventLogItemKind} = require("../src/models/eventLogItem");
 const {UnauthorizedError} = require("../src/graphql/secureResolvers");
 
 function userWith(permissions: number, id: string = "user-1") {
@@ -61,7 +61,7 @@ afterEach(() => {
 });
 
 describe("requestReview source statuses", () => {
-    const targets = [ReconstructionStatus.PeerReview, ReconstructionStatus.PublishReview];
+    const targets = [ReconstructionStatus.PeerReview, ReconstructionStatus.TeamReview, ReconstructionStatus.PublishReview];
 
     for (const targetStatus of targets) {
         test.each(ReviewRequestSourceStatuses as number[])(`allows source status %s for target ${ReconstructionStatus[targetStatus]}`, async (status: number) => {
@@ -92,7 +92,7 @@ describe("requestReview source statuses", () => {
         await expect(Reconstruction.requestReview({
             reconstructionId: "reconstruction-1",
             targetStatus: ReconstructionStatus.Approved
-        }, "user-1")).rejects.toThrow(/Peer Review or Publish Review/);
+        }, "user-1")).rejects.toThrow(/Peer Review, Team Review or Publish Review/);
     });
 });
 
@@ -219,7 +219,7 @@ describe("requestReview under disregardAuth", () => {
         await expect(Reconstruction.requestReview({
             reconstructionId: "reconstruction-1",
             targetStatus: ReconstructionStatus.Approved
-        }, "importer-1", null, true)).rejects.toThrow(/Peer Review or Publish Review/);
+        }, "importer-1", null, true)).rejects.toThrow(/Peer Review, Team Review or Publish Review/);
 
         expect(reconstruction.update).not.toHaveBeenCalled();
     });
@@ -241,6 +241,80 @@ describe("approveReconstruction source statuses", () => {
         expect(reconstruction.reviewerId).toBe("user-1");
     });
 
+    // Which reviewer is recorded follows the stage being left, not the one being entered: the peer-review sign-off
+    // writes reviewerId whether it lands at team review or at publish review.
+    test("allows PeerReview to TeamReview, recording the peer reviewer", async () => {
+        const reconstruction = stub(ReconstructionStatus.PeerReview, userWith(UserPermissions.PeerReview));
+
+        const updated = await Reconstruction.approveReconstruction("reconstruction-1", ReconstructionStatus.TeamReview, "user-1");
+
+        expect(updated.status).toBe(ReconstructionStatus.TeamReview);
+        expect(reconstruction.reviewerId).toBe("user-1");
+        expect(reconstruction.teamReviewerId).toBeUndefined();
+        expect(EventLogItem.create.mock.calls[0][0]).toMatchObject({kind: EventLogItemKind.ReconstructionApprovePeerReview});
+    });
+
+    test("allows TeamReview to PublishReview, recording the team reviewer", async () => {
+        const reconstruction = stub(ReconstructionStatus.TeamReview, userWith(UserPermissions.TeamReview));
+
+        const updated = await Reconstruction.approveReconstruction("reconstruction-1", ReconstructionStatus.PublishReview, "user-1");
+
+        expect(updated.status).toBe(ReconstructionStatus.PublishReview);
+        expect(reconstruction.teamReviewerId).toBe("user-1");
+        expect(reconstruction.reviewerId).toBeUndefined();
+        expect(EventLogItem.create.mock.calls[0][0]).toMatchObject({kind: EventLogItemKind.ReconstructionApproveTeamReview});
+    });
+
+    test("PeerReview to PublishReview records the peer reviewer and its own event", async () => {
+        const reconstruction = stub(ReconstructionStatus.PeerReview, userWith(UserPermissions.PeerReview));
+
+        await Reconstruction.approveReconstruction("reconstruction-1", ReconstructionStatus.PublishReview, "user-1");
+
+        expect(reconstruction.reviewerId).toBe("user-1");
+        expect(reconstruction.teamReviewerId).toBeUndefined();
+        expect(EventLogItem.create.mock.calls[0][0]).toMatchObject({kind: EventLogItemKind.ReconstructionApprovePeerReview});
+    });
+
+    // The permission follows the source, so the two sign-offs sharing the PublishReview target do not share an actor.
+    test("refuses a peer reviewer approving out of team review", async () => {
+        const reconstruction = stub(ReconstructionStatus.TeamReview, userWith(UserPermissions.PeerReview));
+
+        await expect(Reconstruction.approveReconstruction("reconstruction-1", ReconstructionStatus.PublishReview, "user-1"))
+            .rejects.toBeInstanceOf(UnauthorizedError);
+
+        expect(reconstruction.update).not.toHaveBeenCalled();
+    });
+
+    test("refuses a team reviewer approving out of peer review", async () => {
+        const reconstruction = stub(ReconstructionStatus.PeerReview, userWith(UserPermissions.TeamReview));
+
+        await expect(Reconstruction.approveReconstruction("reconstruction-1", ReconstructionStatus.PublishReview, "user-1"))
+            .rejects.toBeInstanceOf(UnauthorizedError);
+
+        expect(reconstruction.update).not.toHaveBeenCalled();
+    });
+
+    /**
+     * The locked re-check is a permission check as well as an admissibility one now.  A peer reviewer who passed the
+     * eager check at PeerReview must not approve a reconstruction a request has since moved to TeamReview - both are
+     * admissible sources for the PublishReview target, so the status test alone would let it through.
+     */
+    test("refuses a peer reviewer when the locked parent has moved to team review", async () => {
+        const reconstruction = stub(ReconstructionStatus.PeerReview, userWith(UserPermissions.PeerReview));
+
+        const locked = Object.assign(Object.create(Reconstruction.prototype), reconstruction, {status: ReconstructionStatus.TeamReview});
+        locked.update = vi.fn();
+
+        vi.spyOn(Reconstruction, "findByPk").mockImplementation(async (...args: any[]) =>
+            args[1]?.lock ? locked : reconstruction);
+
+        await expect(Reconstruction.approveReconstruction("reconstruction-1", ReconstructionStatus.PublishReview, "user-1"))
+            .rejects.toBeInstanceOf(UnauthorizedError);
+
+        expect(locked.update).not.toHaveBeenCalled();
+        expect(reconstruction.update).not.toHaveBeenCalled();
+    });
+
     test("allows PublishReview to Approved, passing straight through to WaitingForAtlasReconstruction", async () => {
         const child = atlasStub(true);
 
@@ -253,7 +327,7 @@ describe("approveReconstruction source statuses", () => {
         expect(child.approve).toHaveBeenCalledTimes(1);
     });
 
-    test.each(allStatuses.filter(status => status !== ReconstructionStatus.PeerReview))(
+    test.each(allStatuses.filter(status => status !== ReconstructionStatus.PeerReview && status !== ReconstructionStatus.TeamReview))(
         "refuses source status %s for target PublishReview even for an admin",
         async (status: number) => {
             const reconstruction = stub(status, userWith(UserPermissions.Admin));
@@ -326,13 +400,30 @@ describe("approveReconstruction source statuses", () => {
     });
 });
 
-describe("approveReconstruction under disregardAuth", () => {
-    test("still refuses the PublishReview target", async () => {
-        stub(ReconstructionStatus.PeerReview, userWith(UserPermissions.None, "importer-1"));
+// Team review is optional and sits between the other two, so peer review is its only source.
+describe("approveReconstruction to the TeamReview target", () => {
+    test.each(allStatuses.filter(status => status !== ReconstructionStatus.PeerReview))(
+        "refuses source status %s even for an admin",
+        async (status: number) => {
+            const reconstruction = stub(status, userWith(UserPermissions.Admin));
 
-        await expect(Reconstruction.approveReconstruction("reconstruction-1", ReconstructionStatus.PublishReview, "importer-1", null, true))
-            .rejects.toBeInstanceOf(UnauthorizedError);
-    });
+            await expect(Reconstruction.approveReconstruction("reconstruction-1", ReconstructionStatus.TeamReview, "user-1"))
+                .rejects.toThrow(/Cannot approve a reconstruction/);
+
+            expect(reconstruction.update).not.toHaveBeenCalled();
+        });
+});
+
+describe("approveReconstruction under disregardAuth", () => {
+    // Neither optional review is a part of import, so both sign-off targets are refused outright.
+    test.each([ReconstructionStatus.TeamReview, ReconstructionStatus.PublishReview])(
+        "still refuses the %s target",
+        async (targetStatus: number) => {
+            stub(ReconstructionStatus.PeerReview, userWith(UserPermissions.None, "importer-1"));
+
+            await expect(Reconstruction.approveReconstruction("reconstruction-1", targetStatus, "importer-1", null, true))
+                .rejects.toBeInstanceOf(UnauthorizedError);
+        });
 
     test("succeeds from PublishReview, which is where both imports park the reconstruction before approving", async () => {
         const reconstruction = stub(ReconstructionStatus.PublishReview, userWith(UserPermissions.None, "importer-1"), {
