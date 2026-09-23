@@ -19,6 +19,7 @@
   "dependencies": {
     "@apollo/client": "^3.10.5",
     "@apollo/server": "^4.9.5",
+    "@aws-sdk/client-sns": "^3.1138.0",
     "byline": "^5.0.0",
     "cors": "^2.8.5",
     "csv": "^5.1.3",

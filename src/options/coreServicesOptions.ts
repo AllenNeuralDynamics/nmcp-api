@@ -36,9 +36,17 @@ const restServices = {
     }
 }
 
+const notificationServices = {
+    accessRequest: {
+        snsTopicArn: "",
+        reviewUrl: ""
+    }
+};
+
 const services = {
     database: databaseServices,
-    rest: restServices
+    rest: restServices,
+    notification: notificationServices
 };
 
 function loadDatabaseOptions(options): any {
@@ -72,11 +80,19 @@ function loadRestOptions(options): any {
     return options;
 }
 
+function loadNotificationOptions(options): any {
+    options.accessRequest.snsTopicArn = process.env.NMCP_ACCESS_REQUEST_SNS_TOPIC_ARN || options.accessRequest.snsTopicArn;
+    options.accessRequest.reviewUrl = process.env.NMCP_ACCESS_REQUEST_REVIEW_URL || options.accessRequest.reviewUrl;
+
+    return options;
+}
+
 function loadConfiguration() {
     const c = Object.assign({}, services);
 
     c.database = loadDatabaseOptions(c.database);
     c.rest = loadRestOptions(c.rest)
+    c.notification = loadNotificationOptions(c.notification);
 
     return c;
 }

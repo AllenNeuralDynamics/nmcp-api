@@ -99,6 +99,14 @@ namespace, and once no environment produces those entries the legacy issuer and 
 * `NMCP_DOI_API_USER` (default empty) - DataCite API user
 * `NMCP_DOI_API_PASSWORD` (default empty) - DataCite API password
 
+#### Access Request Notifications (AWS SNS)
+* `NMCP_ACCESS_REQUEST_SNS_TOPIC_ARN` (default empty) - SNS topic notified when a new access request is created; the region is taken from the ARN.  Notifications are off when unset.
+* `NMCP_ACCESS_REQUEST_REVIEW_URL` (default empty) - portal page for reviewing access requests (e.g., `https://<portal-host>/admin`), linked from the notification; the link is left out when unset
+
+Publishing uses the default AWS credential chain - on EC2, the instance role, which needs `sns:Publish` on the
+topic.  A bridge-networked container reaches the role through the instance metadata service, which requires the
+instance's metadata hop limit to be 2 or more.
+
 ### Tools
 These are used by standalone import tools rather than the running service.
 

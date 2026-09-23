@@ -7,6 +7,7 @@ const {User, UserPermissions} = require("../src/models/user");
 const {AccessRequest, AccessRequestStatus, RequestAccessResponse} = require("../src/models/accessRequest");
 const {EventLogItem, EventLogItemKind} = require("../src/models/eventLogItem");
 const {UnauthorizedError} = require("../src/graphql/secureResolvers");
+const notifications = require("../src/data-access/notification/accessRequestNotifications");
 
 function userWith(permissions: number) {
     const user = Object.create(User.prototype);
@@ -102,33 +103,37 @@ describe("AccessRequest.getAll", () => {
     });
 });
 
+// The throttle map is module state keyed by address and capped at ten entries, so every createRequest test uses its
+// own address to stay independent of the others.
+function caller(ip: string | undefined) {
+    const user = Object.create(User.prototype);
+    user.id = "anonymous";
+    user.ip = ip;
+    return user;
+}
+
+function stubCreation() {
+    Object.defineProperty(AccessRequest, "sequelize", {
+        value: {transaction: vi.fn().mockImplementation(async (callback: any) => callback({}))},
+        configurable: true,
+        writable: true
+    });
+
+    vi.spyOn(AccessRequest, "findOne").mockResolvedValue(null);
+    vi.spyOn(AccessRequest, "create").mockImplementation(async () => {
+        const created = Object.create(AccessRequest.prototype);
+        created.id = "request-1";
+        return created;
+    });
+    vi.spyOn(EventLogItem, "create").mockResolvedValue({id: "event-1"});
+
+    // Otherwise every Accepted submission reaches the real SNS channel, which publishes for real if the shell running
+    // the tests has a topic configured.
+    notifications.clearChannels();
+}
+
 describe("AccessRequest.createRequest throttling", () => {
     const fiveMinutes = 5 * 60 * 1000;
-
-    // The throttle map is module state keyed by address and capped at ten entries, so every test uses its own
-    // address to stay independent of the others.
-    function caller(ip: string | undefined) {
-        const user = Object.create(User.prototype);
-        user.id = "anonymous";
-        user.ip = ip;
-        return user;
-    }
-
-    function stub() {
-        Object.defineProperty(AccessRequest, "sequelize", {
-            value: {transaction: vi.fn().mockImplementation(async (callback: any) => callback({}))},
-            configurable: true,
-            writable: true
-        });
-
-        vi.spyOn(AccessRequest, "findOne").mockResolvedValue(null);
-        vi.spyOn(AccessRequest, "create").mockImplementation(async () => {
-            const created = Object.create(AccessRequest.prototype);
-            created.id = "request-1";
-            return created;
-        });
-        vi.spyOn(EventLogItem, "create").mockResolvedValue({id: "event-1"});
-    }
 
     const submit = (ip: string | undefined) => AccessRequest.createRequest(caller(ip), {emailAddress: "someone@example.com"});
 
@@ -136,7 +141,7 @@ describe("AccessRequest.createRequest throttling", () => {
     beforeEach(() => {
         vi.useFakeTimers({toFake: ["Date"]});
         vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
-        stub();
+        stubCreation();
     });
 
     afterEach(() => {
@@ -242,6 +247,105 @@ describe("AccessRequest.createRequest throttling", () => {
         }
 
         expect(await submit(undefined)).toBe(RequestAccessResponse.Throttled);
+    });
+});
+
+describe("AccessRequest.createRequest notification", () => {
+    let channel: any;
+
+    const submit = (ip: string) => AccessRequest.createRequest(caller(ip), {emailAddress: "someone@example.com"});
+
+    // Lets a detached rejection settle, so one that escaped would be reported against the test that caused it.
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
+
+    beforeEach(() => {
+        stubCreation();
+
+        channel = {name: "fake", send: vi.fn().mockResolvedValue(undefined)};
+
+        notifications.registerChannel(channel);
+    });
+
+    test("notifies once, with the created message, when the request is accepted", async () => {
+        expect(await submit("10.0.2.1")).toBe(RequestAccessResponse.Accepted);
+
+        expect(channel.send).toHaveBeenCalledTimes(1);
+        expect(channel.send.mock.calls[0][0].subject).toBe("New NMCP Access Request");
+    });
+
+    // Recorded rather than asserted inside send: a failed expect there would be a rejection that delivery swallows.
+    test("notifies only after the transaction has committed", async () => {
+        let committed = false;
+        let committedWhenSent: boolean = null;
+
+        AccessRequest.sequelize.transaction = vi.fn(async (callback: any) => {
+            const result = await callback({});
+            committed = true;
+            return result;
+        });
+
+        channel.send.mockImplementation(async () => {
+            committedWhenSent = committed;
+        });
+
+        await submit("10.0.2.2");
+
+        expect(committedWhenSent).toBe(true);
+    });
+
+    test("notifies nothing when the transaction fails", async () => {
+        AccessRequest.sequelize.transaction = vi.fn().mockRejectedValue(new Error("commit failed"));
+
+        await expect(submit("10.0.2.3")).rejects.toThrow("commit failed");
+
+        expect(channel.send).not.toHaveBeenCalled();
+    });
+
+    test("notifies nothing for an invalid request", async () => {
+        expect(await AccessRequest.createRequest(caller("10.0.2.4"), {})).toBe(RequestAccessResponse.Invalid);
+
+        expect(channel.send).not.toHaveBeenCalled();
+    });
+
+    test("notifies nothing for a throttled attempt", async () => {
+        for (let attempt = 0; attempt < 6; attempt++) {
+            await submit("10.0.2.5");
+        }
+
+        expect(channel.send).toHaveBeenCalledTimes(5);
+    });
+
+    test.each([
+        {existing: AccessRequestStatus.Unreviewed, response: RequestAccessResponse.DuplicateOpen, ip: "10.0.2.8"},
+        {existing: AccessRequestStatus.Accepted, response: RequestAccessResponse.DuplicateApproved, ip: "10.0.2.9"},
+        {existing: AccessRequestStatus.Denied, response: RequestAccessResponse.DuplicateDenied, ip: "10.0.2.10"}
+    ])("notifies nothing for a duplicate of a request at status $existing", async ({existing, response, ip}) => {
+        vi.spyOn(AccessRequest, "findOne").mockResolvedValue({status: existing});
+
+        expect(await submit(ip)).toBe(response);
+
+        expect(channel.send).not.toHaveBeenCalled();
+    });
+
+    test("returns without waiting for the notification", async () => {
+        channel.send.mockImplementation(() => new Promise<void>(() => {}));
+
+        const outcome = await Promise.race([
+            submit("10.0.2.6"),
+            new Promise((resolve) => setTimeout(() => resolve("waited"), 1000))
+        ]);
+
+        expect(outcome).toBe(RequestAccessResponse.Accepted);
+    });
+
+    test("still accepts the request when the notification fails", async () => {
+        channel.send.mockRejectedValue(new Error("publish failed"));
+
+        expect(await submit("10.0.2.7")).toBe(RequestAccessResponse.Accepted);
+
+        await settle();
+
+        expect(channel.send).toHaveBeenCalledTimes(1);
     });
 });
 
