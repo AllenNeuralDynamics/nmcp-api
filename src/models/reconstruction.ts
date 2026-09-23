@@ -177,9 +177,14 @@ export const CandidateBlockingStatuses: ReconstructionStatus[] = [
     ...PublishedCandidateBlockingStatuses
 ];
 
+export type ReconstructionStatusFilter = {
+    status: ReconstructionStatus;
+    atlasStatus?: AtlasReconstructionStatus[];
+}
+
 export type ReconstructionsQueryArgs = {
     status: ReconstructionStatus[];
-    atlasStatus?: AtlasReconstructionStatus[];
+    statusFilters?: ReconstructionStatusFilter[];
     offset: number;
     limit: number;
     userOnly?: boolean;
@@ -354,10 +359,43 @@ export class Reconstruction extends BaseModel {
 
         let options: FindOptions = args.userOnly ? {where: {annotatorId: args.userId}, include: []} : {where: {}, include: []};
 
-        if (args.status && args.status.length > 0) {
-            options.where[Op.or] = args.status.map(f => {
-                return {status: f};
-            })
+        // Refused rather than merged: whether the two lists would union or intersect is a guess either way, and a
+        // wrong guess returns plausible-looking results instead of an error.
+        if (args.status?.length > 0 && args.statusFilters?.length > 0) {
+            throw new Error("A reconstruction query may filter by status or by statusFilters, but not both.");
+        }
+
+        const statusFilters: ReconstructionStatusFilter[] = args.statusFilters?.length > 0 ? args.statusFilters : (args.status ?? []).map(status => ({status}));
+
+        if (statusFilters.length > 0) {
+            const atlasReplacements = {};
+
+            options.where[Op.or] = statusFilters.map((filter, idx) => {
+                // Guarded on length because ARRAY[] with an empty replacement is a Postgres type error.
+                if (!(filter.atlasStatus?.length > 0)) {
+                    return {status: filter.status};
+                }
+
+                const replacementName = `reconstructionAtlasStatus${idx}`;
+
+                atlasReplacements[replacementName] = filter.atlasStatus;
+
+                // Correlated rather than joined, for the same reason the keyword predicate below is.  The deletedAt
+                // test is explicit because a raw literal bypasses the paranoid scope.
+                return {
+                    [Op.and]: [{status: filter.status}, literal(`EXISTS (
+            SELECT 1
+            FROM "${AtlasReconstructionTableName}" AS atlas_child
+            WHERE atlas_child."reconstructionId" = "${ReconstructionTableName}"."id"
+              AND atlas_child."deletedAt" IS NULL
+              AND atlas_child."status" = ANY(ARRAY[:${replacementName}])
+          )`)]
+                };
+            });
+
+            if (Object.keys(atlasReplacements).length > 0) {
+                options["replacements"] = {...(options["replacements"] ?? {}), ...atlasReplacements};
+            }
         }
 
         options["include"] = [...specimenInclude, ...include];
@@ -366,31 +404,12 @@ export class Reconstruction extends BaseModel {
             options.where["$Neuron.Specimen.id$"] = {[Op.in]: args.specimenIds}
         }
 
-        // Accumulated rather than assigned: two filters both want Op.and, and the second assignment would silently
-        // drop the first.
-        const andClauses: any[] = [];
-
-        if (args.atlasStatus && args.atlasStatus.length > 0) {
-            // Correlated rather than joined, for the same reason the keyword predicate below is.  The deletedAt test
-            // is explicit because a raw literal bypasses the paranoid scope.  Guarded on length because ARRAY[] with
-            // an empty replacement is a Postgres type error.
-            andClauses.push(literal(`EXISTS (
-            SELECT 1
-            FROM "${AtlasReconstructionTableName}" AS atlas_child
-            WHERE atlas_child."reconstructionId" = "${ReconstructionTableName}"."id"
-              AND atlas_child."deletedAt" IS NULL
-              AND atlas_child."status" = ANY(ARRAY[:reconstructionAtlasStatus])
-          )`));
-
-            options["replacements"] = {...(options["replacements"] ?? {}), reconstructionAtlasStatus: args.atlasStatus};
-        }
-
         const keywordPatterns = substringMatchPatterns(args.keywords);
 
         if (keywordPatterns.length > 0) {
             // Correlated on neuronId rather than the joined "Neuron" alias, so the predicate stays valid even
             // when Sequelize moves the where clause into a paging sub-query that the join is not part of.
-            andClauses.push(literal(`EXISTS (
+            options.where[Op.and] = [literal(`EXISTS (
             SELECT 1
             FROM "${NeuronTableName}" AS keyword_neuron
             WHERE keyword_neuron."id" = "${ReconstructionTableName}"."neuronId"
@@ -400,13 +419,9 @@ export class Reconstruction extends BaseModel {
                   FROM jsonb_array_elements_text(keyword_neuron."keywords") AS elem
                   WHERE elem ILIKE ANY(ARRAY[:reconstructionKeywords])
               )
-          )`));
+          )`)];
 
             options["replacements"] = {...(options["replacements"] ?? {}), reconstructionKeywords: keywordPatterns};
-        }
-
-        if (andClauses.length > 0) {
-            options.where[Op.and] = andClauses;
         }
 
         out.total = await this.setSortAndLimiting(options, args);
@@ -1080,7 +1095,7 @@ export class Reconstruction extends BaseModel {
             // publish is refused by publishWithTransaction on every attempt, and without this it keeps its place at the
             // head of the oldest-first batch forever.  The same constant the refusal queries its siblings with, so the
             // two cannot drift.  Correlated rather than joined, and the deletedAt test is explicit because a raw
-            // literal bypasses the paranoid scope - the atlasStatus filter in queryReconstructions carries both for the
+            // literal bypasses the paranoid scope - the statusFilters atlas predicate in getAll carries both for the
             // same reasons.  It narrows the selection and is not a guard: a sibling committing between this query and
             // the transaction is still refused there.
             const options: FindOptions = {

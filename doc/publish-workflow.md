@@ -916,8 +916,9 @@ Three things make a stuck reconstruction findable rather than indistinguishable 
   non-null only when the child sits at one of `PhaseFailureStatuses`
   (`src/models/atlasReconstructionStatus.ts:60`). Composed on the server so no client has to know which parent status
   pairs with which child status, and derived on read so there is no second copy to drift.
-- **`reconstructions(queryArgs: {atlasStatus: [...]})`** — filters on the child's status through a correlated
-  `EXISTS` (`src/models/reconstruction.ts:377`), so "everything stuck in a failed phase" is one query.
+- **`reconstructions(queryArgs: {statusFilters: [{status, atlasStatus}]})`** — narrows each parent status to children at
+  the given statuses through a correlated `EXISTS` (`src/models/reconstruction.ts:373`), so "everything stuck in a
+  failed phase" is one query, and can sit beside other parent statuses left unfiltered.
 - **A retry mutation per phase**, plus one replay, all gated on `canOperateReconstructionPipeline()` — admin or the
   `PublishReview` bit. The five retries are built on `requestPhaseRetry`
   (`src/models/atlasReconstruction.ts:766`), which locks the child, refuses unless it is at the exact `Failed…` status
