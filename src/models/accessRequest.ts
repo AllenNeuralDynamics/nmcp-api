@@ -5,6 +5,7 @@ import {User} from "./user";
 import {AccessRequestTableName,} from "./tableNames";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {UnauthorizedError} from "../graphql/secureResolvers";
+import {notifyAccessRequestCreated} from "../data-access/notification/accessRequestNotifications";
 
 export enum AccessRequestStatus {
     Unreviewed = 0,
@@ -160,6 +161,10 @@ export class AccessRequest extends BaseModel {
 
             return request;
         });
+
+        // After the commit, so a rolled-back request is never announced, and not awaited, so the open endpoint never
+        // waits on a notification service.
+        notifyAccessRequestCreated();
 
         return RequestAccessResponse.Accepted;
     }
