@@ -943,8 +943,8 @@ class SmartSheetImport {
 
         if (failedToApprove.length > 0) {
             debug("failed to approve reconstructions:")
-            ccfLookupFailed.forEach(r => {
-                debug(r);
+            failedToApprove.forEach(r => {
+                debug(`\t${r}`);
             });
         }
 
