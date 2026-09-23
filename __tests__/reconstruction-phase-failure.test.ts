@@ -24,10 +24,11 @@ afterEach(() => {
 });
 
 /**
- * Both filters want Op.and, so what these pin is that neither silently drops the other, and that an empty list
- * adds no predicate at all - ARRAY[] with an empty replacement is a Postgres type error.
+ * What these pin is that each parent status carries its own atlas predicate and replacement, that a status left
+ * unfiltered matches on status alone, and that an empty atlas list adds no predicate at all - ARRAY[] with an empty
+ * replacement is a Postgres type error.
  */
-describe("Reconstruction.getAll atlasStatus filter", () => {
+describe("Reconstruction.getAll statusFilters", () => {
     function queryable() {
         vi.spyOn(Reconstruction as any, "setSortAndLimiting").mockResolvedValue(0);
 
@@ -36,70 +37,137 @@ describe("Reconstruction.getAll atlasStatus filter", () => {
 
     const optionsFrom = (findAll: any) => findAll.mock.calls[0][0];
 
-    const literals = (options: any) => (options.where[Op.and] ?? []).map((clause: any) => clause.val as string);
+    const failedStatuses = [AtlasReconstructionStatus.FailedStructureAssignment, AtlasReconstructionStatus.FailedSearchIndexing];
 
-    test("adds one correlated EXISTS and a bound replacement", async () => {
+    const atlasLiteral = (clause: any) => clause[Op.and][1].val as string;
+
+    test("narrows only the status that asks for it", async () => {
         const stubs = queryable();
 
         await Reconstruction.getAll(reviewer, {
             status: [],
             offset: 0,
             limit: 10,
-            atlasStatus: [AtlasReconstructionStatus.FailedStructureAssignment, AtlasReconstructionStatus.FailedSearchIndexing]
+            statusFilters: [
+                {status: ReconstructionStatus.Publishing},
+                {status: ReconstructionStatus.WaitingForAtlasReconstruction, atlasStatus: failedStatuses}
+            ]
         });
 
         const options = optionsFrom(stubs.findAll);
-        const clauses = literals(options);
+        const clauses = options.where[Op.or];
 
-        expect(clauses).toHaveLength(1);
-        expect(clauses[0]).toContain(`"AtlasReconstruction" AS atlas_child`);
-        // Correlated on the parent's own id, not neuronId as the keyword predicate beside it is.
-        expect(clauses[0]).toContain(`atlas_child."reconstructionId" = "Reconstruction"."id"`);
+        expect(clauses).toHaveLength(2);
+        expect(clauses[0]).toEqual({status: ReconstructionStatus.Publishing});
+        expect(clauses[1][Op.and][0]).toEqual({status: ReconstructionStatus.WaitingForAtlasReconstruction});
+
+        const atlas = atlasLiteral(clauses[1]);
+
+        expect(atlas).toContain(`"AtlasReconstruction" AS atlas_child`);
+        // Correlated on the parent's own id, not neuronId as the keyword predicate is.
+        expect(atlas).toContain(`atlas_child."reconstructionId" = "Reconstruction"."id"`);
         // Explicit, because a raw literal bypasses the paranoid scope.
-        expect(clauses[0]).toContain(`atlas_child."deletedAt" IS NULL`);
-        expect(clauses[0]).toContain(`ANY(ARRAY[:reconstructionAtlasStatus])`);
+        expect(atlas).toContain(`atlas_child."deletedAt" IS NULL`);
+        expect(atlas).toContain(`ANY(ARRAY[:reconstructionAtlasStatus1])`);
 
-        expect(options.replacements.reconstructionAtlasStatus).toEqual([
-            AtlasReconstructionStatus.FailedStructureAssignment,
-            AtlasReconstructionStatus.FailedSearchIndexing
-        ]);
+        expect(options.replacements).toEqual({reconstructionAtlasStatus1: failedStatuses});
     });
 
-    test("keeps both predicates when the keyword filter is used as well", async () => {
+    test("gives each narrowed status its own replacement", async () => {
         const stubs = queryable();
 
         await Reconstruction.getAll(reviewer, {
             status: [],
             offset: 0,
             limit: 10,
-            atlasStatus: [AtlasReconstructionStatus.FailedPrecomputed],
+            statusFilters: [
+                {status: ReconstructionStatus.WaitingForAtlasReconstruction, atlasStatus: failedStatuses},
+                {status: ReconstructionStatus.ReadyToPublish, atlasStatus: [AtlasReconstructionStatus.FailedPrecomputed]}
+            ]
+        });
+
+        const options = optionsFrom(stubs.findAll);
+        const clauses = options.where[Op.or];
+
+        expect(atlasLiteral(clauses[0])).toContain(`ANY(ARRAY[:reconstructionAtlasStatus0])`);
+        expect(atlasLiteral(clauses[1])).toContain(`ANY(ARRAY[:reconstructionAtlasStatus1])`);
+
+        expect(options.replacements).toEqual({
+            reconstructionAtlasStatus0: failedStatuses,
+            reconstructionAtlasStatus1: [AtlasReconstructionStatus.FailedPrecomputed]
+        });
+    });
+
+    test.each([
+        {label: "an empty", atlasStatus: []},
+        {label: "an absent", atlasStatus: undefined}
+    ])("matches on status alone for $label atlas list", async ({atlasStatus}) => {
+        const stubs = queryable();
+
+        await Reconstruction.getAll(reviewer, {
+            status: [],
+            offset: 0,
+            limit: 10,
+            statusFilters: [{status: ReconstructionStatus.WaitingForAtlasReconstruction, atlasStatus: atlasStatus}]
+        });
+
+        const options = optionsFrom(stubs.findAll);
+
+        expect(options.where[Op.or]).toEqual([{status: ReconstructionStatus.WaitingForAtlasReconstruction}]);
+        expect(options.replacements).toBeUndefined();
+    });
+
+    test("treats a plain status list as filters with no atlas narrowing", async () => {
+        const stubs = queryable();
+
+        await Reconstruction.getAll(reviewer, {
+            status: [ReconstructionStatus.Publishing, ReconstructionStatus.WaitingForAtlasReconstruction],
+            offset: 0,
+            limit: 10
+        });
+
+        const options = optionsFrom(stubs.findAll);
+
+        expect(options.where[Op.or]).toEqual([
+            {status: ReconstructionStatus.Publishing},
+            {status: ReconstructionStatus.WaitingForAtlasReconstruction}
+        ]);
+        expect(options.replacements).toBeUndefined();
+    });
+
+    test("refuses status and statusFilters together without querying", async () => {
+        const stubs = queryable();
+
+        await expect(Reconstruction.getAll(reviewer, {
+            status: [ReconstructionStatus.Publishing],
+            offset: 0,
+            limit: 10,
+            statusFilters: [{status: ReconstructionStatus.WaitingForAtlasReconstruction, atlasStatus: failedStatuses}]
+        })).rejects.toThrow("not both");
+
+        expect(stubs.findAll).not.toHaveBeenCalled();
+    });
+
+    test("keeps the atlas predicate when the keyword filter is used as well", async () => {
+        const stubs = queryable();
+
+        await Reconstruction.getAll(reviewer, {
+            status: [],
+            offset: 0,
+            limit: 10,
+            statusFilters: [{status: ReconstructionStatus.WaitingForAtlasReconstruction, atlasStatus: [AtlasReconstructionStatus.FailedPrecomputed]}],
             keywords: ["cortex"]
         });
 
         const options = optionsFrom(stubs.findAll);
-        const clauses = literals(options);
 
-        expect(clauses).toHaveLength(2);
-        expect(clauses.some((clause: string) => clause.includes("atlas_child"))).toBe(true);
-        expect(clauses.some((clause: string) => clause.includes("keyword_neuron"))).toBe(true);
+        expect(atlasLiteral(options.where[Op.or][0])).toContain("atlas_child");
+        expect(options.where[Op.and].map((clause: any) => clause.val as string)[0]).toContain("keyword_neuron");
 
-        expect(options.replacements.reconstructionAtlasStatus).toEqual([AtlasReconstructionStatus.FailedPrecomputed]);
-        expect(options.replacements.reconstructionKeywords).toEqual(["%cortex%"]);
-    });
-
-    test("adds nothing for an empty or absent list", async () => {
-        for (const atlasStatus of [[], undefined]) {
-            vi.clearAllMocks();
-
-            const stubs = queryable();
-
-            await Reconstruction.getAll(reviewer, {status: [], offset: 0, limit: 10, atlasStatus: atlasStatus});
-
-            const options = optionsFrom(stubs.findAll);
-
-            expect(options.where[Op.and]).toBeUndefined();
-            expect(options.replacements?.reconstructionAtlasStatus).toBeUndefined();
-        }
+        expect(options.replacements).toEqual({
+            reconstructionAtlasStatus0: [AtlasReconstructionStatus.FailedPrecomputed],
+            reconstructionKeywords: ["%cortex%"]
+        });
     });
 });
 
