@@ -62,6 +62,8 @@ export enum EventLogItemKind {
 
     ReconstructionPause = 5100,
     ReconstructionResume = 5110,
+    ReconstructionIncomplete = 5120,
+    ReconstructionDuplicate = 5130,
 
     ReconstructionRequestPeerReview = 5200,
     ReconstructionRequestTeamReview = 5202,

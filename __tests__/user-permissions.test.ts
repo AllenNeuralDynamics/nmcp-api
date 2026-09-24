@@ -322,6 +322,8 @@ describe("canUploadReconstructionData", () => {
     test.each([
         ReconstructionStatus.InProgress,
         ReconstructionStatus.OnHold,
+        ReconstructionStatus.Incomplete,
+        ReconstructionStatus.Duplicate,
         ReconstructionStatus.Approved,
         ReconstructionStatus.WaitingForAtlasReconstruction,
         ReconstructionStatus.ReadyToPublish,

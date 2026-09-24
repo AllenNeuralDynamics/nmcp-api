@@ -53,7 +53,7 @@ enum Status {
     Hold = "Hold",
     PendingReview = "Pending Review",
     Completed = "Completed",
-    // Incomplete = "Incomplete",
+    Incomplete = "Incomplete",
     Untraceable = "Untraceable"
 }
 
@@ -189,7 +189,7 @@ function smartSheetImport(sheetId: number, importQualifier: ImportQualifier, pat
 }
 
 function isReadyToImport(status: Status): boolean {
-    return status == Status.Completed || status == Status.PendingReview || status == Status.InProgress || status == Status.Untraceable;
+    return status == Status.Completed || status == Status.PendingReview || status == Status.InProgress || status == Status.Hold || status == Status.Incomplete || status == Status.Untraceable;
 }
 
 function reconstructionStatusForSmartSheetStatus(status: Status): ReconstructionStatus {
@@ -198,6 +198,8 @@ function reconstructionStatusForSmartSheetStatus(status: Status): Reconstruction
             return ReconstructionStatus.InProgress;
         case Status.Hold:
             return ReconstructionStatus.OnHold;
+        case Status.Incomplete:
+            return ReconstructionStatus.Incomplete;
         case Status.PendingReview:
             return ReconstructionStatus.PublishReview;
         case Status.Completed:
@@ -420,7 +422,9 @@ async function specimenDataFromRow(s: SpecimenRowContents, insertReconstructions
             // Before anything below writes to the row: the metadata update overwrites notes, duration and dates, and
             // the upload after the switch writes atlas data and approves.  A reconstruction the portal has moved into
             // review or the pipeline gets none of that - the whole row is skipped, as an immutable one is.
-            if (!importMayTransition(reconstruction.status, targetStatus)) {
+            // !reconstructionExisted is what tells the guard this run created the reconstruction, and a hold is applied
+            // only then; it holds only because reconstructionExisted is computed before findOrOpenReconstruction.
+            if (!importMayTransition(reconstruction.status, targetStatus, !reconstructionExisted)) {
                 importReport.reconstructionsSkippedStatus.push({
                     id: reconstruction.id,
                     subjectId: s.subjectId,
@@ -468,6 +472,9 @@ async function specimenDataFromRow(s: SpecimenRowContents, insertReconstructions
                     continue;
                 case ReconstructionStatus.OnHold:
                     await Reconstruction.pauseReconstruction(reconstruction.id, annotator, User.SystemAutomationUser, true)
+                    continue;
+                case ReconstructionStatus.Incomplete:
+                    await Reconstruction.markIncomplete(reconstruction.id, annotator, User.SystemAutomationUser, true);
                     continue;
                 case ReconstructionStatus.PublishReview:
                     await Reconstruction.requestReview({
