@@ -8,7 +8,7 @@ import {AtlasStructure} from "../models/atlasStructure";
 import {Neuron, NeuronShape} from "../models/neuron";
 import {ReferenceDataset, Specimen, SpecimenShape, SpecimenTomography} from "../models/specimen";
 import {Collection} from "../models/collection";
-import {User} from "../models/user";
+import {UploadSourceStatuses, User} from "../models/user";
 import {Reconstruction} from "../models/reconstruction";
 import {importMayTransition} from "./importTransitionGuard";
 import {ReconstructionStatus} from "../models/reconstructionStatus";
@@ -419,7 +419,7 @@ async function specimenDataFromRow(s: SpecimenRowContents, insertReconstructions
                 continue;
             }
 
-            // Before anything below writes to the row: the metadata update overwrites notes, duration and dates, and
+            // Before anything below writes to the row: the metadata update writes notes, duration and dates, and
             // the upload after the switch writes atlas data and approves.  A reconstruction the portal has moved into
             // review or the pipeline gets none of that - the whole row is skipped, as an immutable one is.
             // !reconstructionExisted is what tells the guard this run created the reconstruction, and a hold is applied
@@ -454,18 +454,19 @@ async function specimenDataFromRow(s: SpecimenRowContents, insertReconstructions
                 importReport.existingNeuronsWithReconstructionChanges.add(`${s.subjectId}-${n.idString}`);
             }
 
-            const checks = n.checks ? "\n" + n.checks : "";
-
             debug(`updating reconstruction ${reconstruction.id} (${n.idString}-${s.subjectId})`);
 
-            const updates = {
-                notes: n.notes + checks,
-                durationHours: isNaN(n.duration) ? null : n.duration,
-                startedAt: n.startedAt ?? null,
-                completedAt: n.completedAt ?? null
-            };
+            await updateReconstructionMetadata(reconstruction, n, targetStatus, reconstructionExisted ? reconstruction.status : null);
 
-            await reconstruction.update(updates);
+            // An existing reconstruction's status belongs to the portal, not the sheet.  The most a row can do to one is
+            // supply reconstruction data it is still missing.
+            if (reconstructionExisted) {
+                if ((insertReconstructions || testFlightInsertion) && (targetStatus == ReconstructionStatus.PublishReview || targetStatus == ReconstructionStatus.Approved)) {
+                    await loadReconstructionData(reconstruction, s.subjectId, n.idString, annotator, proofreader, false);
+                }
+
+                continue;
+            }
 
             switch (targetStatus) {
                 case ReconstructionStatus.InProgress:
@@ -484,7 +485,8 @@ async function specimenDataFromRow(s: SpecimenRowContents, insertReconstructions
                     continue;
                 case ReconstructionStatus.Approved:
                     // Approve is not viable b/c reconstruction has not been uploaded.  Try after that is performed below.
-                    await Reconstruction.requestReview({
+                    // Reassigned because the loaders check upload admission against the status this leaves it in.
+                    reconstruction = await Reconstruction.requestReview({
                         reconstructionId: reconstruction.id,
                         targetStatus: ReconstructionStatus.PublishReview
                     }, annotator, User.SystemAutomationUser, true);
@@ -495,18 +497,30 @@ async function specimenDataFromRow(s: SpecimenRowContents, insertReconstructions
             }
 
             if (insertReconstructions || testFlightInsertion) {
-                const specimenDataLoaded = await loadSpecimenReconstruction(reconstruction, s.subjectId, n.idString, annotator);
-
-                const atlasDataLoaded = await loadAtlasReconstruction(reconstruction, s.subjectId, n.idString, targetStatus, proofreader);
-
-                if (specimenDataLoaded || atlasDataLoaded) {
-                    importReport.reconstructionsWithData.add(reconstruction.id);
-                }
+                await loadReconstructionData(reconstruction, s.subjectId, n.idString, annotator, proofreader, targetStatus == ReconstructionStatus.Approved);
             }
         } catch (error) {
             debug(error);
         }
     }
+}
+
+// existingStatus is null for a reconstruction this run created, and must be read before the row's transition is
+// applied.  Only a created reconstruction takes the sheet's metadata; sheetStatus and existingStatus are there so that
+// exceptions for an existing one can be made here without touching the caller.
+async function updateReconstructionMetadata(reconstruction: Reconstruction, neuronRow: NeuronRowContents, sheetStatus: ReconstructionStatus, existingStatus: ReconstructionStatus | null): Promise<void> {
+    if (existingStatus !== null) {
+        return;
+    }
+
+    const checks = neuronRow.checks ? "\n" + neuronRow.checks : "";
+
+    await reconstruction.update({
+        notes: neuronRow.notes + checks,
+        durationHours: isNaN(neuronRow.duration) ? null : neuronRow.duration,
+        startedAt: neuronRow.startedAt ?? null,
+        completedAt: neuronRow.completedAt ?? null
+    });
 }
 
 // Caches whether each subject's top-level reconstruction directory was found so it is only globbed (and reported) once per specimen.
@@ -537,10 +551,41 @@ async function reconstructionDirectoryExists(baseLocation: string, subjectId: st
     return exists;
 }
 
+async function loadReconstructionData(reconstruction: Reconstruction, subjectId: string, neuronLabel: string, annotator: User, proofreader: User, approve: boolean): Promise<void> {
+    const specimenDataLoaded = await loadSpecimenReconstruction(reconstruction, subjectId, neuronLabel, annotator);
+
+    const atlasDataLoaded = await loadAtlasReconstruction(reconstruction, subjectId, neuronLabel, approve, proofreader);
+
+    if (specimenDataLoaded || atlasDataLoaded) {
+        importReport.reconstructionsWithData.add(reconstruction.id);
+    }
+}
+
+// Checked before the file is looked for so that a status the model refuses is not attempted and then reported as a
+// parse error, which is where fromSwcFile's refusal would otherwise land.
+function uploadAdmitted(reconstruction: Reconstruction, space: ReconstructionSpace, subjectId: string, neuronLabel: string): boolean {
+    if (UploadSourceStatuses.get(space)?.has(reconstruction.status)) {
+        return true;
+    }
+
+    debug(`\t${ReconstructionSpace[space]} reconstruction data not loaded for ${reconstruction.id} (${subjectId}-${neuronLabel}): uploads are not accepted at ${ReconstructionStatus[reconstruction.status]}`);
+
+    return false;
+}
+
 async function loadSpecimenReconstruction(reconstruction: Reconstruction, subjectId: string, neuronLabel: string, annotator: User): Promise<boolean> {
     const filePrefix = `${neuronLabel}-${subjectId}`;
 
     try {
+        if (reconstruction.specimenNodeCounts) {
+            debug(`\tspecimen reconstruction data already present for ${reconstruction.id} (${subjectId}-${neuronLabel}) - not replaced`);
+            return false;
+        }
+
+        if (!uploadAdmitted(reconstruction, ReconstructionSpace.Specimen, subjectId, neuronLabel)) {
+            return false;
+        }
+
         if (!(await reconstructionDirectoryExists(reconstructionLocation, subjectId))) {
             return false;
         }
@@ -548,7 +593,7 @@ async function loadSpecimenReconstruction(reconstruction: Reconstruction, subjec
         const swcPath = await findSpecimenReconstructionFile(reconstructionLocation, subjectId, filePrefix);
 
         if (swcPath) {
-            debug(`\tupdating or adding specimen reconstruction data for ${reconstruction.id} (${subjectId}-${neuronLabel})`);
+            debug(`\tadding specimen reconstruction data for ${reconstruction.id} (${subjectId}-${neuronLabel})`);
 
             try {
                 await Reconstruction.fromSwcFile(annotator ?? User.SystemAutomationUser, reconstruction.id, swcPath, ReconstructionSpace.Specimen, User.SystemAutomationUser);
@@ -558,8 +603,6 @@ async function loadSpecimenReconstruction(reconstruction: Reconstruction, subjec
                 debug(error);
                 debug(`\t---`);
             }
-        } else if (reconstruction.specimenNodeCounts) {
-            debug(`\tspecimen reconstruction data file not found, but data already present for ${reconstruction.id} (${subjectId}-${neuronLabel})`);
         } else {
             specimenReconstructionNotFound.push({subject: subjectId, neuron: neuronLabel});
             debug(`\t---> expected specimen reconstruction data not found for ${reconstruction.id} (${subjectId}-${neuronLabel})`);
@@ -572,10 +615,21 @@ async function loadSpecimenReconstruction(reconstruction: Reconstruction, subjec
     return false;
 }
 
-async function loadAtlasReconstruction(reconstruction: Reconstruction, subjectId: string, neuronLabel: string, targetStatus: ReconstructionStatus, proofreader: User): Promise<boolean> {
+async function loadAtlasReconstruction(reconstruction: Reconstruction, subjectId: string, neuronLabel: string, approve: boolean, proofreader: User): Promise<boolean> {
     const filePrefix = `${neuronLabel}-${subjectId}`;
 
     try {
+        const existingAtlasReconstruction = await reconstruction.getAtlasReconstruction();
+
+        if (existingAtlasReconstruction?.nodeCounts) {
+            debug(`\tatlas reconstruction data already present for ${reconstruction.id} (${subjectId}-${neuronLabel}) - not replaced`);
+            return false;
+        }
+
+        if (!uploadAdmitted(reconstruction, ReconstructionSpace.Atlas, subjectId, neuronLabel)) {
+            return false;
+        }
+
         if (!(await reconstructionDirectoryExists(reconstructionLocation, subjectId))) {
             return false;
         }
@@ -583,11 +637,11 @@ async function loadAtlasReconstruction(reconstruction: Reconstruction, subjectId
         const jsonPath = await findAtlasReconstructionFile(reconstructionLocation, subjectId, filePrefix);
 
         if (jsonPath) {
-            debug(`\tupdating or adding atlas reconstruction data for ${reconstruction.id} (${subjectId}-${neuronLabel})`)
+            debug(`\tadding atlas reconstruction data for ${reconstruction.id} (${subjectId}-${neuronLabel})`)
             try {
                 await Reconstruction.fromSwcFile(proofreader ?? User.SystemAutomationUser, reconstruction.id, jsonPath, ReconstructionSpace.Atlas, User.SystemAutomationUser);
 
-                if (targetStatus == ReconstructionStatus.Approved) {
+                if (approve) {
                     // Caught here rather than by the enclosing catch, which reports the failure as a parse error.
                     try {
                         reconstruction = await Reconstruction.approveReconstruction(reconstruction.id, ReconstructionStatus.Approved, proofreader ?? User.SystemAutomationUser, User.SystemAutomationUser, true);
@@ -605,22 +659,16 @@ async function loadAtlasReconstruction(reconstruction: Reconstruction, subjectId
                 debug(`\t---`);
             }
         } else {
-            const existingAtlasReconstruction = await reconstruction.getAtlasReconstruction();
+            atlasReconstructionNotFound.push({
+                subject: subjectId,
+                neuron: neuronLabel,
+                status: reconstruction.status
+            });
 
-            if (existingAtlasReconstruction?.nodeCounts) {
-                debug(`\tatlas reconstruction data file not found, but data already present for ${reconstruction.id} (${subjectId}-${neuronLabel})`);
+            if (reconstruction.status == ReconstructionStatus.Approved) {
+                debug(`\t---> expected atlas reconstruction data not found for ${reconstruction.id} (${subjectId}-${neuronLabel})`);
             } else {
-                atlasReconstructionNotFound.push({
-                    subject: subjectId,
-                    neuron: neuronLabel,
-                    status: reconstruction.status
-                });
-
-                if (reconstruction.status == ReconstructionStatus.Approved) {
-                    debug(`\t---> expected atlas reconstruction data not found for ${reconstruction.id} (${subjectId}-${neuronLabel})`);
-                } else {
-                    debug(`\t---> failed to find atlas reconstruction data for unexpected status: ${reconstruction.status} for: ${reconstruction.id} (${subjectId}-${neuronLabel})`);
-                }
+                debug(`\t---> failed to find atlas reconstruction data for unexpected status: ${reconstruction.status} for: ${reconstruction.id} (${subjectId}-${neuronLabel})`);
             }
         }
     } catch (err) {
