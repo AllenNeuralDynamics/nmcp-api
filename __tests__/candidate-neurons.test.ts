@@ -60,8 +60,8 @@ describe("getCandidateNeurons blocking statuses", () => {
 });
 
 describe("getCandidateNeurons results", () => {
-    // The rows F5 was losing neurons to: a paused or archived attempt no longer holds its neuron.
-    test.each([ReconstructionStatus.OnHold, ReconstructionStatus.Archived])(
+    // The rows F5 was losing neurons to: a held or archived attempt no longer holds its neuron.
+    test.each([ReconstructionStatus.OnHold, ReconstructionStatus.Incomplete, ReconstructionStatus.Duplicate, ReconstructionStatus.Archived])(
         "a neuron whose only row is %s is a candidate either way",
         async (status: number) => {
             for (const includeInProgress of [false, true]) {

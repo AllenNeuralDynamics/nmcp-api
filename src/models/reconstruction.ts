@@ -47,8 +47,8 @@ import {PortalAnnotationSpace, PortalNode, PortalReconstruction} from "../io/por
 const debug = require("debug")("nmcp:nmcp-api:reconstruction");
 
 /**
- * Statuses that no longer count as an open annotation when enforcing the single-annotation limit.  Anything not
- * listed here holds the annotator's one slot.  Revise this list if other statuses should stop counting.
+ * Statuses at which a reconstruction is closed: findOrOpenReconstruction prefers any row outside them as the
+ * annotator's open attempt, and they are the base of AnnotationLimitExemptStatuses.
  */
 export const ClosedReconstructionStatuses: ReconstructionStatus[] = [
     ReconstructionStatus.Rejected,
@@ -56,6 +56,18 @@ export const ClosedReconstructionStatuses: ReconstructionStatus[] = [
     ReconstructionStatus.Archived,
     ReconstructionStatus.Untraceable,
     ReconstructionStatus.Discarded
+];
+
+/**
+ * Statuses that do not count as an open annotation when enforcing the single-annotation limit.  Anything not listed
+ * here holds the annotator's one slot.  Incomplete and Duplicate are an annotator's notation on work set aside, so they
+ * free the slot without closing the reconstruction - findOrOpenReconstruction still treats them as open.  Revise this
+ * list, not ClosedReconstructionStatuses, if other statuses should stop counting.
+ */
+export const AnnotationLimitExemptStatuses: ReconstructionStatus[] = [
+    ...ClosedReconstructionStatuses,
+    ReconstructionStatus.Incomplete,
+    ReconstructionStatus.Duplicate
 ];
 
 // The most reconstructions one publishAll call will attempt.  ALL takes the oldest 50 and the caller repeats; an
@@ -82,13 +94,15 @@ export class PublishRefusalError extends GraphQLError {
 export const UntraceableSourceStatuses: ReconstructionStatus[] = [
     ReconstructionStatus.InProgress,
     ReconstructionStatus.OnHold,
+    ReconstructionStatus.Incomplete,
+    ReconstructionStatus.Duplicate,
     ReconstructionStatus.Rejected
 ];
 
 /**
  * Source statuses a review may be requested from, for any review target.  Rejected is InProgress with changes
- * having been asked for and carries the same rights.  OnHold is absent: a paused reconstruction resumes first.  Once
- * in the review pipeline a reconstruction advances by approval, so no review status is a source.
+ * having been asked for and carries the same rights.  No hold status - OnHold, Incomplete or Duplicate - is a source:
+ * a held reconstruction resumes first.  Once in the review pipeline a reconstruction advances by approval, so no review status is a source.
  */
 export const ReviewRequestSourceStatuses: ReconstructionStatus[] = [
     ReconstructionStatus.InProgress,
@@ -96,13 +110,25 @@ export const ReviewRequestSourceStatuses: ReconstructionStatus[] = [
 ];
 
 /**
- * Source statuses a reconstruction may be paused from.  A review someone else is performing, or work already queued
- * behind an approval, is not the annotator's to suspend.  Membership is the same as ReviewRequestSourceStatuses
- * today, but the two are separate rules: a change to one is not a change to the other.
+ * Source statuses a reconstruction may be put on hold from - paused, or marked incomplete or a duplicate.  A review
+ * someone else is performing, or work already queued behind an approval, is not the annotator's to suspend.
+ * Membership is the same as ReviewRequestSourceStatuses today, but the two are separate rules: a change to one is not
+ * a change to the other.
  */
 export const PausableSourceStatuses: ReconstructionStatus[] = [
     ReconstructionStatus.InProgress,
     ReconstructionStatus.Rejected
+];
+
+/**
+ * Source statuses resumeReconstruction returns to InProgress: every hold.  A hold is left only this way - there is no
+ * move from one hold to another - and the import tools rely on that: importMayTransition treats a reconstruction at
+ * any of these as out of the import's reach, and applies one only to a reconstruction the run created.
+ */
+export const ResumableSourceStatuses: ReconstructionStatus[] = [
+    ReconstructionStatus.OnHold,
+    ReconstructionStatus.Incomplete,
+    ReconstructionStatus.Duplicate
 ];
 
 /**
@@ -111,6 +137,8 @@ export const PausableSourceStatuses: ReconstructionStatus[] = [
 export const DiscardableSourceStatuses: ReconstructionStatus[] = [
     ReconstructionStatus.InProgress,
     ReconstructionStatus.OnHold,
+    ReconstructionStatus.Incomplete,
+    ReconstructionStatus.Duplicate,
     ReconstructionStatus.Rejected
 ];
 
@@ -161,8 +189,8 @@ export const PublishedCandidateBlockingStatuses: ReconstructionStatus[] = [
 
 /**
  * Reconstruction statuses that hold a neuron out of the candidate pool when live work counts as well (the default).
- * OnHold and Archived are absent deliberately: a paused reconstruction releases its neuron, and an archived one is
- * not a live published version.  Untraceable and Discarded are absent because those rows are soft-deleted and never
+ * OnHold, Incomplete, Duplicate and Archived are absent deliberately: a held reconstruction releases its neuron - a hold
+ * is the annotator's notation, not a verdict on the neuron - and an archived one is not a live published version.  Untraceable and Discarded are absent because those rows are soft-deleted and never
  * reach the query; Neuron.untraceable is what surfaces them.
  */
 export const CandidateBlockingStatuses: ReconstructionStatus[] = [
@@ -230,6 +258,12 @@ export enum ReconstructionRevisionKind {
     SpecimenSpace = 0,
     AtlasSpace = 1
 }
+
+type HoldTransition = {
+    status: ReconstructionStatus;
+    eventKind: EventLogItemKind;
+    refusal: (currentStatusName: string) => string;
+};
 
 class UploadError extends Error {
     public constructor(message: string) {
@@ -642,7 +676,7 @@ export class Reconstruction extends BaseModel {
                 const openCount = await Reconstruction.count({
                     where: {
                         annotatorId: user.id,
-                        status: {[Op.notIn]: ClosedReconstructionStatuses}
+                        status: {[Op.notIn]: AnnotationLimitExemptStatuses}
                     }, transaction: t
                 });
 
@@ -698,10 +732,35 @@ export class Reconstruction extends BaseModel {
         return [reconstruction, user];
     }
 
-    // TODO When the SmartSheet import is no longer required, remove disregardAuth and don't allow the possibility of
-    //  overriding.  The import reconciles against an external source of truth and pauses on behalf of annotators who
-    //  hold no portal permission; the source-status rule below applies to it exactly as it does to the portal.
     public static async pauseReconstruction(id: string, userOrId: User | string, substituteUser: User = null, disregardAuth: boolean = false): Promise<Reconstruction> {
+        return Reconstruction.holdReconstruction(id, userOrId, {
+            status: ReconstructionStatus.OnHold,
+            eventKind: EventLogItemKind.ReconstructionPause,
+            refusal: statusName => `Cannot pause a reconstruction with status ${statusName}.`
+        }, substituteUser, disregardAuth);
+    }
+
+    public static async markIncomplete(id: string, userOrId: User | string, substituteUser: User = null, disregardAuth: boolean = false): Promise<Reconstruction> {
+        return Reconstruction.holdReconstruction(id, userOrId, {
+            status: ReconstructionStatus.Incomplete,
+            eventKind: EventLogItemKind.ReconstructionIncomplete,
+            refusal: statusName => `Cannot mark a reconstruction with status ${statusName} as incomplete.`
+        }, substituteUser, disregardAuth);
+    }
+
+    public static async markDuplicate(id: string, userOrId: User | string, substituteUser: User = null, disregardAuth: boolean = false): Promise<Reconstruction> {
+        return Reconstruction.holdReconstruction(id, userOrId, {
+            status: ReconstructionStatus.Duplicate,
+            eventKind: EventLogItemKind.ReconstructionDuplicate,
+            refusal: statusName => `Cannot mark a reconstruction with status ${statusName} as a duplicate.`
+        }, substituteUser, disregardAuth);
+    }
+
+    // TODO When the SmartSheet import is no longer required, remove disregardAuth and don't allow the possibility of
+    //  overriding.  The import reconciles against an external source of truth and holds reconstructions on behalf of
+    //  annotators who hold no portal permission; the source-status rule below applies to it exactly as it does to the
+    //  portal.
+    private static async holdReconstruction(id: string, userOrId: User | string, transition: HoldTransition, substituteUser: User, disregardAuth: boolean): Promise<Reconstruction> {
         const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(id, userOrId);
 
         if (!disregardAuth) {
@@ -711,19 +770,20 @@ export class Reconstruction extends BaseModel {
         }
 
         // Unconditional: disregardAuth buys the import tools out of the permission, never out of the state rule.  A
-        // reconstruction already in review or in the pipeline is not the annotator's - or an import's - to suspend.
+        // reconstruction already in review or in the pipeline is not the annotator's - or an import's - to suspend, and
+        // one already held resumes before it is held differently.
         if (!PausableSourceStatuses.includes(reconstruction.status)) {
-            throw new Error(`Cannot pause a reconstruction with status ${ReconstructionStatus[reconstruction.status]}.`);
+            throw new Error(transition.refusal(ReconstructionStatus[reconstruction.status]));
         }
 
-        return await this.sequelize.transaction(async (t) => {
-            const update = {status: ReconstructionStatus.OnHold};
+        return await this.sequelize.transaction(async (transaction) => {
+            const update = {status: transition.status};
 
-            const r = await reconstruction.update(update, {transaction: t});
+            const updated = await reconstruction.update(update, {transaction: transaction});
 
-            await r.recordEvent(EventLogItemKind.ReconstructionPause, update, user, t, substituteUser);
+            await updated.recordEvent(transition.eventKind, update, user, transaction, substituteUser);
 
-            return r;
+            return updated;
         });
     }
 
@@ -734,7 +794,7 @@ export class Reconstruction extends BaseModel {
             throw new UnauthorizedError();
         }
 
-        if (reconstruction.status != ReconstructionStatus.OnHold) {
+        if (!ResumableSourceStatuses.includes(reconstruction.status)) {
             throw new Error(`Cannot resume a reconstruction with status ${ReconstructionStatus[reconstruction.status]}.`);
         }
 

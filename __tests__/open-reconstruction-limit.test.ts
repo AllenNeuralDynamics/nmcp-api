@@ -4,7 +4,7 @@ import {expect, test, vi, describe, afterEach} from "vitest";
 // different module instance than the CJS one openReconstruction calls into, so the spies would not apply.
 const {Op, Transaction} = require("sequelize");
 const {User, UserPermissions} = require("../src/models/user");
-const {Reconstruction, ClosedReconstructionStatuses} = require("../src/models/reconstruction");
+const {Reconstruction, AnnotationLimitExemptStatuses} = require("../src/models/reconstruction");
 const {AtlasReconstruction} = require("../src/models/atlasReconstruction");
 
 // A non-null transaction argument keeps ownTransaction false, so the method never touches
@@ -100,7 +100,7 @@ describe("openReconstruction with a supplied transaction", () => {
         expect(stubs.createWithTransaction).toHaveBeenCalledTimes(1);
     });
 
-    test("counts the annotator's non-closed reconstructions on the transaction", async () => {
+    test("counts the annotator's reconstructions outside the limit-exempt statuses", async () => {
         const stubs = stub(annotator(UserPermissions.AnnotateOne), {existing: null, openCount: 0});
 
         await Reconstruction.openReconstruction("neuron-1", "annotator-1", transaction);
@@ -108,7 +108,7 @@ describe("openReconstruction with a supplied transaction", () => {
         const options = stubs.count.mock.calls[0][0];
 
         expect(options.where.annotatorId).toBe("annotator-1");
-        expect(options.where.status[Op.notIn]).toBe(ClosedReconstructionStatuses);
+        expect(options.where.status[Op.notIn]).toBe(AnnotationLimitExemptStatuses);
         expect(options.transaction).toBe(transaction);
     });
 

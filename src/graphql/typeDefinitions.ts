@@ -160,7 +160,12 @@ user is a no-op, returning null."""
         """Opens a new reconstruction for the neuron.  Errors with code 1002 if the user is limited to a single open annotation and already has one."""
         openReconstruction(neuronId: String!): Reconstruction
         pauseReconstruction(reconstructionId: String!): Reconstruction
+        """Returns a reconstruction at OnHold, Incomplete or Duplicate to InProgress."""
         resumeReconstruction(reconstructionId: String!): Reconstruction
+        """Holds the reconstruction as Incomplete.  Admissible from InProgress or Rejected; left only by resumeReconstruction."""
+        markReconstructionIncomplete(reconstructionId: String!): Reconstruction
+        """Holds the reconstruction as Duplicate.  Admissible from InProgress or Rejected; left only by resumeReconstruction."""
+        markReconstructionDuplicate(reconstructionId: String!): Reconstruction
         requestReview(reconstructionId: String!, targetStatus: Int!, duration: Float, notes: String): Reconstruction
         """Errors with code 1005 when approving publish review before the atlas reconstruction data has been uploaded."""
         approveReconstruction(reconstructionId: String!, targetStatus: Int!): Reconstruction

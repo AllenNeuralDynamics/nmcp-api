@@ -216,6 +216,14 @@ export const secureResolvers = {
             return Reconstruction.resumeReconstruction(args.reconstructionId, user);
         },
 
+        markReconstructionIncomplete(_: any, args: { reconstructionId: string }, user: User): Promise<Reconstruction> {
+            return Reconstruction.markIncomplete(args.reconstructionId, user);
+        },
+
+        markReconstructionDuplicate(_: any, args: { reconstructionId: string }, user: User): Promise<Reconstruction> {
+            return Reconstruction.markDuplicate(args.reconstructionId, user);
+        },
+
         requestReview(_: any, args: ReviewRequestArgs, user: User): Promise<Reconstruction> {
             return Reconstruction.requestReview(args, user);
         },
