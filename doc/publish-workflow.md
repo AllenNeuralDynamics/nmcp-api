@@ -1078,7 +1078,9 @@ raising one as a finding means disputing the decision rather than reporting a de
    after the target is resolved, so a rejected value cannot be used to tell a system user from an id that names
    nobody, and outside the `try` whose `catch` would otherwise swallow it. `ApiKey.createApiKey`
    (`src/models/apiKey.ts:67`) applies the same shape of test with the same code against the narrower
-   `ApiKeyPermissionsAll` (`src/models/user.ts:52`), so no key can reach `InternalAccess` either. `verifySystemUser`
+   `apiKeyPermissionsAll(owner)` (`src/models/user.ts:63`) — the owner's annotation variant of the full set (single
+   when it holds `AnnotateOne`, multiple otherwise) less `Admin` — so no key can reach `InternalAccess` either.
+   `verifySystemUser`
    seeds the three system users directly and does not come through either path, so `InternalAccess` and
    `InternalSystem` stay where they were intended.
 
@@ -1090,7 +1092,7 @@ raising one as a finding means disputing the decision rather than reporting a de
    (`src/models/apiKey.ts:31`) resolves the owning user and returns a per-request view of it carrying the key's stored
    `permissions` (`User.withKeyPermissions`, `src/models/user.ts:555`), so every `can…` predicate answers off the key.
    There is no intersection with what the owner holds now and no fallback to it: the key is the credential. The
-   default at creation mirrors the owner's permissions masked with `ApiKeyPermissionsAll`, so an account holding
+   default at creation mirrors the owner's permissions masked with `apiKeyPermissionsAll`, so an account holding
    `Admin` and nothing else mints an empty key — the rule working rather than failing, since admin power is not
    delegable to something a script holds unattended. A key therefore cannot mint another key, `createApiKey` being
    admin-only.

@@ -2,7 +2,7 @@ import {expect, test, describe, vi, afterEach} from "vitest";
 
 // Use require() to get the CJS module instance the compiled sources use (a plain ESM import yields a separate
 // instance under vitest).
-const {User, UserPermissions, UserPermissionsAll} = require("../src/models/user");
+const {User, UserPermissions, UserPermissionsAll, UserPermissionsMultipleAnnotationsAll, UserPermissionsSingleAnnotationAll} = require("../src/models/user");
 const {DiscardableSourceStatuses, AdminDiscardableSourceStatuses} = require("../src/models/reconstruction");
 const {ReconstructionStatus} = require("../src/models/reconstructionStatus");
 const {AbandonableFailureStatuses, AtlasReconstructionStatus} = require("../src/models/atlasReconstructionStatus");
@@ -509,6 +509,13 @@ describe("permission bit values", () => {
         expect(UserPermissions.AnnotateMany).toBe(0x02);
         expect(UserPermissions.TeamReview).toBe(0x400);
         expect(UserPermissionsAll).toBe(5907);
+        expect(UserPermissionsMultipleAnnotationsAll).toBe(5906);
+        expect(UserPermissionsSingleAnnotationAll).toBe(5905);
+    });
+
+    test("each annotation variant is the full set without the other annotation bit", () => {
+        expect(UserPermissionsMultipleAnnotationsAll).toBe(UserPermissionsAll & ~UserPermissions.AnnotateOne);
+        expect(UserPermissionsSingleAnnotationAll).toBe(UserPermissionsAll & ~UserPermissions.AnnotateMany);
     });
 });
 
