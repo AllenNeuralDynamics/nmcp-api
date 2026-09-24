@@ -4,7 +4,7 @@ import {createHash} from "crypto";
 import {GraphQLError} from "graphql/error";
 
 import {BaseModel} from "./baseModel";
-import {ApiKeyPermissionsAll, User} from "./user";
+import {apiKeyPermissionsAll, User} from "./user";
 import {ApiKeyTableName} from "./tableNames";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {ServiceOptions} from "../options/serviceOptions";
@@ -66,12 +66,14 @@ export class ApiKey extends BaseModel {
 
     public static async createApiKey(userOrId: User | string, sourceKey: string, description?: string, durationDays?: number, permissions?: number): Promise<ApiKey> {
         const user = await User.findUserOrId(userOrId);
+        const keyPermissionsAll = apiKeyPermissionsAll(user.permissions);
 
         // Before the transaction opens, and the same shape of test User.updatePermissions applies to a user: the mask
-        // refuses any bit outside what a key may hold - admin and the internal bits alike - and the range test closes
-        // the int32 wrap that would otherwise let a value at or above 2^31 through it.
+        // refuses any bit outside what a key for this owner may hold - admin, the internal bits and the other annotation
+        // variant alike - and the range test closes the int32 wrap that would otherwise let a value at or above 2^31
+        // through it.
         if (permissions !== undefined && permissions !== null
-            && (!Number.isInteger(permissions) || permissions < 0 || permissions > ApiKeyPermissionsAll || (permissions & ~ApiKeyPermissionsAll) !== 0)) {
+            && (!Number.isInteger(permissions) || permissions < 0 || permissions > keyPermissionsAll || (permissions & ~keyPermissionsAll) !== 0)) {
             throw new GraphQLError("That permissions value includes bits an API key cannot hold.", {extensions: {code: 1006}});
         }
 
@@ -86,7 +88,7 @@ export class ApiKey extends BaseModel {
                 userId: user.id,
                 // The owner's permissions minus anything a key may not carry.  An account holding Admin and nothing
                 // else therefore mints an empty key, which is the rule working rather than failing.
-                permissions: permissions ?? (user.permissions & ApiKeyPermissionsAll),
+                permissions: permissions ?? (user.permissions & keyPermissionsAll),
                 description,
                 expiration,
                 key: keyHash

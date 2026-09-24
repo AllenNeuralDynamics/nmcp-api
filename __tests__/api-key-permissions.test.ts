@@ -2,7 +2,7 @@ import {expect, test, vi, describe, afterEach} from "vitest";
 
 // require() rather than import: the .ts sources are compiled to .js in place, and an ESM import yields a
 // different module instance than the CJS one the model methods call into, so the spies would not apply.
-const {User, UserPermissions, UserPermissionsAll, ApiKeyPermissionsAll} = require("../src/models/user");
+const {User, UserPermissions, UserPermissionsAll, UserPermissionsMultipleAnnotationsAll, UserPermissionsSingleAnnotationAll, apiKeyPermissionsAll} = require("../src/models/user");
 const {ApiKey} = require("../src/models/apiKey");
 const {EventLogItem} = require("../src/models/eventLogItem");
 
@@ -33,12 +33,19 @@ afterEach(() => {
     delete (ApiKey as any).sequelize;
 });
 
-describe("ApiKeyPermissionsAll", () => {
-    // The whole point of the constant: a key is used unattended by a script and outlives the session that minted it.
-    test("is the ordinary-user set without the admin bits", () => {
-        expect(ApiKeyPermissionsAll & UserPermissions.Admin).toBe(0);
-        expect(ApiKeyPermissionsAll & UserPermissions.InternalAccess).toBe(0);
-        expect(ApiKeyPermissionsAll).toBe(UserPermissionsAll & ~UserPermissions.AdminAll);
+describe("apiKeyPermissionsAll", () => {
+    // The whole point of the mask: a key is used unattended by a script and outlives the session that minted it.
+    test.each([
+        ["a multiple-annotation owner", UserPermissions.AnnotateMany, UserPermissionsMultipleAnnotationsAll],
+        ["an owner with no annotation bit", UserPermissions.PeerReview, UserPermissionsMultipleAnnotationsAll],
+        ["a single-annotation owner", UserPermissions.AnnotateOne, UserPermissionsSingleAnnotationAll],
+        ["an owner holding both annotation bits", UserPermissions.AnnotateOne | UserPermissions.AnnotateMany, UserPermissionsSingleAnnotationAll]
+    ])("for %s is that annotation variant without the admin bits", (_label: string, ownerPermissions: number, annotationAll: number) => {
+        const mask = apiKeyPermissionsAll(ownerPermissions);
+
+        expect(mask & UserPermissions.Admin).toBe(0);
+        expect(mask & UserPermissions.InternalAccess).toBe(0);
+        expect(mask).toBe(annotationAll & ~UserPermissions.AdminAll);
     });
 });
 
@@ -61,6 +68,36 @@ describe("createApiKey permissions", () => {
         expect((create.mock.calls[0][0] as any).permissions).toBe(UserPermissions.None);
     });
 
+    test("defaults a single-annotation owner's key to keep AnnotateOne", async () => {
+        const create = stubCreation(userWith(UserPermissions.AnnotateOne | UserPermissions.PeerReview));
+
+        await ApiKey.createApiKey("user-1", "source-key");
+
+        expect((create.mock.calls[0][0] as any).permissions).toBe(UserPermissions.AnnotateOne | UserPermissions.PeerReview);
+    });
+
+    test("defaults an owner holding both annotation bits to the single-annotation variant", async () => {
+        const create = stubCreation(userWith(UserPermissions.AnnotateOne | UserPermissions.AnnotateMany | UserPermissions.PeerReview));
+
+        await ApiKey.createApiKey("user-1", "source-key");
+
+        expect((create.mock.calls[0][0] as any).permissions).toBe(UserPermissions.AnnotateOne | UserPermissions.PeerReview);
+    });
+
+    test.each([
+        ["AnnotateMany for a single-annotation owner", UserPermissions.AnnotateOne, UserPermissions.AnnotateMany],
+        ["AnnotateMany for an owner holding both annotation bits", UserPermissions.AnnotateOne | UserPermissions.AnnotateMany, UserPermissions.AnnotateMany],
+        ["AnnotateOne for a multiple-annotation owner", UserPermissions.AnnotateMany, UserPermissions.AnnotateOne]
+    ])("refuses %s with code 1006", async (_label: string, ownerPermissions: number, permissions: number) => {
+        const create = stubCreation(userWith(ownerPermissions));
+
+        await expect(ApiKey.createApiKey("user-1", "source-key", null, null, permissions)).rejects.toMatchObject({
+            extensions: {code: 1006}
+        });
+
+        expect(create).not.toHaveBeenCalled();
+    });
+
     test("stores an explicit in-range value verbatim", async () => {
         const create = stubCreation(userWith(UserPermissionsAll));
 
@@ -79,7 +116,7 @@ describe("createApiKey permissions", () => {
         ["a non-integer", 1.5],
         ["a value above the mask, which would wrap an int32", 2 ** 31]
     ])("refuses %s with code 1006, before the transaction opens", async (_label: string, permissions: number) => {
-        const create = stubCreation(userWith(UserPermissionsAll));
+        const create = stubCreation(userWith(UserPermissionsMultipleAnnotationsAll));
 
         await expect(ApiKey.createApiKey("user-1", "source-key", null, null, permissions)).rejects.toMatchObject({
             message: "That permissions value includes bits an API key cannot hold.",

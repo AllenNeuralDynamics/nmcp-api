@@ -40,16 +40,31 @@ export enum UserPermissions {
     InternalSystem = 0xFFFFFFF
 }
 
-// All 5907
+// All (multiple annotations): 5906
+// All (single annotation): 5905
 
 export const UserPermissionsAll = UserPermissions.AnnotateOne | UserPermissions.AnnotateMany | UserPermissions.EditAll | UserPermissions.ReviewAll | UserPermissions.AdminAll;
 
 /**
- * Everything an API key may carry: the ordinary-user set with the admin bits removed.  Admin power is not delegable to
- * a credential - a key is used by a script, unattended, and outlives the session that minted it.  The internal bits are
- * already outside UserPermissionsAll and so are outside this too.
+ * UserPermissionsAll is every bit an ordinary account may hold, but AnnotateOne and AnnotateMany are mutually
+ * exclusive, so no single account holds all of it.  This is the fullest set one account can actually hold.
  */
-export const ApiKeyPermissionsAll = UserPermissionsAll & ~UserPermissions.AdminAll;
+export const UserPermissionsMultipleAnnotationsAll = UserPermissions.AnnotateMany | UserPermissions.EditAll | UserPermissions.ReviewAll | UserPermissions.AdminAll;
+
+export const UserPermissionsSingleAnnotationAll = UserPermissions.AnnotateOne | UserPermissions.EditAll | UserPermissions.ReviewAll | UserPermissions.AdminAll;
+
+/**
+ * Everything an API key minted for this owner may carry: the owner's annotation variant of the full set, with the admin
+ * bits removed.  Admin power is not delegable to a credential - a key is used by a script, unattended, and outlives the
+ * session that minted it.  The internal bits are outside both variants and so are outside this too.
+ *
+ * An owner holding both annotation bits by accident gets the single-annotation variant, the narrower of the two.
+ */
+export function apiKeyPermissionsAll(ownerPermissions: number): number {
+    const annotationAll = (ownerPermissions & UserPermissions.AnnotateOne) !== 0 ? UserPermissionsSingleAnnotationAll : UserPermissionsMultipleAnnotationsAll;
+
+    return annotationAll & ~UserPermissions.AdminAll;
+}
 
 /**
  * The source statuses an upload may arrive at, per space, and the review bit each one requires.  A status absent for a
