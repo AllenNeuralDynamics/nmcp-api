@@ -360,6 +360,21 @@ describe("canUploadReconstructionData", () => {
                 .canUploadReconstructionData(ReconstructionSpace.Atlas, status)).toBe(false);
         });
 
+    test.each([
+        [ReconstructionSpace.Specimen, UserPermissions.Admin, true],
+        [ReconstructionSpace.Specimen, UserPermissions.PeerReview, true],
+        [ReconstructionSpace.Specimen, UserPermissions.TeamReview, true],
+        [ReconstructionSpace.Specimen, UserPermissions.PublishReview, true],
+        [ReconstructionSpace.Specimen, UserPermissions.AnnotateMany | UserPermissions.Edit, false],
+        [ReconstructionSpace.Atlas, UserPermissions.Admin, true],
+        [ReconstructionSpace.Atlas, UserPermissions.TeamReview, true],
+        [ReconstructionSpace.Atlas, UserPermissions.PublishReview, true],
+        [ReconstructionSpace.Atlas, UserPermissions.PeerReview, false],
+        [ReconstructionSpace.Atlas, UserPermissions.AnnotateOne, false]
+    ])("canUploadReconstructionDataInSpace(%i) for permissions %i is %s", (space: number, permissions: number, expected: boolean) => {
+        expect(userWithPermissions(permissions).canUploadReconstructionDataInSpace(space)).toBe(expected);
+    });
+
     test("atlas space denies a peer reviewer and an annotator", () => {
         expect(userWithPermissions(UserPermissions.PeerReview)
             .canUploadReconstructionData(ReconstructionSpace.Atlas, ReconstructionStatus.PublishReview)).toBe(false);

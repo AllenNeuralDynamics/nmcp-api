@@ -271,6 +271,29 @@ class UploadError extends Error {
     }
 }
 
+/**
+ * The upload gate, for the eager check and the locked re-check alike.  The order is the point: a caller who could not
+ * upload in this space at any status is refused as unauthorized before the status is looked at, so the refusal does not
+ * disclose where the reconstruction is; one who could is told the status is the problem (code 1009) rather than handed
+ * the same 401, which read as a permissions fault to an admin.  disregardAuth skips both permission tests and keeps the
+ * status test.
+ */
+function assertUploadAllowed(user: User, space: ReconstructionSpace, status: ReconstructionStatus, disregardAuth: boolean = false): void {
+    if (!disregardAuth && !user.canUploadReconstructionDataInSpace(space)) {
+        throw new UnauthorizedError();
+    }
+
+    if (!UploadSourceStatuses.get(space)?.has(status)) {
+        const spaceName = space == ReconstructionSpace.Atlas ? "atlas-space" : "specimen-space";
+
+        throw new GraphQLError(`Uploading the ${spaceName} reconstruction is not allowed while in ${ReconstructionStatus[status]}.`, {extensions: {code: 1009}});
+    }
+
+    if (!disregardAuth && !user.canUploadReconstructionData(space, status)) {
+        throw new UnauthorizedError();
+    }
+}
+
 class NotFoundError extends Error {
     public constructor(message: string) {
         super(message);
@@ -1320,9 +1343,7 @@ export class Reconstruction extends BaseModel {
 
         const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(args.reconstructionId, userOrId);
 
-        if (!user.canUploadReconstructionData(args.reconstructionSpace, reconstruction.status)) {
-            throw new UnauthorizedError();
-        }
+        assertUploadAllowed(user, args.reconstructionSpace, reconstruction.status);
 
         const file: any = await args.file;
 
@@ -1350,9 +1371,7 @@ export class Reconstruction extends BaseModel {
 
         const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(args.reconstructionId, userOrId);
 
-        if (!user.canUploadReconstructionData(args.reconstructionSpace, reconstruction.status)) {
-            throw new UnauthorizedError();
-        }
+        assertUploadAllowed(user, args.reconstructionSpace, reconstruction.status);
 
         const file: any = await args.file;
 
@@ -1569,13 +1588,7 @@ export class Reconstruction extends BaseModel {
                 // Re-checked under the lock.  The caller's check ran before the file was parsed, which is the slow
                 // part - an approval can easily have committed in between, and both the status and who is allowed to
                 // write at that status change with it.
-                if (!UploadSourceStatuses.get(space)?.has(locked.status)) {
-                    throw new Error("The reconstruction data can not be modified when not in peer, team or publish review");
-                }
-
-                if (!disregardAuth && !user.canUploadReconstructionData(space, locked.status)) {
-                    throw new UnauthorizedError();
-                }
+                assertUploadAllowed(user, space, locked.status, disregardAuth);
 
                 const updated = await locked.replaceNodeData(user, reconstructionData, t);
 
@@ -1611,13 +1624,7 @@ export class Reconstruction extends BaseModel {
             // Approved is gone as a source: the approval now requires the data, so an upload arriving after one has
             // committed is a lost race, not a deferred step, and replaceNodeData would otherwise rewind the child out
             // of the pipeline and strand the parent at WaitingForAtlasReconstruction.
-            if (!UploadSourceStatuses.get(space)?.has(locked.status)) {
-                throw new Error("The reconstruction data can not be modified when not in team or publish review");
-            }
-
-            if (!disregardAuth && !user.canUploadReconstructionData(space, locked.status)) {
-                throw new UnauthorizedError();
-            }
+            assertUploadAllowed(user, space, locked.status, disregardAuth);
 
             await atlasReconstruction.replaceNodeData(user, reconstructionData, t);
 

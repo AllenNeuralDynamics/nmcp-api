@@ -118,7 +118,7 @@ describe("fromParsedStructures in specimen space", () => {
             const stubs = specimenStubs(status);
 
             await expect(stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.Admin), ReconstructionSpace.Specimen, reconstructionData()))
-                .rejects.toThrow(/not in peer, team or publish review/);
+                .rejects.toMatchObject({message: expect.stringMatching(/^Uploading the specimen-space reconstruction is not allowed while in /), extensions: {code: 1009}});
 
             expect((Reconstruction.prototype as any).replaceNodeData).not.toHaveBeenCalled();
         });
@@ -152,6 +152,21 @@ describe("fromParsedStructures in specimen space", () => {
         expect((Reconstruction.prototype as any).replaceNodeData).not.toHaveBeenCalled();
     });
 
+    test("names the status to a reviewer at a status that is not an upload source", async () => {
+        const stubs = specimenStubs(ReconstructionStatus.Approved);
+
+        await expect(stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.PeerReview), ReconstructionSpace.Specimen, reconstructionData()))
+            .rejects.toMatchObject({message: "Uploading the specimen-space reconstruction is not allowed while in Approved.", extensions: {code: 1009}});
+    });
+
+    // Refused before the status is looked at, so the refusal does not disclose it.
+    test("refuses a caller who cannot upload in specimen space at any status as unauthorized", async () => {
+        const stubs = specimenStubs(ReconstructionStatus.Approved);
+
+        await expect(stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.AnnotateOne), ReconstructionSpace.Specimen, reconstructionData()))
+            .rejects.toBeInstanceOf(UnauthorizedError);
+    });
+
     test("disregardAuth skips the permission but not the status", async () => {
         const accepted = specimenStubs(ReconstructionStatus.PublishReview);
 
@@ -162,7 +177,7 @@ describe("fromParsedStructures in specimen space", () => {
         const refused = specimenStubs(ReconstructionStatus.Approved);
 
         await expect(refused.reconstruction.fromParsedStructures(userWith(UserPermissions.None), ReconstructionSpace.Specimen, reconstructionData(), null, true))
-            .rejects.toThrow(/not in peer, team or publish review/);
+            .rejects.toMatchObject({message: expect.stringMatching(/^Uploading the specimen-space reconstruction is not allowed while in /), extensions: {code: 1009}});
     });
 });
 
@@ -221,7 +236,7 @@ describe("fromParsedStructures in atlas space", () => {
             const stubs = atlasStubs(status);
 
             await expect(stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.Admin), ReconstructionSpace.Atlas, reconstructionData()))
-                .rejects.toThrow(/not in team or publish review/);
+                .rejects.toMatchObject({message: expect.stringMatching(/^Uploading the atlas-space reconstruction is not allowed while in /), extensions: {code: 1009}});
 
             expect(stubs.atlasReconstruction.replaceNodeData).not.toHaveBeenCalled();
         });
@@ -297,6 +312,22 @@ describe("fromParsedStructures in atlas space", () => {
         expect(stubs.atlasReconstruction.replaceNodeData).not.toHaveBeenCalled();
     });
 
+    test("names the status to an admin and publish reviewer at peer review", async () => {
+        const stubs = atlasStubs(ReconstructionStatus.PeerReview);
+        const user = userWith(UserPermissions.Admin | UserPermissions.PublishReview | UserPermissions.PeerReview);
+
+        await expect(stubs.reconstruction.fromParsedStructures(user, ReconstructionSpace.Atlas, reconstructionData()))
+            .rejects.toMatchObject({message: "Uploading the atlas-space reconstruction is not allowed while in PeerReview.", extensions: {code: 1009}});
+    });
+
+    // PeerReview is a specimen-space upload bit only, so its holder is refused before the status is looked at.
+    test("refuses a peer reviewer at peer review as unauthorized", async () => {
+        const stubs = atlasStubs(ReconstructionStatus.PeerReview);
+
+        await expect(stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.PeerReview), ReconstructionSpace.Atlas, reconstructionData()))
+            .rejects.toBeInstanceOf(UnauthorizedError);
+    });
+
     test("admits a TeamReview-only holder at TeamReview", async () => {
         const stubs = atlasStubs(ReconstructionStatus.TeamReview);
 
@@ -317,9 +348,36 @@ describe("fromParsedStructures in atlas space", () => {
         const refused = atlasStubs(ReconstructionStatus.WaitingForAtlasReconstruction);
 
         await expect(refused.reconstruction.fromParsedStructures(userWith(UserPermissions.None), ReconstructionSpace.Atlas, reconstructionData(), null, true))
-            .rejects.toThrow(/not in team or publish review/);
+            .rejects.toMatchObject({message: expect.stringMatching(/^Uploading the atlas-space reconstruction is not allowed while in /), extensions: {code: 1009}});
 
         expect(refused.atlasReconstruction.replaceNodeData).not.toHaveBeenCalled();
+    });
+});
+
+// The eager check, which refuses before the file is parsed.
+describe.each([
+    ["fromSwcUpload", "fromSwcUpload"],
+    ["fromParquetUpload", "fromParquetUpload"]
+])("%s", (_label: string, method: string) => {
+    function uploadArgs(space: number) {
+        return {reconstructionId: "reconstruction-1", reconstructionSpace: space, file: Promise.resolve({})};
+    }
+
+    test.each([
+        [ReconstructionSpace.Specimen, "specimen-space", ReconstructionStatus.Approved, "Approved"],
+        [ReconstructionSpace.Atlas, "atlas-space", ReconstructionStatus.PeerReview, "PeerReview"]
+    ])("names the status to an admin uploading in space %i", async (space: number, spaceName: string, status: number, statusName: string) => {
+        reconstructionStub(status);
+
+        await expect(Reconstruction[method](userWith(UserPermissions.Admin), uploadArgs(space)))
+            .rejects.toMatchObject({message: `Uploading the ${spaceName} reconstruction is not allowed while in ${statusName}.`, extensions: {code: 1009}});
+    });
+
+    test("refuses a caller with no upload permission in the space as unauthorized, whatever the status", async () => {
+        reconstructionStub(ReconstructionStatus.PeerReview);
+
+        await expect(Reconstruction[method](userWith(UserPermissions.PeerReview), uploadArgs(ReconstructionSpace.Atlas)))
+            .rejects.toBeInstanceOf(UnauthorizedError);
     });
 });
 

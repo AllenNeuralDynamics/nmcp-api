@@ -258,7 +258,7 @@ describe("admissibility lost between the reads", () => {
         });
 
         await expect(stubs.eager.fromParsedStructures(userWith(UserPermissions.PublishReview), ReconstructionSpace.Atlas, reconstructionData()))
-            .rejects.toThrow(/not in team or publish review/);
+            .rejects.toMatchObject({message: expect.stringMatching(/^Uploading the atlas-space reconstruction is not allowed while in /), extensions: {code: 1009}});
 
         expect(stubs.lockedChild.replaceNodeData).not.toHaveBeenCalled();
         expect(stubs.lockedChild.status).toBe(AtlasReconstructionStatus.PendingQualityControl);
@@ -278,7 +278,7 @@ describe("admissibility lost between the reads", () => {
             .mockResolvedValue({requestGeneration: vi.fn().mockResolvedValue(undefined)} as any);
 
         await expect(stubs.eager.fromParsedStructures(userWith(UserPermissions.PublishReview), ReconstructionSpace.Specimen, reconstructionData()))
-            .rejects.toThrow(/not in peer, team or publish review/);
+            .rejects.toMatchObject({message: expect.stringMatching(/^Uploading the specimen-space reconstruction is not allowed while in /), extensions: {code: 1009}});
 
         expect(replaceNodeData).not.toHaveBeenCalled();
         expect(findPrecomputed).not.toHaveBeenCalled();

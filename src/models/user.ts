@@ -529,6 +529,21 @@ export class User extends BaseModel {
     }
 
     /**
+     * Whether this user could upload in the space at some status, without regard to the one the reconstruction is in.
+     * It is what separates a caller who is refused for who they are from one refused only for where the reconstruction
+     * is, so that the status is disclosed to the second and not the first.
+     */
+    public canUploadReconstructionDataInSpace(space: ReconstructionSpace): boolean {
+        const permissions = UploadSourceStatuses.get(space);
+
+        if (permissions === undefined) {
+            return false;
+        }
+
+        return this.isAdmin() || [...permissions.values()].some(permission => (this.permissions & permission) != 0);
+    }
+
+    /**
      * InternalAccess alone, with no admin bypass, for this and the three gates below.  Each either asserts pipeline
      * state on behalf of a service or exposes internal data to one, and an admin standing in for the internal system
      * user is how precomputed generation gets marked complete with no volume behind it.  An admin who needs
