@@ -5,6 +5,7 @@ import {PredicateShape, QueryPredicate} from "./queryPredicate";
 export type SearchContextInput = {
     nonce: string;
     collectionIds: string[];
+    atlasKindIds?: string[];
     predicates: PredicateShape[];
 }
 
@@ -13,6 +14,7 @@ export class SearchContext {
         return {
             nonce: uuid.v4(),
             collectionIds: [],
+            atlasKindIds: [],
             predicates: [QueryPredicate.createDefault()]
         }
     }
@@ -21,6 +23,8 @@ export class SearchContext {
 
     private readonly _collectionIds: string[];
 
+    private readonly _atlasKindIds: string[];
+
     private readonly _predicates: QueryPredicate[];
 
     public constructor(input: SearchContextInput) {
@@ -28,6 +32,7 @@ export class SearchContext {
 
         this._nonce = input.nonce;
         this._collectionIds = input.collectionIds;
+        this._atlasKindIds = input.atlasKindIds ?? [];
         this._predicates = (!input.predicates || input.predicates.length === 0) ? [QueryPredicate.createDefault()] : input.predicates.map(p => new QueryPredicate(p));
     }
 
@@ -37,6 +42,10 @@ export class SearchContext {
 
     public get CollectionIds(): string[] {
         return this._collectionIds;
+    }
+
+    public get AtlasKindIds(): string[] {
+        return this._atlasKindIds;
     }
 
     public get Predicates(): QueryPredicate[] {

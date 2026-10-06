@@ -5,6 +5,8 @@ import {QueryOperator, operators} from "../models/queryOperator";
 import {NearestNodeOutput, AtlasReconstruction} from "../models/atlasReconstruction";
 import {PredicateType} from "../models/queryPredicate";
 import {AtlasStructure, AtlasStructureQueryInput} from "../models/atlasStructure";
+import {Atlas} from "../models/atlas";
+import {AtlasKind} from "../models/atlasKind";
 import {User} from "../models/user";
 import {NodeStructure} from "../models/nodeStructure";
 import {NeuronStructure} from "../models/neuronStructure";
@@ -53,8 +55,16 @@ export const openResolvers = {
             return NeuronStructure.findAll({});
         },
 
-        async atlasStructures(): Promise<AtlasStructure[]> {
-            return AtlasStructure.getAll();
+        atlasKinds(): Promise<AtlasKind[]> {
+            return AtlasKind.getAll();
+        },
+
+        atlases(): Atlas[] {
+            return Atlas.getAll();
+        },
+
+        atlasStructures(_: any, args: { atlasId: string }): Promise<AtlasStructure[]> {
+            return AtlasStructure.getForAtlas(args.atlasId);
         },
 
         atlasStructure(_: any, args: { id: string }): Promise<AtlasStructure> {
@@ -117,6 +127,19 @@ export const openResolvers = {
     Mutation: {
         requestAccess(_: any, args: { request: AccessRequestShape }, user: User): Promise<RequestAccessResponse> {
             return AccessRequest.createRequest(user, args.request);
+        }
+    },
+    AtlasKind: {
+        atlases(atlasKind: AtlasKind): Atlas[] {
+            return Atlas.getForKind(atlasKind.id);
+        }
+    },
+    Atlas: {
+        atlasKind(atlas: Atlas): Promise<AtlasKind> {
+            return atlas.getAtlasKind();
+        },
+        atlasStructures(atlas: Atlas): Promise<AtlasStructure[]> {
+            return AtlasStructure.getForAtlas(atlas.id);
         }
     },
     Injection: {

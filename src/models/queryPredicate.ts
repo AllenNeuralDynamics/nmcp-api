@@ -84,41 +84,40 @@ export class QueryPredicate implements PredicateShape {
         this.idOrDoiPredicate = source.idOrDoiPredicate;
     }
 
-    public createFindOptions(collectionIds: string[]): FindOptions {
+    public createFindOptions(collectionIds: string[], atlasKindIds: string[]): FindOptions {
         switch (this.predicateType) {
             case PredicateType.AnatomicalRegion:
-                return this.createAnatomicalRegionFindOptions(collectionIds);
+                return this.createAnatomicalRegionFindOptions(collectionIds, atlasKindIds);
             case PredicateType.CustomRegion:
-                return this.createCustomRegionFindOptions(collectionIds);
+                return this.createCustomRegionFindOptions(collectionIds, atlasKindIds);
             case PredicateType.IdOrDoi:
-                return this.createIdOrDoiFindOptions(collectionIds);
+                return this.createIdOrDoiFindOptions(collectionIds, atlasKindIds);
         }
     }
 
-    private createAnatomicalRegionFindOptions(collectionIds: string[]): FindOptions {
+    private createAnatomicalRegionFindOptions(collectionIds: string[], atlasKindIds: string[]): FindOptions {
         const findOptions: FindOptions = {where: {}};
 
         applyCollectionFilter(findOptions, collectionIds);
+        applyAtlasKindFilter(findOptions, atlasKindIds);
 
-        // TODO Atlas which atlas should not be hard-coded.
-        const wholeBrainId = Atlas.defaultAtlas.wholeBrainId();
+        const atlasStructureIds = this.anatomicalPredicate?.atlasStructureIds ?? [];
 
-        // Asking for "Whole Brain" should not eliminate nodes (particularly soma) that are outside the ontology
-        // atlas.  It should be interpreted as an "all" request.  This also helps performance in that there isn't
-        // a where statement with every structure id.
-        const applicableCompartments = this.anatomicalPredicate?.atlasStructureIds?.filter(id => id != wholeBrainId);
-
-        if (applicableCompartments?.length > 0) {
+        if (atlasStructureIds.length > 0) {
             // Only the selected structures are expanded, and only downward, so an index entry matches when its
-            // structure falls within the selection but not when it is an ancestor of the selection.
-            // TODO Atlas which atlas should not be hard-coded.
-            const comprehensiveBrainAreas = applicableCompartments.map(id => Atlas.defaultAtlas.getComprehensiveBrainArea(id)).reduce((prev, curr) => {
-                return prev.concat(curr);
-            }, []);
+            // structure falls within the selection but not when it is an ancestor of the selection.  Each expansion
+            // is also pinned to the atlas of the structure that was selected, so atlases that share a root id and
+            // structure id paths cannot match each other's entries.
+            const clauses = [...Atlas.getComprehensiveBrainAreasByAtlas(atlasStructureIds)].map(([atlasId, areas]) => ({
+                atlasId,
+                atlasStructureId: {[Op.in]: areas}
+            }));
 
-            findOptions.where["atlasStructureId"] = {
-                [Op.in]: comprehensiveBrainAreas
-            };
+            if (clauses.length === 1) {
+                Object.assign(findOptions.where, clauses[0]);
+            } else {
+                findOptions.where[Op.or as any] = clauses;
+            }
         }
 
         if (this.anatomicalPredicate) {
@@ -192,7 +191,7 @@ export class QueryPredicate implements PredicateShape {
         }
     }
 
-    private createCustomRegionFindOptions(collectionIds: string[]): FindOptions {
+    private createCustomRegionFindOptions(collectionIds: string[], atlasKindIds: string[]): FindOptions {
         const findOptions: FindOptions = {where: {
             neuronStructureId: NeuronStructure.SomaNeuronStructureId
         }};
@@ -221,13 +220,14 @@ export class QueryPredicate implements PredicateShape {
         }
 
         applyCollectionFilter(findOptions, collectionIds);
+        applyAtlasKindFilter(findOptions, atlasKindIds);
 
         debug(findOptions);
 
         return findOptions;
     }
 
-    private createIdOrDoiFindOptions(collectionIds: string[]): FindOptions {
+    private createIdOrDoiFindOptions(collectionIds: string[], atlasKindIds: string[]): FindOptions {
         const labelsOrDois = this.idOrDoiPredicate?.labelsOrDois ?? [];
         const exactMatch = this.idOrDoiPredicate?.labelOrDoiExactMatch;
 
@@ -321,6 +321,7 @@ export class QueryPredicate implements PredicateShape {
         const findOptions: FindOptions = {where};
 
         applyCollectionFilter(findOptions, collectionIds);
+        applyAtlasKindFilter(findOptions, atlasKindIds);
 
         debug(findOptions);
 
@@ -334,6 +335,16 @@ function applyCollectionFilter(options: FindOptions, collectionIds: string[]) {
             options.where["collectionId"] = collectionIds[0];
         } else {
             options.where["collectionId"] = {[Op.in]: collectionIds};
+        }
+    }
+}
+
+function applyAtlasKindFilter(options: FindOptions, atlasKindIds: string[]) {
+    if (atlasKindIds && atlasKindIds.length > 0) {
+        if (atlasKindIds.length == 1) {
+            options.where["atlasKindId"] = atlasKindIds[0];
+        } else {
+            options.where["atlasKindId"] = {[Op.in]: atlasKindIds};
         }
     }
 }

@@ -130,6 +130,21 @@ export const inputTypeDefinitions = gql`
         collectionId: String
     }
 
+    """Specimen properties for creation; the atlas is required here and fixed afterwards."""
+    input SpecimenCreateInput {
+        id: String
+        label: String
+        notes: String
+        referenceDate: Date
+        genotypeId: String
+        genotypeName: String
+        somaProperties: SomaFeaturesInput
+        tomography: TomographyReferenceInput
+        referenceDataset: ReferenceDatasetInput
+        collectionId: String
+        atlasId: String!
+    }
+
     input SomaLocationInput {
         x: Float
         y: Float
@@ -214,6 +229,7 @@ export const inputTypeDefinitions = gql`
     input SearchContext {
         nonce: String
         collectionIds: [String!]
+        atlasKindIds: [String!]
         predicates: [Predicate!]
     }
 

@@ -1,8 +1,8 @@
 import {BaseModel} from "./baseModel";
-import {DataTypes, Op, Sequelize, Transaction} from "sequelize";
+import {BelongsToGetAssociationMixin, DataTypes, Op, Sequelize, Transaction} from "sequelize";
 import {AtlasTableName} from "./tableNames";
 import {AtlasStructure} from "./atlasStructure";
-import {AtlasKind} from "./atlasKind";
+import {AtlasKind, AtlasKindId} from "./atlasKind";
 import {User} from "./user";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {isNullOrEmpty} from "../util/objectUtil";
@@ -19,6 +19,7 @@ export type AtlasLocation = {
 export type AtlasShape = {
     name?: string;
     description?: string;
+    kind?: AtlasKindId;
     reference?: string;
     spatialUrl?: string;
     geometryUrl?: string;
@@ -37,9 +38,11 @@ export class Atlas extends BaseModel {
 
     public readonly AtlasKind?: AtlasKind;
 
-    public static defaultAtlas: Atlas = null;
+    public getAtlasKind!: BelongsToGetAssociationMixin<AtlasKind>;
 
     private static readonly _atlasMap = new Map<string, Atlas>();
+
+    private static readonly _atlasByStructureId = new Map<string, Atlas>();
 
     // Not currently exposed to anything other than smartsheet import.  Will need similar createOrUpdate... treatment as specimen/neuron/collection/etc.
     public static async createForShape(shape: AtlasShape, user: User, t: Transaction): Promise<Atlas> {
@@ -121,16 +124,16 @@ export class Atlas extends BaseModel {
         return this._structureTreeById.get(id) ?? null;
     }
 
-    public wholeBrainId(): string {
-        return this._rootId;
-    }
-
     public findForLocation(location: AtlasLocation, useFallback: boolean) {
         if (location.x < 0 || location.y < 0 || location.z < 0) {
             return null;
         }
 
         const fallback = useFallback ? this._rootId : null;
+
+        if (!this._spatialLookup) {
+            return fallback;
+        }
 
         const transformedLocation = [Math.ceil(location.x / 10), Math.ceil(location.y / 10), Math.ceil(location.z / 10)];
 
@@ -163,7 +166,7 @@ export class Atlas extends BaseModel {
 
             const result = await AtlasStructure.findAll({
                 attributes: ["id", "structureIdPath"],
-                where: {structureIdPath: {[Op.like]: b.structureIdPath + "%"}}
+                where: {atlasId: this.id, structureIdPath: {[Op.like]: b.structureIdPath + "%"}}
             });
 
             this._structureTreeById.set(b.id, result.map(r => r.id));
@@ -196,15 +199,70 @@ export class Atlas extends BaseModel {
         return this._atlasMap.get(id);
     }
 
-    public static async loadCache() {
-        const atlases = await this.findAll();
+    public static getAll(): Atlas[] {
+        return [...this._atlasMap.values()];
+    }
 
-        // TODO Atlas get rid of defaultAtlas when there is more than one Atlas and caller referencing the property have been updated to use per-specimen atlas.
-        this.defaultAtlas = atlases[0]; // At least one atlas is required.  Let this blow up if not.
+    public static getForKind(atlasKindId: string): Atlas[] {
+        return this.getAll().filter(atlas => atlas.atlasKindId === atlasKindId);
+    }
+
+    public static getAtlasForStructure(structureId: string): Atlas {
+        return this._atlasByStructureId.get(structureId) ?? null;
+    }
+
+    // An id that no loaded atlas holds is refused rather than left to match nothing.
+    public static getComprehensiveBrainAreas(structureIds: string[]): string[] {
+        return [...new Set([...this.getComprehensiveBrainAreasByAtlas(structureIds).values()].flat())];
+    }
+
+    // Keyed by the atlas id of the structure that was selected, so a search can pin each expansion to its own atlas.
+    public static getComprehensiveBrainAreasByAtlas(structureIds: string[]): Map<string, string[]> {
+        const missing = structureIds.filter(structureId => !this.getAtlasForStructure(structureId));
+
+        if (missing.length > 0) {
+            throw new Error(`Atlas structures not found: ${missing.join(", ")}`);
+        }
+
+        const areasByAtlas = new Map<string, Set<string>>();
+
+        for (const structureId of structureIds) {
+            const atlas = this.getAtlasForStructure(structureId);
+
+            const areas = areasByAtlas.get(atlas.id) ?? new Set<string>();
+
+            (atlas.getComprehensiveBrainArea(structureId) ?? []).forEach(areaId => areas.add(areaId));
+
+            areasByAtlas.set(atlas.id, areas);
+        }
+
+        return new Map([...areasByAtlas].map(([atlasId, areas]) => [atlasId, [...areas]]));
+    }
+
+    public static async findFirstOfKind(kind: AtlasKindId): Promise<Atlas> {
+        const kindIds = (await AtlasKind.findAll({where: {kind}, attributes: ["id"]})).map(atlasKind => atlasKind.id);
+
+        return this.getAll().find(atlas => kindIds.includes(atlas.atlasKindId)) ?? null;
+    }
+
+    public static async loadCache() {
+        const atlases = await this.findAll({order: [["createdAt", "ASC"]]});
+
+        if (atlases.length === 0) {
+            throw new Error("At least one atlas is required, and none are defined.");
+        }
+
+        this._atlasMap.clear();
+        this._atlasByStructureId.clear();
 
         for (const atlas of atlases) {
             await atlas.loadCompartmentCache();
+
             this._atlasMap.set(atlas.id, atlas);
+
+            for (const structureId of atlas._structureById.keys()) {
+                this._atlasByStructureId.set(structureId, atlas);
+            }
         }
     }
 }

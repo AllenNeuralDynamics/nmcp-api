@@ -15,9 +15,8 @@ export type AtlasNodeShape = SpecimenNodeShape & {
     manualAtlasAssigment: boolean;
 }
 
-export function mapToAtlasNodeShape(node: PortalNode, neuronStructureId: string, reconstructionId: string): AtlasNodeShape {
-    // TODO Atlas need to be provided the correct atlas.
-    const structureId =  Atlas.defaultAtlas.getFromStructureId(node.atlasStructure)?.id
+export function mapToAtlasNodeShape(node: PortalNode, neuronStructureId: string, reconstructionId: string, atlas: Atlas): AtlasNodeShape {
+    const structureId = atlas.getFromStructureId(node.atlasStructure)?.id
 
     return {
         ...mapToSpecimenNodeShape(node, neuronStructureId, reconstructionId),

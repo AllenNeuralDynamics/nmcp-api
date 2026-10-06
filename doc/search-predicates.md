@@ -13,6 +13,7 @@ developer-level reference.
 |---|---|---|
 | `nonce` | `String` | Client-provided identifier echoed back in the response for correlation. |
 | `collectionIds` | `[String!]` | Restricts all predicates to neurons in these collections. Empty array means no restriction. |
+| `atlasKindIds` | `[String!]` | Restricts all predicates to SearchIndex rows of these atlas kinds. Empty or absent means no restriction. |
 | `predicates` | `[Predicate!]` | One or more predicates. If omitted or empty, a default predicate is used that matches all published neurons. |
 
 ## Predicate Composition
@@ -41,6 +42,10 @@ Predicates are evaluated left to right. Each predicate runs independently agains
 
 When `collectionIds` is non-empty, every predicate (regardless of type) restricts its SearchIndex query to rows whose `collectionId` is in the provided list. This filter is applied at the database level alongside the predicate's own filtering, not as a separate pass over the results.
 
+## Atlas Kind Filtering
+
+When `atlasKindIds` is non-empty, every predicate (regardless of type) restricts its SearchIndex query to rows whose `atlasKindId` is in the provided list. Like the collection filter, it is applied at the database level alongside the predicate's own filtering. Predicate structures are not cross-checked against the kinds, so a structure from an atlas outside them contributes no results.
+
 ---
 
 ## PredicateType: AnatomicalRegion
@@ -51,7 +56,7 @@ Finds neurons that have morphological data in specified brain regions, optionall
 
 | Field | Type | Description |
 |---|---|---|
-| `atlasStructureIds` | `[String!]` | Brain region IDs to search. Each selected region implicitly includes all of its descendant regions in the atlas hierarchy. If empty, or if only the whole-brain structure is selected, no region filter is applied (equivalent to searching the entire brain). |
+| `atlasStructureIds` | `[String!]` | Brain region IDs to search. Each selected region implicitly includes all of its descendant regions, expanded through the atlas that owns that region, so one list may mix atlases. Only an empty list means no region filter; the whole-brain structure is filtered like any other. An ID that is no loaded atlas's structure fails the search with an error. |
 | `neuronStructureId` | `String` | Neuron compartment type ID (soma, axon, dendrite). If empty, all compartment types are included. Otherwise it narrows the search to that compartment and, together with `nodeStructureId`, determines whether the threshold targets a node count or a compartment length (see Threshold Filtering below). |
 | `nodeStructureId` | `String` | See Threshold Filtering below. |
 | `operatorId` | `String` | See Threshold Filtering below. |
@@ -60,7 +65,7 @@ Finds neurons that have morphological data in specified brain regions, optionall
 ### Behavior
 
 1. Query SearchIndex rows filtered by:
-   - `atlasStructureId` in the expanded set of selected regions and their descendants (unless whole-brain or empty).
+   - `atlasStructureId` in the expanded set of selected regions and their descendants (unless empty), with `atlasId` pinned to the atlas that owns the selected region. When the selection spans atlases, each atlas's expansion is paired with its own `atlasId` and the pairs are OR-ed, so atlases that share a root ID and structure ID paths never match each other's rows.
    - Threshold filter: depending on the combination of `neuronStructureId` and `nodeStructureId`, a `neuronStructureId` WHERE clause may be applied and either a node count column or a compartment length column is compared against the operator/amount threshold (see below).
    - `collectionId` restriction (if any).
 2. Collect the distinct `neuronId` values from the matched rows.
@@ -117,8 +122,7 @@ The `neuronStructureId` filter is applied as a presence check. The operator and 
 - **Soma as neuron structure**: When `neuronStructureId` selects soma, the search is effectively a presence check — is the neuron's soma assigned to one of the specified atlas structures? The operator and amount are meaningless in this case because a soma is a single point: a soma SearchIndex row always has exactly one node.
 - **A soma can be indexed under two atlas structures, and both are searchable.** There is always an automatic soma entry for the structure the soma coordinates resolve to. When the neuron also carries a manually assigned soma structure that differs from the automatic one, a second soma entry is written for it. An AnatomicalRegion search on soma matches either, so selecting the manual structure or the automatic one both return the neuron. This is deliberate — it makes a curator's soma assignment searchable without discarding the coordinate lookup — but it means a soma search is not purely a statement about where the soma coordinates lie.
 - **The soma node is counted toward the axon and dendrite entries** for the structure its coordinates fall in, so those structures have an axon and a dendrite entry with a node count of at least 1 even when no axon or dendrite is present there. The soma contributes nothing to fork, end, path or length values, so only total node count thresholds are affected.
-- Selecting the whole-brain structure is treated as "no region filter" rather than literally filtering to that single ID. This ensures neurons with nodes outside the atlas ontology (e.g., soma-only entries) are not excluded.
-- The atlas hierarchy expansion means selecting a parent region like "Isocortex" will match neurons in any child region (e.g., "MOp", "SSp", etc.). Expansion is downward only — selecting a child region does not match neurons indexed against its parent. It is also resolved against the default atlas regardless of which atlas a neuron's specimen uses, which is a limitation once more than one atlas is in play.
+- The atlas hierarchy expansion means selecting a parent region like "Isocortex" will match neurons in any child region (e.g., "MOp", "SSp", etc.). Expansion is downward only — selecting a child region does not match neurons indexed against its parent. Each region is resolved against the atlas that owns it.
 
 ---
 
@@ -204,7 +208,7 @@ After all predicates are evaluated and composed into a final set of neuron IDs:
 ## Default Behavior
 
 When no predicates are provided, a default AnatomicalRegion predicate is used with:
-- No atlas structure filter (whole brain)
+- No atlas structure filter
 - No neuron structure filter (all compartments)
 - No node structure filter (uses `nodeCount`)
 - Operator `>=` with amount `0`

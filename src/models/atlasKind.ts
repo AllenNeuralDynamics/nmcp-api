@@ -28,6 +28,10 @@ export class AtlasKind extends BaseModel {
     public kind: AtlasKindId;
     public family: AtlasKFamilyId;
 
+    public static async getAll(): Promise<AtlasKind[]> {
+        return AtlasKind.findAll();
+    }
+
     // Not currently exposed to anything other than smartsheet import.  Will need similar createOrUpdate... treatment as specimen/neuron/collection/etc.
     public static async createForShape(shape: AtlasKindShape, user: User, t: Transaction): Promise<AtlasKind> {
         const found = await this.findOne({where: {kind: shape.kind, family: shape.family}});

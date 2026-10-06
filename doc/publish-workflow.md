@@ -16,9 +16,9 @@ Two rows track one piece of work, and each has its own status enum.
 | `AtlasReconstruction` | `AtlasReconstructions` | `AtlasReconstructionStatus` | Atlas-space (registered) nodes; the processing-pipeline state |
 
 An `AtlasReconstruction` is created at the same moment as its parent `Reconstruction`
-(`Reconstruction.openReconstruction`, `src/models/reconstruction.ts:587`) and stays 1:1 with it for life. The parent's
+(`Reconstruction.openReconstruction`, `src/models/reconstruction.ts:588`) and stays 1:1 with it for life. The parent's
 status is the coarse, user-facing state; the child's status is the fine-grained pipeline state. The parent learns
-about the child through `onAtlasReconstructionStatusChanged` (`src/models/reconstruction.ts:524`), which handles
+about the child through `onAtlasReconstructionStatusChanged` (`src/models/reconstruction.ts:525`), which handles
 exactly two transitions — `ReadyToPublish` and `Published`.
 
 The child also carries `failureReason` and `failedAt` (added by `../src/migrations/20260909000000-phase-failure-columns.ts`).
@@ -197,7 +197,7 @@ members, and those modules form a require cycle with `reconstruction.ts` that a 
 ### 1.1 Opening from a candidate
 
 A candidate neuron is one `candidateNeurons` returns — by default, a neuron with no reconstruction in any of
-`CandidateBlockingStatuses` (`src/models/reconstruction.ts:196`; `Neuron.getCandidateNeurons`,
+`CandidateBlockingStatuses` (`src/models/reconstruction.ts:197`; `Neuron.getCandidateNeurons`,
 `src/models/neuron.ts:271`). `OnHold`, `Incomplete`, `Duplicate` and `Archived` are deliberately absent from that list:
 a held reconstruction releases its neuron back to the pool, and an archived one is not a live publication. `Discarded` and `Untraceable`
 rows are soft-deleted and never reach the query.
@@ -208,7 +208,7 @@ The annotator calls `openReconstruction(neuronId)`, which creates the `Reconstru
 Two limits apply:
 
 - A user holding only `AnnotateOne` may have exactly one reconstruction outside `AnnotationLimitExemptStatuses`
-  (`src/models/reconstruction.ts:67`): the closed statuses (`ClosedReconstructionStatuses` = Rejected, Published,
+  (`src/models/reconstruction.ts:68`): the closed statuses (`ClosedReconstructionStatuses` = Rejected, Published,
   Archived, Untraceable, Discarded) plus `Incomplete` and `Duplicate`. `OnHold` still counts. The check takes a row lock
   on the user so two concurrent opens cannot both pass it. Clients don't pre-check the limit; the code 1002 refusal is
   the contract.
@@ -221,7 +221,7 @@ Actual reconstruction work happens outside this API — the annotator traces in 
 until data is uploaded.
 
 **The candidate pool is not the only entry point.** `openReconstructionRevision(reconstructionId, revisionKind)`
-(`src/models/reconstruction.ts:499`) opens a fresh `Reconstruction` on the *same neuron* as an existing one — normally
+(`src/models/reconstruction.ts:500`) opens a fresh `Reconstruction` on the *same neuron* as an existing one — normally
 a `Published` one, which is how a neuron gets a second version to supersede the first. It is gated on
 `canReviseReconstruction()`, which is `canAnnotate()` and nothing more, and it delegates to `openReconstruction`, so
 the annotation limit and the per-annotator existing-row check both still apply. With `revisionKind: AtlasSpace` it
@@ -253,7 +253,7 @@ during DOI assignment (`src/models/atlasReconstruction.ts`).
 **Three hold statuses.** `pauseReconstruction`, `markReconstructionIncomplete` and `markReconstructionDuplicate` each
 write their own status (`OnHold`, `Incomplete`, `Duplicate`) and their own event, from `InProgress` or `Rejected`, for
 the annotator or an admin. All three share one implementation, `Reconstruction.holdReconstruction`
-(`src/models/reconstruction.ts:763`), so they cannot drift apart. A hold is left only by `resumeReconstruction`
+(`src/models/reconstruction.ts:764`), so they cannot drift apart. A hold is left only by `resumeReconstruction`
 (`ResumableSourceStatuses`), so moving from one hold to another means resuming first, and no hold is a source for any
 review target. Each is a distinct value, filtered on its own. All three release the neuron to the candidate pool;
 `Incomplete` and `Duplicate` do not count toward the single-annotation limit (1.1), and `OnHold` does.
@@ -301,8 +301,9 @@ omissions are decisions rather than oversights, and each is pinned by a test.
 `PublishReview` is where the reconstruction is registered into atlas space and proofread. A publish reviewer uploads
 atlas-space data with `reconstructionSpace: Atlas`, which replaces the `AtlasNode` rows, sets the child status to
 `ReadyToProcess`, records the node counts, and clears any `failureReason` left by an earlier run
-(`AtlasReconstruction.replaceNodeData`, `src/models/atlasReconstruction.ts:340`). If the neuron has no meaningful
-atlas soma yet, it is back-filled from the uploaded soma.
+(`AtlasReconstruction.replaceNodeData`, `src/models/atlasReconstruction.ts:343`). If the neuron has no meaningful
+atlas soma yet, it is back-filled from the uploaded soma. The upload's integer structure ids are resolved through the
+specimen's atlas, read after the status check; if that atlas isn't loaded, the upload fails.
 
 **Atlas space is no longer publish review's alone.** `TeamReview` is an atlas-space upload source too, so a team
 reviewer does exactly what the paragraph above describes, and a reconstruction can arrive at publish review with its
@@ -327,7 +328,7 @@ to approve.
 **Parking is idempotent, and only for the imports.** A run whose approve was refused for want of atlas data leaves the
 row at `PublishReview` for the next run to finish, so `requestReview(PublishReview)` under `disregardAuth` treats a
 reconstruction already at the status it is asking for as satisfied: it returns the row unchanged, writing nothing and
-recording no event (`src/models/reconstruction.ts:737`). A portal caller asking for a review the reconstruction is
+recording no event (`src/models/reconstruction.ts:738`). A portal caller asking for a review the reconstruction is
 already in is still refused — there it is a mistake rather than a resumption.
 
 **What the imports may move, and what they skip.** Both tools check the row against the same source-status lists
@@ -381,7 +382,7 @@ operation's.
 
 **Publishable is decided in the query, not discovered in the loop.** The `ALL` selection carries a correlated
 `NOT EXISTS` over sibling reconstructions of the same neuron at any of `PublishedCandidateBlockingStatuses`
-(`src/models/reconstruction.ts:1089`), reading off the same constant the sibling refusal below queries with, so the
+(`src/models/reconstruction.ts:1090`), reading off the same constant the sibling refusal below queries with, so the
 two cannot drift. Without it a reconstruction whose neuron already holds a publish is refused on every call and keeps
 its place at the head of the oldest-first batch indefinitely; with it the drain terminates by construction. It
 narrows the selection and is not a guard — a sibling committing between the query and the transaction is still refused
@@ -394,12 +395,12 @@ caller diffs it against what it sent, or on the `ALL` branch simply calls again,
 sibling that caused the refusal. Anything that is not a refusal — a lock timeout, a failed commit, a defect —
 propagates rather than being reported as a short list, because a caller told "partially done" retries into an outage
 indefinitely. The two are told apart by type rather than by message: the state and sibling refusals throw
-`PublishRefusalError` (`src/models/reconstruction.ts:71`), carrying codes **1001**, **1003** or **1008**, and nothing
+`PublishRefusalError` (`src/models/reconstruction.ts:72`), carrying codes **1001**, **1003** or **1008**, and nothing
 else in the publish path does.
 
 `publish` refuses unless the parent is `ReadyToPublish`, the child has `nodeCounts`, **and** both the reconstruction
 DOI and the neuron's canonical DOI are already recorded. Those are asserted, not assigned: `publish` makes no DataCite
-call at all. The guards on the eager instance (`src/models/reconstruction.ts:973`) are an early refusal; the decision
+call at all. The guards on the eager instance (`src/models/reconstruction.ts:974`) are an early refusal; the decision
 that counts is made against rows read under lock inside the transaction (`publishWithTransaction`, `:988`), because a
 reject or a pipeline replay can have moved the pair since the request was loaded. A missing DOI is deliberately not a
 refusal in the `PublishRefusalError` sense: the assignment phase registers both before `ReadyToPublish` and a replay
@@ -418,7 +419,7 @@ Inside one transaction, holding a `LOCK.UPDATE` on the neuron row, then the chil
   so the archived version remains resolvable by DOI and by direct link.
 
 The reconstruction then moves to `Publishing` and the child to `PendingSearchIndexing`. The child's move is a
-compare-and-set on `ReadyToPublish` (`tryStartPublishing`, `src/models/atlasReconstruction.ts:962`), so a publish that
+compare-and-set on `ReadyToPublish` (`tryStartPublishing`, `src/models/atlasReconstruction.ts:973`), so a publish that
 loses a race to a replay writes nothing and returns false rather than overwriting it. It becomes `Published` when
 indexing completes, usually within one 60-second worker cycle.
 
@@ -459,7 +460,7 @@ the reject recovers is the neuron rather than the publication: the predecessor w
 publish began and reject does not put that back.
 
 **What a reject past approval leaves behind.** Rejecting from `ReadyToPublish`, from a failed phase or from
-`PublishFailed` is treated as a full reset (`AtlasReconstruction.reject`, `src/models/atlasReconstruction.ts:286`):
+`PublishFailed` is treated as a full reset (`AtlasReconstruction.reject`, `src/models/atlasReconstruction.ts:289`):
 the child returns to
 `ReadyToProcess` with `failureReason`, `failedAt` and `nodeStructureAssignmentAt` cleared, so a revised reconstruction
 re-enters the pipeline rather than resuming mid-way. `ReadyToProcess` is exactly the approvable state — atlas data
@@ -695,7 +696,7 @@ stateDiagram-v2
 
     PendingStructureAssignment --> InStructureAssignment: worker claim
     InStructureAssignment --> PendingPrecomputed: assignments written<br/>Precomputed → Pending
-    InStructureAssignment --> FailedStructureAssignment: no atlas loaded,<br/>or unexpected exception
+    InStructureAssignment --> FailedStructureAssignment: no atlas loaded, no spatial volume<br/>while nodes need assigning, or unexpected exception
     FailedStructureAssignment --> PendingStructureAssignment: requestStructureAssignment()
 
     PendingPrecomputed --> PendingDoiAssignment: updatePrecomputed(Complete)<br/>external precomputed worker
@@ -900,9 +901,11 @@ from `FailedQualityControl`.
 **Node structure assignment.** Runs in-process in the worker, not as a service. Every atlas node whose
 `manualAtlasAssigment` flag is false is looked up in the atlas volume in 25 000-row chunks and assigned an
 `atlasStructureId`. A missing atlas for the specimen is recorded as `FailedStructureAssignment` rather than thrown,
-because every retry would find the same missing atlas (`src/models/atlasReconstruction.ts:432`). On completion the
-phase both sets the child to `PendingPrecomputed` and flips the `Precomputed` row to `Pending`, which is what makes the
-external worker pick it up.
+because every retry would find the same missing atlas (`src/models/atlasReconstruction.ts:432`). An atlas with no
+spatial volume is recorded the same way, but only while some node still needs a lookup: when every node arrived with
+its structure from the upload, the phase needs no volume and proceeds (`src/models/atlasReconstruction.ts:444`). On
+completion the phase both sets the child to `PendingPrecomputed` and flips the `Precomputed` row to `Pending`, which is
+what makes the external worker pick it up.
 
 **Precomputed generation.** Not driven by this service at all. An external worker polls `pendingPrecomputed` (an
 internal-only query) and reports back through `updatePrecomputed`. That mutation advances the child to
@@ -910,7 +913,7 @@ internal-only query) and reports back through `updatePrecomputed`. That mutation
 `WaitingForAtlasReconstruction` until DOI assignment finishes. It takes the child's row lock before writing the
 `Precomputed` row (`src/models/precomputed.ts:114`), which is what puts it on the same order as everything else.
 
-**DOI assignment.** A worker phase (`AtlasReconstruction.assignDois`, `src/models/atlasReconstruction.ts:554`), and the
+**DOI assignment.** A worker phase (`AtlasReconstruction.assignDois`, `src/models/atlasReconstruction.ts:565`), and the
 step that finally moves the parent to `ReadyToPublish`. Two DOIs exist. The neuron's *canonical* DOI is minted once, on
 the neuron's first publication, and always resolves to the current version. The *reconstruction* DOI is minted per
 publication, linked `IsVersionOf` the canonical one, with a `HasVersion` back-reference added to the canonical. The
@@ -964,11 +967,11 @@ Three things make a stuck reconstruction findable rather than indistinguishable 
   (`src/models/atlasReconstructionStatus.ts:60`). Composed on the server so no client has to know which parent status
   pairs with which child status, and derived on read so there is no second copy to drift.
 - **`reconstructions(queryArgs: {statusFilters: [{status, atlasStatus}]})`** — narrows each parent status to children at
-  the given statuses through a correlated `EXISTS` (`src/models/reconstruction.ts:373`), so "everything stuck in a
+  the given statuses through a correlated `EXISTS` (`src/models/reconstruction.ts:374`), so "everything stuck in a
   failed phase" is one query, and can sit beside other parent statuses left unfiltered.
 - **A retry mutation per phase**, plus one replay, all gated on `canOperateReconstructionPipeline()` — admin or the
   `PublishReview` bit. The five retries are built on `requestPhaseRetry`
-  (`src/models/atlasReconstruction.ts:766`), which locks the child, refuses unless it is at the exact `Failed…` status
+  (`src/models/atlasReconstruction.ts:777`), which locks the child, refuses unless it is at the exact `Failed…` status
   being reversed, and clears `failureReason` / `failedAt` with the rewind:
 
   | Mutation | From | To |
@@ -1134,7 +1137,7 @@ raising one as a finding means disputing the decision rather than reporting a de
    been approved likewise arrives through the portal rather than a re-run, which is the same rule seen from the other
    side.
 5. **The pre-review transitions decide on an unlocked read, because two people do not drive one reconstruction at
-   once.** `requestReview` (`src/models/reconstruction.ts:812`), `pauseReconstruction` (`:735`), `markIncomplete`
+   once.** `requestReview` (`src/models/reconstruction.ts:813`), `pauseReconstruction` (`:735`), `markIncomplete`
    (`:743`), `markDuplicate` (`:751`), `resumeReconstruction` (`:790`) and `markUntraceable` (`:1268`) each make their
    status decision against the instance `findReconstructionAndUser` loaded before the transaction opens, and then write
    without taking a row lock or re-reading; the three hold setters share that decision in `holdReconstruction`
@@ -1174,7 +1177,7 @@ raising one as a finding means disputing the decision rather than reporting a de
    `src/models/qualityControl.ts:33`) and is safe to store and return on exactly that basis. The two decisions move
    together: closing the open query means revisiting what a phase failure is allowed to say on the row.
 8. **Two annotators can hold live reconstructions on one neuron, and the publish reviewer is the gate.**
-   `openReconstruction` (`src/models/reconstruction.ts:587`) scopes both its existing-row lookup and the `AnnotateOne`
+   `openReconstruction` (`src/models/reconstruction.ts:588`) scopes both its existing-row lookup and the `AnnotateOne`
    limit to `annotatorId`, never to the neuron across users; `candidateNeurons` filters a neuron with live work out of
    the pool, but that is a listing query rather than a guard; `openReconstructionRevision` opens a second row on one
    neuron deliberately; and there is no unique index on `Reconstructions.neuronId`
@@ -1209,7 +1212,7 @@ raising one as a finding means disputing the decision rather than reporting a de
     draft and promoting it to findable only once recorded locally would close the window, at the cost of a promotion
     call on every pass — including against DOIs this service did not create, such as a MouseLight import's — which is
     not worth paying for a window that costs one stray record. Note that the JSDoc on `AtlasReconstruction.assignDois`
-    (`src/models/atlasReconstruction.ts:547`) describes that draft-then-promote scheme and contradicts both the code
+    (`src/models/atlasReconstruction.ts:551`) describes that draft-then-promote scheme and contradicts both the code
     below it and `Neuron.assignCanonicalDoi` (`src/models/neuron.ts:711`); the code is what is accurate.
 11. **A rejected-then-revised reconstruction keeps the DOI minted against the earlier data.** The reject rewind in 1.6
     deliberately does not unwind the DOI, so a reconstruction rejected after DOI assignment, revised and re-approved
@@ -1232,7 +1235,7 @@ raising one as a finding means disputing the decision rather than reporting a de
     `requestReview`, which accepts both, and nowhere else. `canModifyReconstruction` has no admin bypass, deliberately —
     an admin who needs to edit metadata grants themselves the review bit.
 14. **DataCite calls are made while holding a `LOCK.UPDATE` on the neuron row, and that is only ever waiting.** T1
-    (`src/models/atlasReconstruction.ts:595`) holds the neuron across the canonical's `createDoi`; `crossReferenceCanonical`
+    (`src/models/atlasReconstruction.ts:603`) holds the neuron across the canonical's `createDoi`; `crossReferenceCanonical`
     (`:693`) holds it across `getRelatedIdentifiers` and `updateDoi`. The lock is required — `updateDoi` replaces the
     whole `relatedIdentifiers` array, so two siblings appending concurrently would leave only one entry — and the cost
     is that any `publish` of that neuron, or any sibling's DOI assignment, waits for a network round trip.
@@ -1340,7 +1343,7 @@ supports and nothing does automatically. Invalidating a user's keys when `update
 eventual answer.
 
 **E9 — `resumeReconstruction` does not apply the single-annotation limit.** `Incomplete` and `Duplicate` are exempt
-from the count (`AnnotationLimitExemptStatuses`, 1.1), and `resumeReconstruction` (`src/models/reconstruction.ts:790`)
+from the count (`AnnotationLimitExemptStatuses`, 1.1), and `resumeReconstruction` (`src/models/reconstruction.ts:791`)
 checks only the permission and `ResumableSourceStatuses` before writing `InProgress`. So a user holding only
 `AnnotateOne` can build up several reconstructions at `Incomplete` or `Duplicate` while another is open, resume each,
 and end with more than one open annotation. `openReconstruction`'s locked count (code 1002) is the only enforcement of

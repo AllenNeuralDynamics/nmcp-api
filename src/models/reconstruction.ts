@@ -43,6 +43,7 @@ import {GraphQLError} from "graphql/error";
 import {SearchIndex} from "./searchIndex";
 import {Precomputed} from "./precomputed";
 import {PortalAnnotationSpace, PortalNode, PortalReconstruction} from "../io/portalFormat";
+import {Atlas} from "./atlas";
 
 const debug = require("debug")("nmcp:nmcp-api:reconstruction");
 
@@ -1626,7 +1627,15 @@ export class Reconstruction extends BaseModel {
             // of the pipeline and strand the parent at WaitingForAtlasReconstruction.
             assertUploadAllowed(user, space, locked.status, disregardAuth);
 
-            await atlasReconstruction.replaceNodeData(user, reconstructionData, t);
+            // The upload's integer structure ids name no atlas of their own; they are read in the specimen's.
+            const atlasId = await Specimen.findAtlasId(neuron.specimenId, t);
+            const atlas = Atlas.getAtlas(atlasId);
+
+            if (!atlas) {
+                throw new UploadError(`No atlas is loaded for specimen atlas ${atlasId}.`);
+            }
+
+            await atlasReconstruction.replaceNodeData(user, reconstructionData, atlas, t);
 
             // getSoma reads the association replaceNodeData has just repointed, so the back-fill stays after it; the
             // neuron it writes is the row locked at the top rather than a fresh getNeuron read.

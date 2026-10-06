@@ -82,7 +82,7 @@ export class SearchIndex extends BaseModel {
     public getReconstruction!: BelongsToGetAssociationMixin<AtlasReconstruction>;
 
     public static async performNeuronsFilterQuery(context: SearchContext): Promise<FilterQueryResult> {
-        const findOptions: FindOptions[] = context.Predicates.map((predicate) => predicate.createFindOptions(context.CollectionIds));
+        const findOptions: FindOptions[] = context.Predicates.map((predicate) => predicate.createFindOptions(context.CollectionIds, context.AtlasKindIds));
 
         const predicateResults: PredicateResult[] = [];
         let composedNeuronIds: string[] = [];

@@ -1,4 +1,4 @@
-import {expect, test, vi, beforeAll, afterEach, describe} from "vitest";
+import {expect, test, vi, beforeAll, beforeEach, afterEach, describe} from "vitest";
 import {Op} from "sequelize";
 
 import {QueryPredicate, PredicateType, PredicateComposition, PredicateShape, AnatomicalPredicateShape, CustomRegionPredicateShape, IdOrDoiPredicateShape} from "../src/models/queryPredicate";
@@ -7,11 +7,16 @@ import {NodeStructure, NodeStructures} from "../src/models/nodeStructure";
 import {SearchContext} from "../src/models/searchContext";
 import {SearchIndex} from "../src/models/searchIndex";
 
+// require() gives the CJS module instances that compiled transitive dependencies use, so spies land on them.
+const {Atlas} = require("../src/models/atlas");
+const {Neuron} = require("../src/models/neuron");
+
 const WHOLE_BRAIN_ID = "whole-brain-id";
 const REGION_A_ID = "region-a";
 const REGION_B_ID = "region-b";
 const REGION_A_CHILD_1 = "region-a-child-1";
 const REGION_A_CHILD_2 = "region-a-child-2";
+const OTHER_ATLAS_REGION_ID = "other-atlas-region";
 
 const FORK_NODE_STRUCTURE_ID = "node-fork-id";
 const END_NODE_STRUCTURE_ID = "node-end-id";
@@ -24,6 +29,9 @@ const SOMA_NEURON_STRUCTURE_ID = "neuron-soma-id";
 
 const COLLECTION_1 = "collection-1";
 const COLLECTION_2 = "collection-2";
+
+const ATLAS_KIND_1 = "atlas-kind-1";
+const ATLAS_KIND_2 = "atlas-kind-2";
 
 const EQ_OPERATOR_ID = "5f21a040-dd64-4116-aa9c-d00387b83db8";
 const GT_OPERATOR_ID = "f191e8b3-8fb9-4151-a48c-432c1a2382cd";
@@ -84,17 +92,6 @@ function makeIdOrDoiShape(
 }
 
 beforeAll(() => {
-    // Use require() to get the CJS module instance that compiled transitive dependencies use
-    const atlasModule = require("../src/models/atlas");
-    atlasModule.Atlas.defaultAtlas = {
-        wholeBrainId: () => WHOLE_BRAIN_ID,
-        getComprehensiveBrainArea: (id: string) => {
-            if (id === REGION_A_ID) return [REGION_A_ID, REGION_A_CHILD_1, REGION_A_CHILD_2];
-            if (id === REGION_B_ID) return [REGION_B_ID];
-            return [id];
-        },
-    };
-
     const nodeStructureModule = require("../src/models/nodeStructure");
     nodeStructureModule.NodeStructure.idValueMap = new Map<string, number>([
         [FORK_NODE_STRUCTURE_ID, NodeStructures.forkPoint],
@@ -114,6 +111,32 @@ beforeAll(() => {
 // ──────────────────────────────────────────────────────────────
 
 describe("AnatomicalRegion — atlas structure filtering", () => {
+    const wholeBrainSubtree = [WHOLE_BRAIN_ID, REGION_A_ID, REGION_A_CHILD_1, REGION_A_CHILD_2, REGION_B_ID];
+
+    const primarySubtrees = new Map<string, string[]>([
+        [WHOLE_BRAIN_ID, wholeBrainSubtree],
+        [REGION_A_ID, [REGION_A_ID, REGION_A_CHILD_1, REGION_A_CHILD_2]],
+        [REGION_B_ID, [REGION_B_ID]]
+    ]);
+
+    const primaryAtlas = {id: "atlas-primary", getComprehensiveBrainArea: (structureId: string) => primarySubtrees.get(structureId) ?? null};
+
+    const otherAtlas = {id: "atlas-other", getComprehensiveBrainArea: (structureId: string) => structureId === OTHER_ATLAS_REGION_ID ? [OTHER_ATLAS_REGION_ID] : null};
+
+    beforeEach(() => {
+        vi.spyOn(Atlas, "getAtlasForStructure").mockImplementation((structureId: any) => {
+            if (primarySubtrees.has(structureId)) {
+                return primaryAtlas;
+            }
+
+            return structureId === OTHER_ATLAS_REGION_ID ? otherAtlas : null;
+        });
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
     test("no atlas structures means no atlasStructureId filter", () => {
         const predicate = new QueryPredicate(makeAnatomicalShape({atlasStructureIds: []}));
         const options = predicate.createFindOptions([]);
@@ -121,11 +144,13 @@ describe("AnatomicalRegion — atlas structure filtering", () => {
         expect(options.where["atlasStructureId"]).toBeUndefined();
     });
 
-    test("whole brain only means no atlasStructureId filter", () => {
+    test("whole brain expands to its subtree like any other structure", () => {
         const predicate = new QueryPredicate(makeAnatomicalShape({atlasStructureIds: [WHOLE_BRAIN_ID]}));
-        const options = predicate.createFindOptions([]);
+        const options = predicate.createFindOptions([], []);
 
-        expect(options.where["atlasStructureId"]).toBeUndefined();
+        const filter = options.where["atlasStructureId"];
+        expect(filter[Op.in]).toEqual(expect.arrayContaining(wholeBrainSubtree));
+        expect(filter[Op.in]).toHaveLength(wholeBrainSubtree.length);
     });
 
     test("specific region expands to include descendants", () => {
@@ -137,12 +162,13 @@ describe("AnatomicalRegion — atlas structure filtering", () => {
         expect(filter[Op.in]).toHaveLength(3);
     });
 
-    test("whole brain mixed with specific region filters only the specific region", () => {
+    test("whole brain with a region is the union of both subtrees", () => {
         const predicate = new QueryPredicate(makeAnatomicalShape({atlasStructureIds: [WHOLE_BRAIN_ID, REGION_B_ID]}));
-        const options = predicate.createFindOptions([]);
+        const options = predicate.createFindOptions([], []);
 
         const filter = options.where["atlasStructureId"];
-        expect(filter[Op.in]).toEqual([REGION_B_ID]);
+        expect(filter[Op.in]).toEqual(expect.arrayContaining(wholeBrainSubtree));
+        expect(filter[Op.in]).toHaveLength(wholeBrainSubtree.length);
     });
 
     test("multiple specific regions are unioned", () => {
@@ -152,6 +178,51 @@ describe("AnatomicalRegion — atlas structure filtering", () => {
         const filter = options.where["atlasStructureId"];
         expect(filter[Op.in]).toEqual(expect.arrayContaining([REGION_A_ID, REGION_A_CHILD_1, REGION_A_CHILD_2, REGION_B_ID]));
         expect(filter[Op.in]).toHaveLength(4);
+    });
+
+    test("structures from one atlas pin the filter to that atlas", () => {
+        const predicate = new QueryPredicate(makeAnatomicalShape({atlasStructureIds: [REGION_A_ID, REGION_B_ID]}));
+        const options = predicate.createFindOptions([], []);
+
+        expect(options.where["atlasId"]).toBe("atlas-primary");
+        expect(options.where[Op.or]).toBeUndefined();
+    });
+
+    test("structures from different atlases are each pinned to their own atlas", () => {
+        const predicate = new QueryPredicate(makeAnatomicalShape({atlasStructureIds: [REGION_B_ID, OTHER_ATLAS_REGION_ID]}));
+        const options = predicate.createFindOptions([], []);
+
+        expect(options.where["atlasId"]).toBeUndefined();
+        expect(options.where["atlasStructureId"]).toBeUndefined();
+        expect(options.where[Op.or]).toEqual([
+            {atlasId: "atlas-primary", atlasStructureId: {[Op.in]: [REGION_B_ID]}},
+            {atlasId: "atlas-other", atlasStructureId: {[Op.in]: [OTHER_ATLAS_REGION_ID]}}
+        ]);
+    });
+
+    test("no atlas structures means no atlasId filter", () => {
+        const predicate = new QueryPredicate(makeAnatomicalShape({atlasStructureIds: []}));
+        const options = predicate.createFindOptions([]);
+
+        expect(options.where["atlasId"]).toBeUndefined();
+        expect(options.where[Op.or]).toBeUndefined();
+    });
+
+    test("an unknown structure id is rejected", () => {
+        const predicate = new QueryPredicate(makeAnatomicalShape({atlasStructureIds: ["missing-id"]}));
+
+        expect(() => predicate.createFindOptions([], [])).toThrow(/Atlas structures not found: missing-id/);
+    });
+
+    test("searchNeurons reports an unknown structure as an error rather than throwing", async () => {
+        const output = await Neuron.getNeuronsWithPredicates(new SearchContext({
+            nonce: "n",
+            collectionIds: [],
+            predicates: [makeAnatomicalShape({atlasStructureIds: ["missing-id"]})]
+        }));
+
+        expect(output.error.message).toMatch(/Atlas structures not found: missing-id/);
+        expect(output.neurons).toEqual([]);
     });
 });
 
@@ -373,6 +444,54 @@ describe("Collection filtering", () => {
     });
 });
 
+describe("Atlas kind filtering", () => {
+    test("no atlasKindIds means no atlas kind filter", () => {
+        const predicate = new QueryPredicate(makeAnatomicalShape());
+        const options = predicate.createFindOptions([], []);
+
+        expect(options.where["atlasKindId"]).toBeUndefined();
+    });
+
+    test("single atlasKindId applies direct equality filter", () => {
+        const predicate = new QueryPredicate(makeAnatomicalShape());
+        const options = predicate.createFindOptions([], [ATLAS_KIND_1]);
+
+        expect(options.where["atlasKindId"]).toBe(ATLAS_KIND_1);
+    });
+
+    test("multiple atlasKindIds applies IN filter", () => {
+        const predicate = new QueryPredicate(makeAnatomicalShape());
+        const options = predicate.createFindOptions([], [ATLAS_KIND_1, ATLAS_KIND_2]);
+
+        expect(options.where["atlasKindId"][Op.in]).toEqual([ATLAS_KIND_1, ATLAS_KIND_2]);
+    });
+
+    test("atlas kind filter applied for CustomRegion", () => {
+        const predicate = new QueryPredicate(makeCustomRegionShape());
+        const options = predicate.createFindOptions([], [ATLAS_KIND_1]);
+
+        expect(options.where["atlasKindId"]).toBe(ATLAS_KIND_1);
+    });
+
+    test("atlas kind filter applied for IdOrDoi", () => {
+        const predicate = new QueryPredicate(makeIdOrDoiShape({
+            labelOrDoiExactMatch: true,
+            labelsOrDois: ["N001"],
+        }));
+        const options = predicate.createFindOptions([], [ATLAS_KIND_1]);
+
+        expect(options.where["atlasKindId"]).toBe(ATLAS_KIND_1);
+    });
+
+    test("atlas kind filter applied alongside a collection filter", () => {
+        const predicate = new QueryPredicate(makeAnatomicalShape());
+        const options = predicate.createFindOptions([COLLECTION_1], [ATLAS_KIND_1]);
+
+        expect(options.where["collectionId"]).toBe(COLLECTION_1);
+        expect(options.where["atlasKindId"]).toBe(ATLAS_KIND_1);
+    });
+});
+
 // ──────────────────────────────────────────────────────────────
 // CustomRegion — createFindOptions
 // ──────────────────────────────────────────────────────────────
@@ -550,8 +669,21 @@ describe("SearchContext — construction", () => {
 
         expect(context.Nonce).toBeDefined();
         expect(context.CollectionIds).toEqual([]);
+        expect(context.AtlasKindIds).toEqual([]);
         expect(context.Predicates).toHaveLength(1);
         expect(context.Predicates[0].predicateType).toBe(PredicateType.AnatomicalRegion);
+    });
+
+    test("input without atlasKindIds has no atlas kind restriction", () => {
+        const context = new SearchContext({nonce: "test", collectionIds: [], predicates: []});
+
+        expect(context.AtlasKindIds).toEqual([]);
+    });
+
+    test("provided atlasKindIds are preserved", () => {
+        const context = new SearchContext({nonce: "test", collectionIds: [], atlasKindIds: [ATLAS_KIND_1, ATLAS_KIND_2], predicates: []});
+
+        expect(context.AtlasKindIds).toEqual([ATLAS_KIND_1, ATLAS_KIND_2]);
     });
 
     test("empty predicates array creates default predicate", () => {
@@ -597,6 +729,25 @@ describe("performNeuronsFilterQuery — composition", () => {
 
     afterEach(() => {
         vi.restoreAllMocks();
+    });
+
+    test("atlasKindIds reach every predicate's query", async () => {
+        const findAll = vi.spyOn(SearchIndex, "findAll").mockResolvedValue([mockSearchIndexEntry("N1")] as any);
+
+        const context = new SearchContext({
+            nonce: "test",
+            collectionIds: [],
+            atlasKindIds: [ATLAS_KIND_1],
+            predicates: [makeIdPredicate(PredicateComposition.or), makeIdPredicate(PredicateComposition.and)],
+        });
+
+        await SearchIndex.performNeuronsFilterQuery(context);
+
+        expect(findAll).toHaveBeenCalledTimes(2);
+
+        for (const call of findAll.mock.calls) {
+            expect((call[0] as any).where.atlasKindId).toBe(ATLAS_KIND_1);
+        }
     });
 
     test("single predicate returns its neuron IDs", async () => {

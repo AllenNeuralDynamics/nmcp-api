@@ -50,6 +50,31 @@ export const coreTypeDefinitions = gql`
         name: String
     }
 
+    type AtlasKind {
+        id: String!
+        name: String
+        description: String
+        kind: Int
+        family: Int
+        atlases: [Atlas!]!
+        createdAt: Date
+        updatedAt: Date
+    }
+
+    type Atlas {
+        id: String!
+        name: String
+        description: String
+        reference: String
+        geometryUrl: String
+        rootStructureId: Int
+        atlasKindId: String
+        atlasKind: AtlasKind
+        atlasStructures: [AtlasStructure!]!
+        createdAt: Date
+        updatedAt: Date
+    }
+
     type AtlasStructure {
         id: String!
         name: String
@@ -63,6 +88,7 @@ export const coreTypeDefinitions = gql`
         internalId: Int
         defaultColor: String
         hasGeometry: Boolean
+        atlasId: String
     }
 
     type Genotype {
@@ -144,6 +170,7 @@ export const coreTypeDefinitions = gql`
         injections: [Injection!]!
         collectionId: String
         collection: Collection
+        atlasId: String
         neurons: [Neuron!]!
         neuronCount: Int
         createdAt: Date

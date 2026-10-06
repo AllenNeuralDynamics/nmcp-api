@@ -36,9 +36,10 @@ export class AtlasStructure extends BaseModel {
     public aliases: string[];
     public defaultColor: string;
     public hasGeometry: number;
+    public atlasId: string;
 
-    public static async getAll(): Promise<AtlasStructure[]> {
-        return await AtlasStructure.findAll();
+    public static async getForAtlas(atlasId: string): Promise<AtlasStructure[]> {
+        return AtlasStructure.findAll({where: {atlasId}});
     }
 
     public static async findId(id: string): Promise<string> {

@@ -86,7 +86,7 @@ export function optionsWhereSpecimenIds(input: WithSpecimensQueryInput, options:
     return optionsWherePropertyIds(input, "specimenId", options);
 }
 
-export function optionsWhereAtlasStructureIds(input: WithAtlasStructureQueryInput, atlas: Atlas, options: FindOptions = null): FindOptions {
+export function optionsWhereAtlasStructureIds(input: WithAtlasStructureQueryInput, options: FindOptions = null): FindOptions {
     if (input?.atlasStructureIds && input.atlasStructureIds.length > 0) {
         if (!options) {
             options = {};
@@ -96,13 +96,7 @@ export function optionsWhereAtlasStructureIds(input: WithAtlasStructureQueryInpu
             options.where = {};
         }
 
-        const comprehensiveBrainAreas = input.atlasStructureIds.map(id => atlas.getComprehensiveBrainArea(id)).reduce((prev, curr) => {
-            return prev.concat(curr);
-        }, []);
-
-        options.where["atlasStructureId"] = {
-            [Op.in]: comprehensiveBrainAreas
-        };
+        options.where["atlasStructureId"] = {[Op.in]: Atlas.getComprehensiveBrainAreas(input.atlasStructureIds)};
     }
     return options;
 }

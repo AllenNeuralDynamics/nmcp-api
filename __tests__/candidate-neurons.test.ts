@@ -19,10 +19,6 @@ function stubNeurons(allNeuronIds: string[]) {
     // setSortAndLimiting runs a count against the database; the candidate ids are already in the options by then.
     vi.spyOn(Neuron as any, "setSortAndLimiting").mockResolvedValue(0);
 
-    // optionsWhereAtlasStructureIds resolves structures through the default atlas, which is null until a cache load
-    // that never happens in tests.
-    Atlas.defaultAtlas = {getFromStructureId: () => null};
-
     return findAll;
 }
 
@@ -36,7 +32,6 @@ function stubReconstructions(rows: { neuronId: string, status: number }[]) {
 
 afterEach(() => {
     vi.restoreAllMocks();
-    Atlas.defaultAtlas = null;
 });
 
 describe("getCandidateNeurons blocking statuses", () => {
@@ -115,5 +110,31 @@ describe("getCandidateNeurons results", () => {
         const output = await Neuron.getCandidateNeurons({});
 
         expect(output.items).toEqual([]);
+    });
+});
+
+describe("getCandidateNeurons structure filter", () => {
+    const atlas = {id: "atlas-1", getComprehensiveBrainArea: (structureId: string) => structureId === "region-a" ? ["region-a", "region-a-child"] : null};
+
+    function stubAtlas() {
+        vi.spyOn(Atlas, "getAtlasForStructure").mockImplementation((structureId: any) => structureId === "region-a" ? atlas : null);
+    }
+
+    test("filters on the owning atlas's subtree", async () => {
+        const findAll = stubNeurons(["neuron-1"]);
+        stubReconstructions([]);
+        stubAtlas();
+
+        await Neuron.getCandidateNeurons({atlasStructureIds: ["region-a"]});
+
+        expect(findAll.mock.calls[1][0].where.atlasStructureId[Op.in]).toEqual(["region-a", "region-a-child"]);
+    });
+
+    test("an unknown structure id is rejected", async () => {
+        stubNeurons(["neuron-1"]);
+        stubReconstructions([]);
+        stubAtlas();
+
+        await expect(Neuron.getCandidateNeurons({atlasStructureIds: ["missing-id"]})).rejects.toThrow(/Atlas structures not found/);
     });
 });

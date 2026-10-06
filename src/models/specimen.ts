@@ -156,12 +156,17 @@ export class Specimen extends BaseModel {
             throw new Error("A collection is required to create a specimen.")
         }
 
+        if (!shape.atlasId) {
+            throw new Error("An atlas is required to create a specimen.");
+        }
+
+        if (!Atlas.getAtlas(shape.atlasId)) {
+            throw new Error("The requested atlas can not be found.");
+        }
+
         shape.label ??= "";
         shape.notes ??= "";
         shape.keywords = normalizeKeywords(shape.keywords);
-        // TODO Atlas Should not use a default until officially supporting multiple atlases.
-        shape.atlasId ??= Atlas.defaultAtlas.id;
-
 
         return await Specimen.sequelize.transaction(async (t) => {
             const specimen = await Specimen.create(shape, {transaction: t});
@@ -200,6 +205,14 @@ export class Specimen extends BaseModel {
 
         if (shape.tomography === null) {
             delete shape.tomography;
+        }
+
+        if (shape.atlasId !== undefined) {
+            if (shape.atlasId !== this.atlasId) {
+                throw new Error("A specimen's atlas can not be changed.");
+            }
+
+            delete shape.atlasId;
         }
 
         return await Specimen.sequelize.transaction(async (t) => {
@@ -361,6 +374,11 @@ export class Specimen extends BaseModel {
     // Not utilizing the Sequelize auto-generated relationship because Atlas instances are cached with their spatial and other lookups loaded.
     public getAtlas(): Atlas {
         return Atlas.getAtlas(this.atlasId);
+    }
+
+    // Reads past paranoid: a soft-deleted specimen keeps its neurons, and its atlas still applies to them.
+    public static async findAtlasId(specimenId: string, transaction: Transaction = null): Promise<string> {
+        return (await Specimen.findByPk(specimenId, {attributes: ["id", "atlasId"], transaction, paranoid: false}))?.atlasId ?? null;
     }
 
     protected static override defaultSort(): OrderItem[] {

@@ -14,6 +14,7 @@ import {importMayTransition} from "./importTransitionGuard";
 import {ReconstructionStatus} from "../models/reconstructionStatus";
 import {ReconstructionSpace} from "../models/reconstructionSpace";
 import {Atlas} from "../models/atlas";
+import {AtlasKindId} from "../models/atlasKind";
 import {isNullOrEmpty} from "../util/objectUtil";
 import moment = require("moment");
 
@@ -151,6 +152,16 @@ const specimenSubset = [...new Set(Object.keys(neuronSelection))];
 // Should be an argument but testing for now.
 const allowMissingCCF = true;
 
+async function getAtlasForImport(): Promise<Atlas> {
+    const atlas = await Atlas.findFirstOfKind(AtlasKindId.Mouse);
+
+    if (!atlas) {
+        throw new Error("No Mouse-kind atlas is loaded for imported specimens.");
+    }
+
+    return atlas;
+}
+
 function smartSheetImport(sheetId: number, importQualifier: ImportQualifier, pathToReconstructions: string, defaultUsers: DefaultUser[] = []): Promise<void> {
     return new Promise(async (resolve, reject) => {
         const token = process.env.SS_API_TOKEN;
@@ -166,6 +177,16 @@ function smartSheetImport(sheetId: number, importQualifier: ImportQualifier, pat
 
         await RemoteDatabaseClient.Start(false, false);
 
+        let atlas: Atlas;
+
+        try {
+            atlas = await getAtlasForImport();
+        } catch (error) {
+            debug(error.message);
+            reject(error);
+            return;
+        }
+
         if (specimenSubset.length > 0) {
             debug(`limiting specimens to ${specimenSubset.toString()}`);
         }
@@ -180,7 +201,7 @@ function smartSheetImport(sheetId: number, importQualifier: ImportQualifier, pat
         // untouched.  This generally only changed to false in order to speed testing of other parts of the bulk sheet import process.
         const testFlightInsertion = true;
 
-        await s.updateDatabase(insertReconstructions, testFlightInsertion);
+        await s.updateDatabase(atlas, insertReconstructions, testFlightInsertion);
 
         s.print(sheetId, importQualifier);
 
@@ -239,7 +260,7 @@ function hasMetadataValue(value: { url?: string } | null | undefined): boolean {
     return !!value && typeof value.url === "string" && value.url.trim().length > 0;
 }
 
-async function specimenDataFromRow(s: SpecimenRowContents, insertReconstructions: boolean, testFlightInsertion: boolean = true) {
+async function specimenDataFromRow(s: SpecimenRowContents, atlas: Atlas, insertReconstructions: boolean, testFlightInsertion: boolean = true) {
     const collection = await Collection.findByName(s.collectionName);
 
     if (!collection) {
@@ -252,7 +273,8 @@ async function specimenDataFromRow(s: SpecimenRowContents, insertReconstructions
         referenceDate: s.specimenDate,
         genotypeName: s.genotype,
         notes: s.notes,
-        collectionId: collection.id
+        collectionId: collection.id,
+        atlasId: atlas.id
     };
 
     const metadata = specimenMetadata.find(m => m.subject == s.subjectId);
@@ -901,7 +923,7 @@ class SmartSheetImport {
         }
     }
 
-    public async updateDatabase(insertReconstructions: boolean, testFlightInsertion: boolean = true) {
+    public async updateDatabase(atlas: Atlas, insertReconstructions: boolean, testFlightInsertion: boolean = true) {
         let ordered = Array.from(this._specimens.values()).sort((a, b) => a.subjectId.localeCompare(b.subjectId));
 
         if (specimenSubset.length > 0) {
@@ -909,7 +931,7 @@ class SmartSheetImport {
         }
 
         for (const s of ordered) {
-            await specimenDataFromRow(s, insertReconstructions, testFlightInsertion);
+            await specimenDataFromRow(s, atlas, insertReconstructions, testFlightInsertion);
         }
     }
 

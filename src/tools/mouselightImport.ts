@@ -2,6 +2,8 @@ import * as fs from "fs";
 import * as path from "path";
 
 import {RemoteDatabaseClient} from "../data-access/remoteDatabaseClient";
+import {Atlas} from "../models/atlas";
+import {AtlasKindId} from "../models/atlasKind";
 import {Collection} from "../models/collection";
 import {Injection, InjectionShape} from "../models/injection";
 import {Neuron, NeuronShape} from "../models/neuron";
@@ -273,12 +275,23 @@ function findInjectionAtlasStructureId(specimen: Specimen, exportNeurons: MlExpo
     return null;
 }
 
-async function importSpecimen(collection: Collection, sample: MlSample, metadata: SpecimenMetadata): Promise<Specimen> {
+async function getAtlasForImport(): Promise<Atlas> {
+    const atlas = await Atlas.findFirstOfKind(AtlasKindId.Mouse);
+
+    if (!atlas) {
+        throw new Error("No Mouse-kind atlas is loaded for imported specimens.");
+    }
+
+    return atlas;
+}
+
+async function importSpecimen(collection: Collection, atlas: Atlas, sample: MlSample, metadata: SpecimenMetadata): Promise<Specimen> {
     const label = String(sample.idNumber);
 
     const shape: SpecimenShape = {
         label,
         collectionId: collection.id,
+        atlasId: atlas.id,
         referenceDate: metadata.referenceDate,
         genotypeName: metadata.genotypeName
     };
@@ -416,6 +429,8 @@ async function mouselightImport(config: MouseLightImportConfig): Promise<void> {
 
     await RemoteDatabaseClient.Start(false, false);
 
+    const atlas = await getAtlasForImport();
+
     const collection = await Collection.createOrUpdateForShape(
         User.SystemAutomationUser,
         {name: "MouseLight"},
@@ -460,7 +475,7 @@ async function mouselightImport(config: MouseLightImportConfig): Promise<void> {
         let specimen: Specimen;
 
         try {
-            specimen = await importSpecimen(collection, sampleGroup.sample, specimenMetadata);
+            specimen = await importSpecimen(collection, atlas, sampleGroup.sample, specimenMetadata);
         } catch (error) {
             debug(`error importing specimen ${sampleGroup.sample.idNumber}: ${error.message}`);
             debug(error);

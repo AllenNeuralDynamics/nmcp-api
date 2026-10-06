@@ -288,9 +288,7 @@ export class Neuron extends BaseModel {
 
         this.applyNeuronFilters(options, input);
 
-        // TODO Atlas for multiple atlases to be supported, input.atlasStructureIds will have to have been selected from a specific atlas, which will need
-        //  to have been added to the input args, and will be used for this step instead of hard-coded defaultAtlas.
-        options = optionsWhereAtlasStructureIds(input, Atlas.defaultAtlas, options);
+        options = optionsWhereAtlasStructureIds(input, options);
 
         (options.include as Includeable[]).push(this.specimenInclude(input, ["id", "label"]));
 
@@ -328,6 +326,18 @@ export class Neuron extends BaseModel {
         return Neuron.isDuplicate(neuron.label, neuron.specimenId, neuron.id);
     }
 
+    private static assertStructureInAtlas(atlasStructureId: string, atlasId: string): void {
+        const atlas = Atlas.getAtlasForStructure(atlasStructureId);
+
+        if (!atlas) {
+            throw new Error("The requested atlas structure can not be found.");
+        }
+
+        if (atlas.id !== atlasId) {
+            throw new Error("The atlas structure does not belong to the specimen's atlas.");
+        }
+    }
+
     private static async createWithTransaction(shape: NeuronShape, user: User, t: Transaction, substituteUser: User = null) {
         // Assumes a validated input shape.
         const neuron = await this.create(shape, {transaction: t});
@@ -345,10 +355,7 @@ export class Neuron extends BaseModel {
         }
 
         if (inputShape.atlasStructureId) {
-            const atlasStructure = await AtlasStructure.findByPk(inputShape.atlasStructureId);
-            if (!atlasStructure) {
-                throw new Error("The requested atlas structure can not be found.");
-            }
+            Neuron.assertStructureInAtlas(inputShape.atlasStructureId, specimen.atlasId);
         } else if (inputShape.atlasStructureId !== null) {
             // Zero-length string or undefined
             inputShape.atlasStructureId = null;
@@ -384,14 +391,30 @@ export class Neuron extends BaseModel {
             throw new Error("The specimen id cannot be empty");
         }
 
-        // Null is ok (inherited),  Undefined is ok (no change).  Id of length zero treated as null.  Otherwise, must
-        // find a valid atlas structure.
-        if (shape.atlasStructureId) {
-            const atlasStructure = await AtlasStructure.findByPk(shape.atlasStructureId);
+        const targetSpecimenId = shape.specimenId ?? this.specimenId;
 
-            if (!atlasStructure) {
-                throw new Error("The atlas structure cannot be found");
+        let targetAtlasId: string = null;
+
+        if (targetSpecimenId !== this.specimenId) {
+            const [currentAtlasId, movedAtlasId] = await Promise.all([Specimen.findAtlasId(this.specimenId), Specimen.findAtlasId(targetSpecimenId)]);
+
+            if (!movedAtlasId) {
+                throw new Error("The requested specimen can not be found.");
             }
+
+            if (movedAtlasId !== currentAtlasId) {
+                throw new Error("A neuron can not be moved to a specimen in a different atlas.");
+            }
+
+            targetAtlasId = movedAtlasId;
+        }
+
+        // Null is ok (inherited),  Undefined is ok (no change).  Id of length zero treated as null.  Otherwise, must
+        // find an atlas structure in the specimen's atlas.
+        if (shape.atlasStructureId) {
+            targetAtlasId ??= await Specimen.findAtlasId(targetSpecimenId);
+
+            Neuron.assertStructureInAtlas(shape.atlasStructureId, targetAtlasId);
         } else if (shape.atlasStructureId !== undefined && shape.atlasStructureId !== null) {
             // Zero-length string
             shape.atlasStructureId = null;
@@ -604,10 +627,21 @@ export class Neuron extends BaseModel {
         this.validateBulkUpdateShape(shape);
 
         if (shape.atlasStructureId) {
-            const atlasStructure = await AtlasStructure.findByPk(shape.atlasStructureId);
+            if (!Atlas.getAtlasForStructure(shape.atlasStructureId)) {
+                throw new Error("The requested atlas structure can not be found.");
+            }
 
-            if (!atlasStructure) {
-                throw new Error("The atlas structure cannot be found");
+            const specimenIds = _.uniq(neurons.map(neuron => neuron.specimenId));
+
+            // paranoid: false for the same reason as Specimen.findAtlasId.
+            const specimens = await Specimen.findAll({where: {id: {[Op.in]: specimenIds}}, attributes: ["id", "atlasId"], paranoid: false});
+
+            const atlasIds = new Map<string, string>(specimens.map(specimen => [specimen.id, specimen.atlasId]));
+
+            // Walks the neurons' specimen ids rather than the rows returned, so an id that resolves to no row fails
+            // instead of being skipped.
+            for (const specimenId of specimenIds) {
+                Neuron.assertStructureInAtlas(shape.atlasStructureId, atlasIds.get(specimenId) ?? null);
             }
         }
 
@@ -689,9 +723,7 @@ export class Neuron extends BaseModel {
 
         options = optionsWhereSpecimenIds(input, options);
 
-        // TODO Atlas for multiple atlases to be supported, input.atlasStructureIds will have to have been selected from a specific atlas, which will need
-        //  to have been added to the input args, and will be used for this step instead of hard-coded defaultAtlas.
-        options = optionsWhereAtlasStructureIds(input, Atlas.defaultAtlas, options);
+        options = optionsWhereAtlasStructureIds(input, options);
 
         this.applyNeuronFilters(options, input);
 

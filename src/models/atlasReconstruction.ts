@@ -340,7 +340,7 @@ export class AtlasReconstruction extends BaseModel {
         }
     }
 
-    public async replaceNodeData(user: User, reconstructionData: SimpleReconstruction, t: Transaction): Promise<AtlasReconstruction> {
+    public async replaceNodeData(user: User, reconstructionData: SimpleReconstruction, atlas: Atlas, t: Transaction): Promise<AtlasReconstruction> {
         try {
             await this.update({somaNodeId: null}, {transaction: t});
 
@@ -350,7 +350,7 @@ export class AtlasReconstruction extends BaseModel {
             });
 
             for (const structure of [reconstructionData.axon, reconstructionData.dendrite]) {
-                const nodeData: AtlasNodeShape[] = structure.getNonSomaNodes().map(node => mapToAtlasNodeShape(node, structure.NeuronStructureId, this.id));
+                const nodeData: AtlasNodeShape[] = structure.getNonSomaNodes().map(node => mapToAtlasNodeShape(node, structure.NeuronStructureId, this.id, atlas));
 
                 const chunkSize = AtlasReconstruction.PreferredDatabaseChunkSize;
 
@@ -359,7 +359,7 @@ export class AtlasReconstruction extends BaseModel {
                 }
             }
 
-            const somaShape = mapToAtlasNodeShape(reconstructionData.axon.soma, NeuronStructure.SomaNeuronStructureId, this.id);
+            const somaShape = mapToAtlasNodeShape(reconstructionData.axon.soma, NeuronStructure.SomaNeuronStructureId, this.id, atlas);
 
             const soma = await AtlasNode.create(somaShape, {transaction: t});
 
@@ -440,6 +440,14 @@ export class AtlasReconstruction extends BaseModel {
             const where = {reconstructionId: this.id, manualAtlasAssigment: false};
 
             const count = await AtlasNode.count({where: where});
+
+            // Recorded rather than thrown for the same reason as a missing atlas.  Only a failure while some node
+            // still needs a lookup: when every node arrived with its structure, no volume is needed.
+            if (count > 0 && !atlas.spatialUrl) {
+                await this.recordPhaseFailure(user, AtlasReconstructionStatus.FailedStructureAssignment, `no spatial volume is configured for specimen atlas ${atlasId}`);
+
+                return PhaseOutcome.Handled;
+            }
 
             debug(`assigning atlas structures to ${count} nodes for reconstruction ${this.id} where manual Atlas assignment is false`);
 

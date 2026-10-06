@@ -1,13 +1,8 @@
 {
-  "atlasKind": {
-    "kind": 100,
-    "family": 100,
-    "name": "Mouse",
-    "description": "Mouse"
-  },
   "atlas": {
     "name": "CCFv3",
     "description": "CCFv3",
+    "atlasKind": 100,
     "reference": "https://mouse.brain-map.org/static/atlas",
     "geometryUrl": "precomputed://gs://allen_neuroglancer_ccf/ccf_test1",
     "rootStructureId": 997,

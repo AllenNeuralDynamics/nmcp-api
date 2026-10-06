@@ -31,8 +31,14 @@ export const typeDefinitions = gql`
         """Returns the pre-defined set of neuron structures (axon, dendrite)."""
         neuronStructures: [NeuronStructure!]!
 
-        """Returns all atlas structures, subject to any input filtering."""
-        atlasStructures(input: AtlasStructureQueryInput): [AtlasStructure!]!
+        """Returns every atlas kind."""
+        atlasKinds: [AtlasKind!]!
+
+        """Returns every loaded atlas."""
+        atlases: [Atlas!]!
+
+        """Returns the structures of one atlas."""
+        atlasStructures(atlasId: String!, input: AtlasStructureQueryInput): [AtlasStructure!]!
 
         """Returns details for a single atlas structure."""
         atlasStructure(id: String!): AtlasStructure
@@ -135,7 +141,7 @@ export const typeDefinitions = gql`
         updateInjection(injectionInput: InjectionInput): Injection!
         deleteInjection(id: String!): String!
 
-        createSpecimen(specimen: SpecimenInput): Specimen!
+        createSpecimen(specimen: SpecimenCreateInput): Specimen!
         updateSpecimen(specimen: SpecimenInput): Specimen!
         deleteSpecimen(id: String!): String!
 

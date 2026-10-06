@@ -9,6 +9,8 @@ const {ReconstructionStatus} = require("../src/models/reconstructionStatus");
 const {ReconstructionSpace} = require("../src/models/reconstructionSpace");
 const {AtlasReconstruction} = require("../src/models/atlasReconstruction");
 const {Neuron} = require("../src/models/neuron");
+const {Specimen} = require("../src/models/specimen");
+const {Atlas} = require("../src/models/atlas");
 const {SpecimenSpacePrecomputed} = require("../src/models/specimenSpacePrecomputed");
 const {QualityControl} = require("../src/models/qualityControl");
 const {Precomputed} = require("../src/models/precomputed");
@@ -189,16 +191,22 @@ describe("fromParsedStructures in atlas space", () => {
         const atlasReconstruction = atlasStub();
 
         const neuron = {
+            specimenId: "specimen-1",
             atlasSoma: "atlasSoma" in options ? options.atlasSoma : {x: 1, y: 2, z: 3},
             update: vi.fn().mockResolvedValue(undefined)
         };
+
+        const atlas = {id: "atlas-id-1"};
 
         return {
             reconstruction: reconstructionStub(status),
             atlasReconstruction: atlasReconstruction,
             neuron: neuron,
+            atlas: atlas,
             findAtlas: vi.spyOn(AtlasReconstruction, "findOne").mockResolvedValue(atlasReconstruction as any),
-            findNeuron: vi.spyOn(Neuron, "findByPk").mockResolvedValue(neuron as any)
+            findNeuron: vi.spyOn(Neuron, "findByPk").mockResolvedValue(neuron as any),
+            findSpecimenAtlas: vi.spyOn(Specimen, "findAtlasId").mockResolvedValue("atlas-id-1"),
+            getAtlas: vi.spyOn(Atlas, "getAtlas").mockReturnValue(atlas)
         };
     }
 
@@ -249,6 +257,27 @@ describe("fromParsedStructures in atlas space", () => {
         expect(stubs.atlasReconstruction.prepareToFinalize).not.toHaveBeenCalled();
         expect(stubs.atlasReconstruction.approve).not.toHaveBeenCalled();
         expect(stubs.reconstruction.status).toBe(ReconstructionStatus.PublishReview);
+    });
+
+    test("passes the specimen's atlas to replaceNodeData", async () => {
+        const stubs = atlasStubs(ReconstructionStatus.PublishReview);
+        const data = reconstructionData();
+        const user = userWith(UserPermissions.PublishReview);
+
+        await stubs.reconstruction.fromParsedStructures(user, ReconstructionSpace.Atlas, data);
+
+        expect(stubs.findSpecimenAtlas).toHaveBeenCalledWith("specimen-1", transaction);
+        expect(stubs.atlasReconstruction.replaceNodeData).toHaveBeenCalledWith(user, data, stubs.atlas, transaction);
+    });
+
+    test("refuses the upload when the specimen's atlas is not loaded", async () => {
+        const stubs = atlasStubs(ReconstructionStatus.PublishReview);
+        stubs.getAtlas.mockReturnValue(undefined);
+
+        await expect(stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.PublishReview), ReconstructionSpace.Atlas, reconstructionData()))
+            .rejects.toThrow(/No atlas is loaded for specimen atlas atlas-id-1/);
+
+        expect(stubs.atlasReconstruction.replaceNodeData).not.toHaveBeenCalled();
     });
 
     test("throws when the reconstruction has no atlas child", async () => {

@@ -1,9 +1,6 @@
 import * as path from "path";
 import * as fs from "fs";
-import {Sequelize, QueryInterface, Options} from "sequelize";
-
-const debug = require("debug")("nmcp:nmcp-api:database-connector");
-
+import {Options, QueryInterface, Sequelize} from "sequelize";
 import {SequelizeOptions} from "../options/coreServicesOptions";
 import {ServiceOptions} from "../options/serviceOptions";
 import {AtlasStructure, AtlasStructureShape} from "../models/atlasStructure";
@@ -12,6 +9,10 @@ import {NeuronStructure} from "../models/neuronStructure";
 import {AtlasKind, AtlasKindShape} from "../models/atlasKind";
 import {Atlas, AtlasShape} from "../models/atlas";
 import {User} from "../models/user";
+
+const debug = require("debug")("nmcp:nmcp-api:database-connector");
+
+const ccfv3AtlasSource = "ccfv3Atlas.json";
 
 export class RemoteDatabaseClient {
     public static async Start(prepareSearchContents = false, enableLog: boolean = false, forceLocalHost: boolean = false): Promise<RemoteDatabaseClient> {
@@ -108,27 +109,62 @@ export class RemoteDatabaseClient {
 
         const when = new Date();
 
+        const sources = [ccfv3AtlasSource, "marmosetAtlas.json"];
+
         try {
-            let count = await AtlasStructure.count();
+            const atlasKinds = loadAtlasKinds(when);
 
-            if (count == 0) {
-                this.log("seeding atlas");
+            let count = await AtlasKind.count();
 
-                const [atlasKindInfo, atlasInfo, structures] = loadAtlasStructures(when);
+            if (count < atlasKinds.length) {
+                this.log("seeding atlas kinds");
 
-                await AtlasStructure.sequelize.transaction(async (t) => {
-                    const atlasKind = await AtlasKind.createForShape(atlasKindInfo, User.SystemInternalUser, t);
-
-                    const atlas = await Atlas.createForShape({...atlasInfo, atlasKindId: atlasKind.id}, User.SystemInternalUser, t);
-
-                    const atlasStructures = structures.map(s => ({...s, atlasId: atlas.id}));
-
-                    const chunkSize = 500;
-
-                    for (let idx = 0; idx < atlasStructures.length; idx += chunkSize) {
-                        await AtlasStructure.bulkCreate(atlasStructures.slice(idx, idx + chunkSize), {transaction: t});
+                await AtlasKind.sequelize.transaction(async (t) => {
+                    for (const atlasKind of atlasKinds) {
+                        await AtlasKind.createForShape(atlasKind, User.SystemInternalUser, t);
                     }
                 });
+            } else {
+                this.log("skipping atlas kinds seed");
+            }
+
+            count = await Atlas.count();
+
+            if (count < sources.length) {
+                this.log("seeding atlases");
+
+                for (const source of sources) {
+                    const [atlasInfo, structures] = loadAtlasStructures(source, when);
+
+                    const {kind, ...atlasShape} = atlasInfo;
+
+                    if (await Atlas.findOne({where: {name: atlasShape.name}})) {
+                        this.log(`skipping existing atlas ${atlasShape.name}`);
+                        continue;
+                    }
+
+                    const atlasKind = await AtlasKind.findOne({where: {kind}});
+
+                    if (!atlasKind) {
+                        this.log(`skipping atlas ${atlasShape.name}: no atlas kind ${kind}`);
+                        continue;
+                    }
+
+                    await Atlas.sequelize.transaction(async (t) => {
+                        const atlas = await Atlas.createForShape({
+                            ...atlasShape,
+                            atlasKindId: atlasKind.id
+                        }, User.SystemInternalUser, t);
+
+                        const atlasStructures = structures.map(s => ({...s, atlasId: atlas.id}));
+
+                        const chunkSize = 500;
+
+                        for (let idx = 0; idx < atlasStructures.length; idx += chunkSize) {
+                            await AtlasStructure.bulkCreate(atlasStructures.slice(idx, idx + chunkSize), {transaction: t});
+                        }
+                    });
+                }
             } else {
                 this.log("skipping atlas seed");
             }
@@ -164,30 +200,43 @@ export class RemoteDatabaseClient {
     }
 }
 
-function loadAtlasStructures(when: Date): [AtlasKindShape, AtlasShape, AtlasStructureShape[]] {
-    const fixtureDataPath = path.join(ServiceOptions.fixturePath, "ccfv3Atlas.json");
+function loadAtlasKinds(when: Date): AtlasKindShape[] {
+    const fixtureDataPath = path.join(ServiceOptions.fixturePath, "atlasKind.json");
+
+    const fileData = fs.readFileSync(fixtureDataPath, "utf-8");
+
+    const atlasInfo: AtlasKindShape[] = JSON.parse(fileData);
+
+    return atlasInfo.map((s: AtlasKindShape) => ({
+        kind: s.kind,
+        family: s.family,
+        name: s.name,
+        description: s.description
+    }));
+}
+
+function loadAtlasStructures(source: string, when: Date): [AtlasShape, AtlasStructureShape[]] {
+    const fixtureDataPath = path.join(ServiceOptions.fixturePath, source);
 
     const fileData = fs.readFileSync(fixtureDataPath, "utf-8");
 
     const atlasInfo = JSON.parse(fileData);
 
-    const atlasKind: AtlasKindShape = {
-        kind: atlasInfo.atlasKind.kind,
-        family: atlasInfo.atlasKind.family,
-        name: atlasInfo.atlasKind.name,
-        description: atlasInfo.atlasKind.description
-    }
-
     const atlas: AtlasShape = {
         name: atlasInfo.atlas.name,
         description: atlasInfo.atlas.description,
+        kind: atlasInfo.atlas.atlasKind,
         reference: atlasInfo.atlas.reference,
         geometryUrl: atlasInfo.atlas.geometryUrl,
-        rootStructureId: atlasInfo.atlas.rootStructureId,
-        spatialUrl: ServiceOptions.ccfv30OntologyPath
+        rootStructureId: atlasInfo.atlas.rootStructureId
     }
 
-    const structures = atlasInfo.atlas.structures.map((n: any) => {
+    // Only CCFv3 has a volume for now; every other atlas keeps the column default (null).
+    if (source === ccfv3AtlasSource) {
+        atlas.spatialUrl = ServiceOptions.ccfv30OntologyPath;
+    }
+
+    const structures: AtlasStructureShape[] = atlasInfo.atlas.structures.map((n: any) => {
         const s = {...n};
 
         delete s.id;
@@ -197,7 +246,7 @@ function loadAtlasStructures(when: Date): [AtlasKindShape, AtlasShape, AtlasStru
         return s;
     });
 
-    return [atlasKind, atlas, structures];
+    return [atlas, structures];
 }
 
 function loadNodeStructures(when: Date) {

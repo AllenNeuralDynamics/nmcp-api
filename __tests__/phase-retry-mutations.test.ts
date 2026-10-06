@@ -391,14 +391,6 @@ describe("prepareToFinalize and replaceNodeData clear the failure metadata", () 
         const atlasReconstruction = entering(AtlasReconstructionStatus.FailedStructureAssignment);
 
         const {AtlasNode} = require("../src/models/atlasNode");
-        const {Atlas} = require("../src/models/atlas");
-
-        // mapToAtlasNodeShape reads the default atlas to resolve a manually assigned structure.
-        Object.defineProperty(Atlas, "defaultAtlas", {
-            value: {getFromStructureId: () => null},
-            configurable: true,
-            writable: true
-        });
 
         vi.spyOn(AtlasNode, "destroy").mockResolvedValue(0 as any);
         vi.spyOn(AtlasNode, "bulkCreate").mockResolvedValue([] as any);
@@ -414,6 +406,7 @@ describe("prepareToFinalize and replaceNodeData clear the failure metadata", () 
         await atlasReconstruction.replaceNodeData(
             userWith(UserPermissions.PublishReview),
             {source: "s", comments: "c", axon: structure, dendrite: structure},
+            {getFromStructureId: () => null},
             transaction
         );
 

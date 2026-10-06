@@ -239,7 +239,7 @@ describe("QualityControl.assess outcomes", () => {
 });
 
 describe("calculateStructureAssignments failures", () => {
-    function assignable(options: {atlas?: any; rejectWith?: any} = {}) {
+    function assignable(options: {atlas?: any; rejectWith?: any; count?: number} = {}) {
         stubTransactions(AtlasReconstruction);
 
         vi.spyOn(EventLogItem, "create").mockResolvedValue({id: "event-1"} as any);
@@ -251,7 +251,7 @@ describe("calculateStructureAssignments failures", () => {
         if (options.rejectWith) {
             count.mockRejectedValue(options.rejectWith);
         } else {
-            count.mockResolvedValue(0);
+            count.mockResolvedValue(options.count ?? 0);
         }
 
         const nodeUpdate = vi.spyOn(AtlasNode, "update").mockResolvedValue([0] as any);
@@ -276,6 +276,30 @@ describe("calculateStructureAssignments failures", () => {
         expect(stubs.atlasReconstruction.status).toBe(AtlasReconstructionStatus.FailedStructureAssignment);
         expect(stubs.atlasReconstruction.failureReason).toBe("no atlas is loaded for specimen atlas atlas-id-1");
         expect(stubs.nodeUpdate).not.toHaveBeenCalled();
+    });
+
+    test.each([
+        ["an atlas with no spatial volume", null],
+        ["an empty spatialUrl", ""]
+    ])("%s fails the item when nodes need assigning", async (_label: string, spatialUrl: string) => {
+        const atlas = {spatialUrl, findForLocation: vi.fn()};
+
+        const stubs = assignable({atlas, count: 3});
+
+        expect(await stubs.atlasReconstruction.calculateStructureAssignments(systemUser)).toBe(PhaseOutcome.Handled);
+
+        expect(stubs.atlasReconstruction.status).toBe(AtlasReconstructionStatus.FailedStructureAssignment);
+        expect(stubs.atlasReconstruction.failureReason).toBe("no spatial volume is configured for specimen atlas atlas-id-1");
+        expect(stubs.nodeUpdate).not.toHaveBeenCalled();
+        expect(atlas.findForLocation).not.toHaveBeenCalled();
+    });
+
+    test("with every node already assigned, a missing volume is not a failure", async () => {
+        const stubs = assignable({atlas: {spatialUrl: null, findForLocation: vi.fn()}, count: 0});
+
+        expect(await stubs.atlasReconstruction.calculateStructureAssignments(systemUser)).toBe(PhaseOutcome.Handled);
+
+        expect(stubs.atlasReconstruction.status).toBe(AtlasReconstructionStatus.PendingPrecomputed);
     });
 
     test("a non-transient throw is recorded as a failure of this item", async () => {

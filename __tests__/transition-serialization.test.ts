@@ -9,6 +9,8 @@ const {ReconstructionSpace} = require("../src/models/reconstructionSpace");
 const {AtlasReconstruction} = require("../src/models/atlasReconstruction");
 const {AtlasReconstructionStatus} = require("../src/models/atlasReconstructionStatus");
 const {Neuron} = require("../src/models/neuron");
+const {Specimen} = require("../src/models/specimen");
+const {Atlas} = require("../src/models/atlas");
 const {SpecimenNode} = require("../src/models/specimenNode");
 const {SpecimenSpacePrecomputed} = require("../src/models/specimenSpacePrecomputed");
 const {SearchIndex} = require("../src/models/searchIndex");
@@ -401,6 +403,9 @@ describe("lock order", () => {
         });
 
         vi.spyOn(Reconstruction, "findAll").mockResolvedValue([]);
+
+        vi.spyOn(Specimen, "findAtlasId").mockResolvedValue("atlas-1");
+        vi.spyOn(Atlas, "getAtlas").mockReturnValue({id: "atlas-1"});
 
         return {parent: parent, child: child, callOrder: callOrder};
     }

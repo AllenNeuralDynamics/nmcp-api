@@ -17,6 +17,7 @@ const {SpecimenNode} = require("../src/models/specimenNode");
 const {AtlasNode} = require("../src/models/atlasNode");
 const {SearchIndex} = require("../src/models/searchIndex");
 const {Atlas} = require("../src/models/atlas");
+const {Specimen} = require("../src/models/specimen");
 const {EventLogItem} = require("../src/models/eventLogItem");
 const {QualityCheckService, QualityCheckServiceStatus, QualityControlScore} = require("../src/data-access/qualityCheckService");
 
@@ -86,7 +87,6 @@ afterEach(() => {
     delete (Reconstruction as any).sequelize;
     delete (AtlasReconstruction as any).sequelize;
     delete (QualityControl as any).sequelize;
-    Atlas.defaultAtlas = null;
 });
 
 describe("approveReconstruction", () => {
@@ -200,6 +200,7 @@ describe("calculateStructureAssignments", () => {
         defineSequelize(AtlasReconstruction);
 
         vi.spyOn(Atlas, "getAtlas").mockReturnValue({
+            spatialUrl: "volume.nrrd",
             findForLocation: vi.fn().mockReturnValue("structure-1")
         } as any);
 
@@ -342,14 +343,17 @@ describe("fromParsedStructures", () => {
 
         const findAtlas = vi.spyOn(AtlasReconstruction, "findOne").mockResolvedValue(atlasReconstruction as any);
         // atlasSoma is already populated, so the soma back-fill branch is skipped.
-        const findNeuron = vi.spyOn(Neuron, "findByPk").mockResolvedValue({atlasSoma: {x: 1, y: 2, z: 3}} as any);
+        const findNeuron = vi.spyOn(Neuron, "findByPk").mockResolvedValue({specimenId: "specimen-1", atlasSoma: {x: 1, y: 2, z: 3}} as any);
         const findParent = vi.spyOn(Reconstruction, "findByPk").mockResolvedValue(reconstruction);
+        const findSpecimenAtlas = vi.spyOn(Specimen, "findAtlasId").mockResolvedValue("atlas-1");
+        vi.spyOn(Atlas, "getAtlas").mockReturnValue({id: "atlas-1"} as any);
 
         await reconstruction.fromParsedStructures(userWith(UserPermissions.PublishReview), ReconstructionSpace.Atlas, reconstructionData());
 
         expect(findNeuron).toHaveBeenCalledWith("neuron-1", {transaction: transaction, lock: Transaction.LOCK.UPDATE});
         expect(findAtlas).toHaveBeenCalledWith(carriesTransaction);
         expect(findParent).toHaveBeenCalledWith("instance-1", {transaction: transaction, lock: Transaction.LOCK.UPDATE});
+        expect(findSpecimenAtlas).toHaveBeenCalledWith("specimen-1", transaction);
     });
 });
 
@@ -371,17 +375,13 @@ describe("replaceNodeData", () => {
     test("AtlasReconstruction clears the soma reference inside the transaction", async () => {
         stubEvents();
 
-        // mapToAtlasNodeShape resolves the soma's atlas structure through the default atlas, which is null until a
-        // cache load that never happens in tests.
-        Atlas.defaultAtlas = {getFromStructureId: () => null};
-
         vi.spyOn(AtlasNode, "destroy").mockResolvedValue(0);
         vi.spyOn(AtlasNode, "bulkCreate").mockResolvedValue([] as any);
         vi.spyOn(AtlasNode, "create").mockResolvedValue({id: "soma-1"} as any);
 
         const atlasReconstruction = prototypeStub(AtlasReconstruction, {reconstructionId: "reconstruction-1"});
 
-        await atlasReconstruction.replaceNodeData(userWith(UserPermissions.Admin), reconstructionData(), transaction);
+        await atlasReconstruction.replaceNodeData(userWith(UserPermissions.Admin), reconstructionData(), {getFromStructureId: () => null}, transaction);
 
         expect(atlasReconstruction.update.mock.calls[0]).toEqual([{somaNodeId: null}, {transaction: transaction}]);
     });

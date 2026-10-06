@@ -1,0 +1,14 @@
+[
+  {
+    "kind": 100,
+    "family": 100,
+    "name": "Mouse",
+    "description": "Mouse"
+  },
+  {
+    "kind": 200,
+    "family": 200,
+    "name": "Marmoset",
+    "description": "Marmoset"
+  }
+]
