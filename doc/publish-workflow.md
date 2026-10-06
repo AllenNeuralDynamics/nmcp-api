@@ -208,10 +208,11 @@ The annotator calls `openReconstruction(neuronId)`, which creates the `Reconstru
 Two limits apply:
 
 - A user holding only `AnnotateOne` may have exactly one reconstruction outside `AnnotationLimitExemptStatuses`
-  (`src/models/reconstruction.ts:68`): the closed statuses (`ClosedReconstructionStatuses` = Rejected, Published,
-  Archived, Untraceable, Discarded) plus `Incomplete` and `Duplicate`. `OnHold` still counts. The check takes a row lock
-  on the user so two concurrent opens cannot both pass it. Clients don't pre-check the limit; the code 1002 refusal is
-  the contract.
+  (`src/models/reconstruction.ts:70`): the closed statuses (`ClosedReconstructionStatuses` = Rejected, Published,
+  Archived, Untraceable, Discarded) plus the three holds, `OnHold`, `Incomplete` and `Duplicate`. The check takes a row
+  lock on the user so two concurrent opens cannot both pass it. `resumeReconstruction` applies the same locked check
+  before taking a held reconstruction back to `InProgress` (1.2). Clients don't pre-check the limit; the code 1002
+  refusal is the contract.
 - Re-opening the same neuron returns the existing non-closed row rather than creating a second one, and that row may be
   a held one, at any of the three hold statuses. **Per annotator**,
   though — both that check and the limit above are scoped to `annotatorId`, and nothing scopes either to the neuron
@@ -253,10 +254,13 @@ during DOI assignment (`src/models/atlasReconstruction.ts`).
 **Three hold statuses.** `pauseReconstruction`, `markReconstructionIncomplete` and `markReconstructionDuplicate` each
 write their own status (`OnHold`, `Incomplete`, `Duplicate`) and their own event, from `InProgress` or `Rejected`, for
 the annotator or an admin. All three share one implementation, `Reconstruction.holdReconstruction`
-(`src/models/reconstruction.ts:764`), so they cannot drift apart. A hold is left only by `resumeReconstruction`
+(`src/models/reconstruction.ts:802`), so they cannot drift apart. A hold is left only by `resumeReconstruction`
 (`ResumableSourceStatuses`), so moving from one hold to another means resuming first, and no hold is a source for any
-review target. Each is a distinct value, filtered on its own. All three release the neuron to the candidate pool;
-`Incomplete` and `Duplicate` do not count toward the single-annotation limit (1.1), and `OnHold` does.
+review target. Each is a distinct value, filtered on its own. All three release the neuron to the candidate pool, and
+none counts toward the single-annotation limit (1.1). Resuming takes the slot back, so for an annotator holding only
+`AnnotateOne` `resumeReconstruction` refuses with code 1002 while another of their reconstructions holds it - the same
+locked count `openReconstruction` makes, against the annotator's permissions even when an admin resumes on their
+behalf.
 
 ### 1.3 The Optional Reviews
 
@@ -1310,8 +1314,7 @@ raising one as a finding means disputing the decision rather than reporting a de
 
 What is left once section 3 is taken into account: the real gaps, ordered roughly by consequence and stated as the
 service behaves today. Each item names the code that produces it. Anything section 3 accounts for is absent here by
-decision rather than by oversight. Two items below are about credentials rather than about the workflow itself; one,
-E9, is on the reconstruction's own path from candidate to published.
+decision rather than by oversight. Both items below are about credentials rather than about the workflow itself.
 
 **E7 — The server authentication key is unbounded, and what its holders actually need is not recorded.**
 `ServiceOptions.serverAuthenticationKey` resolves to `User.SystemInternalUser` (`src/models/apiKey.ts:60`), whose
@@ -1341,10 +1344,3 @@ nothing invalidates or re-scopes them. The exposure is bounded — a key can onl
 review bits, never `Admin` and never the internal ones — and the remedy is to delete the keys, which `deleteApiKey`
 supports and nothing does automatically. Invalidating a user's keys when `updatePermissions` narrows them is the
 eventual answer.
-
-**E9 — `resumeReconstruction` does not apply the single-annotation limit.** `Incomplete` and `Duplicate` are exempt
-from the count (`AnnotationLimitExemptStatuses`, 1.1), and `resumeReconstruction` (`src/models/reconstruction.ts:791`)
-checks only the permission and `ResumableSourceStatuses` before writing `InProgress`. So a user holding only
-`AnnotateOne` can build up several reconstructions at `Incomplete` or `Duplicate` while another is open, resume each,
-and end with more than one open annotation. `openReconstruction`'s locked count (code 1002) is the only enforcement of
-the limit. The remedy is the same locked count in resume.

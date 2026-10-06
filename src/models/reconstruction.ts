@@ -11,7 +11,8 @@ import {
     Op,
     OrderItem,
     Sequelize,
-    Transaction
+    Transaction,
+    WhereOptions
 } from "sequelize";
 
 import {BaseModel} from "./baseModel";
@@ -61,12 +62,14 @@ export const ClosedReconstructionStatuses: ReconstructionStatus[] = [
 
 /**
  * Statuses that do not count as an open annotation when enforcing the single-annotation limit.  Anything not listed
- * here holds the annotator's one slot.  Incomplete and Duplicate are an annotator's notation on work set aside, so they
- * free the slot without closing the reconstruction - findOrOpenReconstruction still treats them as open.  Revise this
- * list, not ClosedReconstructionStatuses, if other statuses should stop counting.
+ * here holds the annotator's one slot.  The holds are work set aside, so they free the slot without closing the
+ * reconstruction - findOrOpenReconstruction still treats them as open, and resumeReconstruction must find the slot
+ * free before taking it back.  Revise this list, not ClosedReconstructionStatuses, if other statuses should stop
+ * counting.
  */
 export const AnnotationLimitExemptStatuses: ReconstructionStatus[] = [
     ...ClosedReconstructionStatuses,
+    ReconstructionStatus.OnHold,
     ReconstructionStatus.Incomplete,
     ReconstructionStatus.Duplicate
 ];
@@ -697,16 +700,7 @@ export class Reconstruction extends BaseModel {
             }
 
             if (enforceLimit) {
-                const openCount = await Reconstruction.count({
-                    where: {
-                        annotatorId: user.id,
-                        status: {[Op.notIn]: AnnotationLimitExemptStatuses}
-                    }, transaction: t
-                });
-
-                if (openCount > 0) {
-                    throw new GraphQLError("You already have an annotation in progress.  Complete or discard it before starting another.", {extensions: {code: 1002}});
-                }
+                await Reconstruction.assertAnnotationSlotFree(user.id, t);
             }
 
             const shape: ReconstructionShape = {
@@ -736,6 +730,27 @@ export class Reconstruction extends BaseModel {
             }
 
             throw err;
+        }
+    }
+
+    /**
+     * The caller holds the annotator's row lock on t, so no concurrent open or resume can read the count between this
+     * check and the caller's write.
+     */
+    private static async assertAnnotationSlotFree(annotatorId: string, t: Transaction, excludeId: string = null): Promise<void> {
+        const where: WhereOptions = {
+            annotatorId: annotatorId,
+            status: {[Op.notIn]: AnnotationLimitExemptStatuses}
+        };
+
+        if (excludeId) {
+            where["id"] = {[Op.ne]: excludeId};
+        }
+
+        const openCount = await Reconstruction.count({where: where, transaction: t});
+
+        if (openCount > 0) {
+            throw new GraphQLError("You already have an annotation in progress.  Complete or discard it before starting another.", {extensions: {code: 1002}});
         }
     }
 
@@ -823,6 +838,14 @@ export class Reconstruction extends BaseModel {
         }
 
         return await this.sequelize.transaction(async (t) => {
+            // The limit is the annotator's, not the caller's - an admin resuming on their behalf is held to it too.
+            // Locked as openReconstruction locks it, so a concurrent open or resume waits for this one to commit.
+            const annotator = await User.findByPk(reconstruction.annotatorId, {transaction: t, lock: Transaction.LOCK.UPDATE});
+
+            if (annotator?.canAnnotate() && !annotator.canAnnotateMultiple()) {
+                await Reconstruction.assertAnnotationSlotFree(annotator.id, t, reconstruction.id);
+            }
+
             const update = {status: ReconstructionStatus.InProgress};
 
             const r = await reconstruction.update(update, {transaction: t});

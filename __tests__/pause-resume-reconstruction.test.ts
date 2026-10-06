@@ -2,8 +2,9 @@ import {expect, test, vi, describe, afterEach} from "vitest";
 
 // require() rather than import: the .ts sources are compiled to .js in place, and an ESM import yields a
 // different module instance than the CJS one the model methods call into, so the spies would not apply.
+const {Op, Transaction} = require("sequelize");
 const {User, UserPermissions} = require("../src/models/user");
-const {Reconstruction, PausableSourceStatuses, ResumableSourceStatuses} = require("../src/models/reconstruction");
+const {Reconstruction, PausableSourceStatuses, ResumableSourceStatuses, AnnotationLimitExemptStatuses} = require("../src/models/reconstruction");
 const {ReconstructionStatus} = require("../src/models/reconstructionStatus");
 const {EventLogItem, EventLogItemKind} = require("../src/models/eventLogItem");
 const {UnauthorizedError} = require("../src/graphql/secureResolvers");
@@ -15,7 +16,9 @@ function userWith(permissions: number, id: string = "user-1") {
     return user;
 }
 
-function stub(status: number, user: any) {
+// annotator is the reconstruction's annotator as resumeReconstruction loads it under lock; it defaults to an
+// AnnotateMany user so the limit stays out of tests that are not about it.
+function stub(status: number, user: any, options: { annotator?: any, openCount?: number } = {}) {
     const reconstruction = Object.create(Reconstruction.prototype);
     reconstruction.id = "reconstruction-1";
     reconstruction.neuronId = "neuron-1";
@@ -29,13 +32,16 @@ function stub(status: number, user: any) {
     vi.spyOn(Reconstruction, "findByPk").mockResolvedValue(reconstruction);
     vi.spyOn(User, "findUserOrId").mockResolvedValue(user);
 
+    const findAnnotator = vi.spyOn(User, "findByPk").mockResolvedValue(options.annotator ?? userWith(UserPermissions.AnnotateMany, "annotator-1"));
+    const count = vi.spyOn(Reconstruction, "count").mockResolvedValue(options.openCount ?? 0);
+
     Object.defineProperty(Reconstruction, "sequelize", {
         value: {transaction: vi.fn().mockImplementation(async (callback: any) => callback({}))},
         configurable: true,
         writable: true
     });
 
-    return {reconstruction, create: vi.spyOn(EventLogItem, "create").mockResolvedValue({id: "event-1"})};
+    return {reconstruction, findAnnotator, count, create: vi.spyOn(EventLogItem, "create").mockResolvedValue({id: "event-1"})};
 }
 
 const allStatuses = Object.keys(ReconstructionStatus)
@@ -162,5 +168,72 @@ describe("resumeReconstruction", () => {
         await expect(Reconstruction.resumeReconstruction("reconstruction-1", "annotator-2")).rejects.toBeInstanceOf(UnauthorizedError);
 
         expect(stubs.reconstruction.update).not.toHaveBeenCalled();
+    });
+});
+
+describe("resumeReconstruction under the single-annotation limit", () => {
+    const limited = () => userWith(UserPermissions.AnnotateOne, "annotator-1");
+
+    test.each(ResumableSourceStatuses as number[])("refuses %s when the annotator has another annotation open", async (status: number) => {
+        const stubs = stub(status, limited(), {annotator: limited(), openCount: 1});
+
+        await expect(Reconstruction.resumeReconstruction("reconstruction-1", "annotator-1")).rejects.toMatchObject({
+            extensions: {code: 1002}
+        });
+
+        expect(stubs.reconstruction.update).not.toHaveBeenCalled();
+        expect(stubs.create).not.toHaveBeenCalled();
+    });
+
+    test.each(ResumableSourceStatuses as number[])("allows %s when nothing else is open", async (status: number) => {
+        const stubs = stub(status, limited(), {annotator: limited(), openCount: 0});
+
+        const updated = await Reconstruction.resumeReconstruction("reconstruction-1", "annotator-1");
+
+        expect(updated.status).toBe(ReconstructionStatus.InProgress);
+        expect(stubs.count).toHaveBeenCalledTimes(1);
+    });
+
+    test("holds an admin resuming on the annotator's behalf to the annotator's limit", async () => {
+        const stubs = stub(ReconstructionStatus.OnHold, userWith(UserPermissions.Admin), {annotator: limited(), openCount: 1});
+
+        await expect(Reconstruction.resumeReconstruction("reconstruction-1", "user-1")).rejects.toMatchObject({
+            extensions: {code: 1002}
+        });
+
+        expect(stubs.reconstruction.update).not.toHaveBeenCalled();
+    });
+
+    test("does not limit an AnnotateMany annotator", async () => {
+        const stubs = stub(ReconstructionStatus.OnHold, userWith(UserPermissions.AnnotateMany, "annotator-1"), {openCount: 1});
+
+        const updated = await Reconstruction.resumeReconstruction("reconstruction-1", "annotator-1");
+
+        expect(updated.status).toBe(ReconstructionStatus.InProgress);
+        expect(stubs.count).not.toHaveBeenCalled();
+    });
+
+    test("does not limit an annotator who holds no annotate permission", async () => {
+        const stubs = stub(ReconstructionStatus.OnHold, userWith(UserPermissions.Admin), {annotator: userWith(UserPermissions.None, "annotator-1"), openCount: 1});
+
+        const updated = await Reconstruction.resumeReconstruction("reconstruction-1", "user-1");
+
+        expect(updated.status).toBe(ReconstructionStatus.InProgress);
+        expect(stubs.count).not.toHaveBeenCalled();
+    });
+
+    test("locks the annotator's row and counts their other reconstructions outside the exempt statuses", async () => {
+        const stubs = stub(ReconstructionStatus.OnHold, limited(), {annotator: limited(), openCount: 0});
+
+        await Reconstruction.resumeReconstruction("reconstruction-1", "annotator-1");
+
+        expect(stubs.findAnnotator).toHaveBeenCalledWith("annotator-1", {transaction: expect.anything(), lock: Transaction.LOCK.UPDATE});
+        expect(stubs.findAnnotator.mock.invocationCallOrder[0]).toBeLessThan(stubs.count.mock.invocationCallOrder[0]);
+
+        const where = stubs.count.mock.calls[0][0].where;
+
+        expect(where.annotatorId).toBe("annotator-1");
+        expect(where.status[Op.notIn]).toBe(AnnotationLimitExemptStatuses);
+        expect(where.id[Op.ne]).toBe("reconstruction-1");
     });
 });

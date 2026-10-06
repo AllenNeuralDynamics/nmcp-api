@@ -68,13 +68,14 @@ describe("ClosedReconstructionStatuses", () => {
 });
 
 describe("AnnotationLimitExemptStatuses", () => {
-    test("contains exactly the closed statuses plus Incomplete and Duplicate", () => {
+    test("contains exactly the closed statuses plus the holds", () => {
         expect([...AnnotationLimitExemptStatuses].sort()).toEqual([
             ReconstructionStatus.Rejected,
             ReconstructionStatus.Published,
             ReconstructionStatus.Archived,
             ReconstructionStatus.Untraceable,
             ReconstructionStatus.Discarded,
+            ReconstructionStatus.OnHold,
             ReconstructionStatus.Incomplete,
             ReconstructionStatus.Duplicate
         ].sort());
@@ -89,7 +90,6 @@ describe("AnnotationLimitExemptStatuses", () => {
     test("excludes every status that still holds the slot", () => {
         const stillCounting = [
             ReconstructionStatus.InProgress,
-            ReconstructionStatus.OnHold,
             ReconstructionStatus.PeerReview,
             ReconstructionStatus.TeamReview,
             ReconstructionStatus.PublishReview,

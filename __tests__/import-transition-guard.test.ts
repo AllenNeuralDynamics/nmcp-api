@@ -114,9 +114,9 @@ describe("the SmartSheet guard runs before anything writes to the row", () => {
     test.each([
         ["the modified/added report entry", "importReport.reconstructionsModified.set"],
         ["the changed-neuron report entry", "importReport.existingNeuronsWithReconstructionChanges.add"],
-        ["the metadata update", "await reconstruction.update(updates)"],
+        ["the metadata update", "await updateReconstructionMetadata(reconstruction"],
         ["the targetStatus switch", "switch (targetStatus)"],
-        ["the atlas upload and approve", "loadAtlasReconstruction(reconstruction"]
+        ["the specimen and atlas upload and approve", "await loadReconstructionData(reconstruction"]
     ])("before %s", (_unused: string, marker: string) => {
         expect(guard).toBeGreaterThan(0);
         expect(source.indexOf(marker)).toBeGreaterThan(guard);
