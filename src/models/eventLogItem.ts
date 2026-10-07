@@ -21,6 +21,7 @@ export enum EventLogItemKind {
     AccessRequestDeny = 1230,
 
     ApiKeyCreate = 1300,
+    ApiKeyUpdate = 1310,
     ApiKeyDelete = 1350,
 
     AtlasKindCreate = 2000,

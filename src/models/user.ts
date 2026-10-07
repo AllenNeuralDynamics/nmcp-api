@@ -66,6 +66,34 @@ export function apiKeyPermissionsAll(ownerPermissions: number): number {
     return annotationAll & ~UserPermissions.AdminAll;
 }
 
+const AnnotationBits = UserPermissions.AnnotateOne | UserPermissions.AnnotateMany;
+
+const AnnotationBitByLevel = [UserPermissions.None, UserPermissions.AnnotateOne, UserPermissions.AnnotateMany];
+
+// None < One < Many.  Both bits count as One, the narrower, as apiKeyPermissionsAll already decides.
+function annotationLevel(permissions: number): number {
+    if ((permissions & UserPermissions.AnnotateOne) !== 0) {
+        return 1;
+    }
+
+    return (permissions & UserPermissions.AnnotateMany) !== 0 ? 2 : 0;
+}
+
+/**
+ * A key's permissions narrowed to what its owner holds: the lower of the two annotation levels, and every other bit
+ * only if the owner holds it too.  A plain AND is wrong at a variant switch - it would take a Many key to no annotation
+ * when the owner drops to One, and strip a One key when the owner rises to Many.
+ */
+export function narrowApiKeyPermissions(keyPermissions: number, ownerPermissions: number): number {
+    const level = Math.min(annotationLevel(keyPermissions), annotationLevel(ownerPermissions));
+
+    return AnnotationBitByLevel[level] | (keyPermissions & ownerPermissions & ~AnnotationBits);
+}
+
+export function losesCapability(previous: number, next: number): boolean {
+    return annotationLevel(next) < annotationLevel(previous) || (previous & ~next & ~AnnotationBits) !== 0;
+}
+
 /**
  * The source statuses an upload may arrive at, per space, and the review bit each one requires.  A status absent for a
  * space is not an upload source there at all.  The bit tracks the status rather than the space: specimen-space nodes
@@ -262,22 +290,24 @@ export class User extends BaseModel {
         return {totalCount: count, items: users};
     }
 
-    private async updateForShape(shape: UserShape, updater: User, substituteUser: User = null): Promise<User> {
-        // Assumes all shape validation has taken place.  This is just to couple the event log in the transaction.
-        return await this.sequelize.transaction(async (t) => {
-            const updated = await this.update(shape);
+    private async updateForShape(shape: UserShape, updater: User, substituteUser: User = null, transaction: Transaction = null): Promise<User> {
+        // Assumes all shape validation has taken place.
+        if (!transaction) {
+            return await this.sequelize.transaction(async (owned) => this.updateForShape(shape, updater, substituteUser, owned));
+        }
 
-            await recordEvent({
-                kind: EventLogItemKind.UserUpdate,
-                targetId: this.id,
-                parentId: null,
-                details: shape,
-                userId: updater.id,
-                substituteUserId: substituteUser?.id
-            }, t);
+        const updated = await this.update(shape, {transaction});
 
-            return updated;
-        });
+        await recordEvent({
+            kind: EventLogItemKind.UserUpdate,
+            targetId: this.id,
+            parentId: null,
+            details: shape,
+            userId: updater.id,
+            substituteUserId: substituteUser?.id
+        }, transaction);
+
+        return updated;
     }
 
     public static async updatePermissions(id: string, permissions: number, updater: User): Promise<User> {
@@ -285,16 +315,15 @@ export class User extends BaseModel {
             throw new UnauthorizedError();
         }
 
-        let user = await User.findByPk(id);
+        const user = await User.findByPk(id);
 
         if (!user || user.isSystemUser) {
             return null;
         }
 
-        // After the target is resolved, so a rejected value cannot distinguish a system user from a missing one, and
-        // outside the try below, whose catch would swallow the throw and report success.  The mask refuses any bit
-        // outside the normal-user set - including the reserved-but-unassigned ones - and the range test closes the
-        // int32 wrap that would otherwise let a value at or above 2^31 through the mask.
+        // After the target is resolved, so a rejected value cannot distinguish a system user from a missing one.  The
+        // mask refuses any bit outside the normal-user set - including the reserved-but-unassigned ones - and the range
+        // test closes the int32 wrap that would otherwise let a value at or above 2^31 through the mask.
         if (!Number.isInteger(permissions) || permissions < 0 || permissions > UserPermissionsAll || (permissions & ~UserPermissionsAll) !== 0) {
             throw new GraphQLError("That permissions value includes bits an ordinary account cannot hold.", {extensions: {code: 1006}});
         }
@@ -308,16 +337,30 @@ export class User extends BaseModel {
         await lock.acquire();
 
         try {
-            user = await user.updateForShape({permissions: permissions}, updater);
+            const updated = await this.sequelize.transaction(async (transaction) => {
+                // The instance was read before the lock was held, and the narrowing decision must compare against the
+                // value this change actually replaces.
+                await user.reload({transaction});
 
-            this.userCache.delete(user.authDirectoryId);
-        } catch (error) {
-            debug(error);
+                const previousPermissions = user.permissions;
+
+                const result = await user.updateForShape({permissions: permissions}, updater, null, transaction);
+
+                // Gated because a key may carry bits its owner does not (createApiKey masks by annotation variant, not
+                // by what the owner holds), and a change that only widens the owner must leave such a key alone.
+                if (losesCapability(previousPermissions, permissions)) {
+                    await ApiKey.narrowForOwner(result.id, permissions, updater, transaction);
+                }
+
+                return result;
+            });
+
+            this.userCache.delete(updated.authDirectoryId);
+
+            return updated;
         } finally {
             lock.release();
         }
-
-        return user;
     }
 
     public static async updateAnonymization(id: string, anonymousCandidate: boolean, anonymousComplete: boolean, updater: User): Promise<User> {

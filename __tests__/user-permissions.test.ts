@@ -8,6 +8,23 @@ const {ReconstructionStatus} = require("../src/models/reconstructionStatus");
 const {AbandonableFailureStatuses, AtlasReconstructionStatus} = require("../src/models/atlasReconstructionStatus");
 const {ReconstructionSpace} = require("../src/models/reconstructionSpace");
 const {UnauthorizedError} = require("../src/graphql/secureResolvers");
+const {ApiKey} = require("../src/models/apiKey");
+const {EventLogItem, EventLogItemKind} = require("../src/models/eventLogItem");
+
+// A sentinel rather than a real Transaction: the assertions are that this exact value reaches each write.
+const transaction = {sentinel: "t"} as any;
+
+const carriesTransaction = expect.objectContaining({transaction: transaction});
+
+// modelInit never runs here, so User.sequelize is supplied per test.  The callback form of transaction() hands the
+// sentinel to whatever opens one.  Model.prototype.sequelize reads the constructor's, so this serves instances too.
+function defineUserSequelize() {
+    Object.defineProperty(User, "sequelize", {
+        value: {transaction: vi.fn().mockImplementation(async (callback: any) => callback(transaction))},
+        configurable: true,
+        writable: true
+    });
+}
 
 function userWithPermissions(permissions: number) {
     const user = Object.create(User.prototype);
@@ -553,13 +570,21 @@ describe("updatePermissions guard", () => {
             return user;
         });
 
+        user.reload = vi.fn().mockResolvedValue(user);
+
         vi.spyOn(User, "findByPk").mockResolvedValue(user);
+
+        // AnnotateOne to None, among others, narrows; without the spy that would reach an uninitialised ApiKey model.
+        vi.spyOn(ApiKey, "narrowForOwner").mockResolvedValue(undefined);
+
+        defineUserSequelize();
 
         return user;
     }
 
     afterEach(() => {
         vi.restoreAllMocks();
+        delete (User as any).sequelize;
     });
 
     test.each([
@@ -576,7 +601,7 @@ describe("updatePermissions guard", () => {
 
         const updated = await User.updatePermissions("user-1", permissions, admin);
 
-        expect(user.updateForShape).toHaveBeenCalledWith({permissions: permissions}, admin);
+        expect(user.updateForShape).toHaveBeenCalledWith({permissions: permissions}, admin, null, transaction);
         expect(updated.permissions).toBe(permissions);
     });
 
@@ -594,6 +619,7 @@ describe("updatePermissions guard", () => {
         });
 
         expect(user.updateForShape).not.toHaveBeenCalled();
+        expect((User as any).sequelize.transaction).not.toHaveBeenCalled();
     });
 
     // The bitwise operators coerce to int32, so 2**31 wraps negative and would pass the mask on its own; the explicit
@@ -610,6 +636,7 @@ describe("updatePermissions guard", () => {
         await expect(User.updatePermissions("user-1", permissions, admin)).rejects.toMatchObject({extensions: {code: 1006}});
 
         expect(user.updateForShape).not.toHaveBeenCalled();
+        expect((User as any).sequelize.transaction).not.toHaveBeenCalled();
     });
 
     // The guard sits after the target is resolved, so an invalid value cannot be used to tell a system user from an id
@@ -630,5 +657,172 @@ describe("updatePermissions guard", () => {
             .rejects.toBeInstanceOf(UnauthorizedError);
 
         expect(findByPk).not.toHaveBeenCalled();
+    });
+});
+
+describe("updatePermissions narrows the owner's keys", () => {
+    const admin = userWithPermissionsAndId(UserPermissions.Admin, "admin-1");
+
+    function target(permissions: number, authDirectoryId: string = "dir-1") {
+        const user = Object.create(User.prototype);
+
+        Object.assign(user, {id: "user-1", isSystemUser: false, authDirectoryId: authDirectoryId, permissions: permissions});
+
+        user.updateForShape = vi.fn().mockImplementation(async (shape: any) => {
+            Object.assign(user, shape);
+            return user;
+        });
+
+        user.reload = vi.fn().mockResolvedValue(user);
+
+        vi.spyOn(User, "findByPk").mockResolvedValue(user);
+
+        defineUserSequelize();
+
+        return user;
+    }
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+        delete (User as any).sequelize;
+    });
+
+    test.each([
+        ["dropping a review bit", UserPermissions.AnnotateMany | UserPermissions.PublishReview, UserPermissions.AnnotateMany],
+        ["dropping from Many to One", UserPermissions.AnnotateMany, UserPermissions.AnnotateOne],
+        ["dropping Admin", UserPermissions.Admin | UserPermissions.AnnotateMany, UserPermissions.AnnotateMany]
+    ])("%s narrows the keys in the same transaction", async (_label: string, previous: number, next: number) => {
+        const user = target(previous);
+        const narrowForOwner = vi.spyOn(ApiKey, "narrowForOwner").mockResolvedValue(undefined);
+
+        await User.updatePermissions("user-1", next, admin);
+
+        expect(user.updateForShape).toHaveBeenCalledWith({permissions: next}, admin, null, transaction);
+        expect(narrowForOwner).toHaveBeenCalledTimes(1);
+        expect(narrowForOwner).toHaveBeenCalledWith("user-1", next, admin, transaction);
+    });
+
+    test.each([
+        ["rising from One to Many", UserPermissions.AnnotateOne, UserPermissions.AnnotateMany],
+        ["gaining a review bit", UserPermissions.PeerReview, UserPermissions.PeerReview | UserPermissions.TeamReview],
+        ["re-saving the same value", UserPermissions.AnnotateMany | UserPermissions.Edit, UserPermissions.AnnotateMany | UserPermissions.Edit]
+    ])("%s leaves the keys alone", async (_label: string, previous: number, next: number) => {
+        const user = target(previous);
+        const narrowForOwner = vi.spyOn(ApiKey, "narrowForOwner").mockResolvedValue(undefined);
+
+        await User.updatePermissions("user-1", next, admin);
+
+        expect(user.updateForShape).toHaveBeenCalledWith({permissions: next}, admin, null, transaction);
+        expect(narrowForOwner).not.toHaveBeenCalled();
+    });
+
+    // Under the stale pre-lock value this change would look like a no-op and the key would keep PublishReview.
+    test("decides from the value reloaded inside the transaction", async () => {
+        const user = target(UserPermissions.AnnotateMany);
+
+        user.reload = vi.fn().mockImplementation(async () => {
+            user.permissions = UserPermissions.AnnotateMany | UserPermissions.PublishReview;
+            return user;
+        });
+
+        const narrowForOwner = vi.spyOn(ApiKey, "narrowForOwner").mockResolvedValue(undefined);
+
+        await User.updatePermissions("user-1", UserPermissions.AnnotateMany, admin);
+
+        expect(user.reload).toHaveBeenCalledWith(carriesTransaction);
+        expect(narrowForOwner).toHaveBeenCalledWith("user-1", UserPermissions.AnnotateMany, admin, transaction);
+    });
+
+    test("a sweep failure reaches the caller", async () => {
+        target(UserPermissions.AnnotateMany | UserPermissions.PublishReview);
+        const failure = new Error("sweep failed");
+        vi.spyOn(ApiKey, "narrowForOwner").mockRejectedValue(failure);
+
+        await expect(User.updatePermissions("user-1", UserPermissions.AnnotateMany, admin)).rejects.toBe(failure);
+    });
+
+    test("a user-update failure reaches the caller and nothing is narrowed", async () => {
+        const user = target(UserPermissions.AnnotateMany | UserPermissions.PublishReview);
+        const failure = new Error("update failed");
+        user.updateForShape = vi.fn().mockRejectedValue(failure);
+        const narrowForOwner = vi.spyOn(ApiKey, "narrowForOwner").mockResolvedValue(undefined);
+
+        await expect(User.updatePermissions("user-1", UserPermissions.AnnotateMany, admin)).rejects.toBe(failure);
+
+        expect(narrowForOwner).not.toHaveBeenCalled();
+    });
+
+    test("the lock is released after a failure", async () => {
+        target(UserPermissions.AnnotateMany | UserPermissions.PublishReview, "dir-locked");
+        vi.spyOn(ApiKey, "narrowForOwner").mockRejectedValueOnce(new Error("sweep failed")).mockResolvedValue(undefined);
+
+        await expect(User.updatePermissions("user-1", UserPermissions.AnnotateMany, admin)).rejects.toThrow("sweep failed");
+
+        target(UserPermissions.AnnotateMany | UserPermissions.PublishReview, "dir-locked");
+
+        // A held lock would otherwise wait out the whole test timeout.
+        const timeout = new Promise((_resolve, reject) => setTimeout(() => reject(new Error("lock still held")), 1000));
+
+        const second = await Promise.race([User.updatePermissions("user-1", UserPermissions.AnnotateMany, admin), timeout]);
+
+        expect((second as any).permissions).toBe(UserPermissions.AnnotateMany);
+    });
+
+    test("clears the cached user on success", async () => {
+        target(UserPermissions.AnnotateMany);
+        vi.spyOn(ApiKey, "narrowForOwner").mockResolvedValue(undefined);
+        (User as any).userCache.set("dir-1", {});
+
+        await User.updatePermissions("user-1", UserPermissions.AnnotateOne, admin);
+
+        expect((User as any).userCache.has("dir-1")).toBe(false);
+    });
+});
+
+describe("updateForShape transaction", () => {
+    const updater = userWithPermissionsAndId(UserPermissions.Admin, "admin-1");
+
+    function target() {
+        const user = Object.create(User.prototype);
+
+        Object.assign(user, {id: "user-1", permissions: UserPermissions.AnnotateOne});
+
+        user.update = vi.fn().mockImplementation(async (shape: any) => {
+            Object.assign(user, shape);
+            return user;
+        });
+
+        defineUserSequelize();
+
+        return user;
+    }
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+        delete (User as any).sequelize;
+    });
+
+    // Private in TypeScript, an ordinary prototype method in the compiled JS.
+    test("writes the row and its event in the transaction it is given", async () => {
+        const user = target();
+        const create = vi.spyOn(EventLogItem, "create").mockResolvedValue({id: "event-1"});
+
+        await user.updateForShape({permissions: UserPermissions.AnnotateMany}, updater, null, transaction);
+
+        expect(user.update).toHaveBeenCalledWith({permissions: UserPermissions.AnnotateMany}, carriesTransaction);
+        expect(create).toHaveBeenCalledWith(expect.objectContaining({kind: EventLogItemKind.UserUpdate, targetId: "user-1", userId: "admin-1"}), carriesTransaction);
+        expect((User as any).sequelize.transaction).not.toHaveBeenCalled();
+    });
+
+    // findOrCreateUser and updateAnonymization call it this way.
+    test("without one, opens a transaction and writes the row in it", async () => {
+        const user = target();
+        const create = vi.spyOn(EventLogItem, "create").mockResolvedValue({id: "event-1"});
+
+        await user.updateForShape({isAnonymousForPublish: true}, updater);
+
+        expect((User as any).sequelize.transaction).toHaveBeenCalledTimes(1);
+        expect(user.update).toHaveBeenCalledWith({isAnonymousForPublish: true}, carriesTransaction);
+        expect(create).toHaveBeenCalledWith(expect.objectContaining({kind: EventLogItemKind.UserUpdate}), carriesTransaction);
     });
 });

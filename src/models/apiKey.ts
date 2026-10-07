@@ -1,10 +1,10 @@
-import {DataTypes, BelongsToGetAssociationMixin, Op, Sequelize} from "sequelize";
+import {DataTypes, BelongsToGetAssociationMixin, Op, Sequelize, Transaction} from "sequelize";
 import {createHash} from "crypto";
 
 import {GraphQLError} from "graphql/error";
 
 import {BaseModel} from "./baseModel";
-import {apiKeyPermissionsAll, User} from "./user";
+import {apiKeyPermissionsAll, narrowApiKeyPermissions, User} from "./user";
 import {ApiKeyTableName} from "./tableNames";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {ServiceOptions} from "../options/serviceOptions";
@@ -24,8 +24,34 @@ export class ApiKey extends BaseModel {
         return createHash("sha512").update(sourceKey).digest("hex");
     }
 
-    public static async findByUserId(userId: string): Promise<ApiKey[]> {
-        return await ApiKey.findAll({where: {userId}});
+    public static async findByUserId(userId: string, transaction: Transaction = null): Promise<ApiKey[]> {
+        return await ApiKey.findAll({where: {userId}, transaction});
+    }
+
+    public static async narrowForOwner(ownerId: string, ownerPermissions: number, updater: User, transaction: Transaction): Promise<void> {
+        const apiKeys = await ApiKey.findByUserId(ownerId, transaction);
+
+        for (const apiKey of apiKeys) {
+            const permissions = narrowApiKeyPermissions(apiKey.permissions, ownerPermissions);
+
+            if (permissions === apiKey.permissions) {
+                continue;
+            }
+
+            const previousPermissions = apiKey.permissions;
+
+            // A key narrowed to nothing is kept, not deleted: it still authenticates as its owner with no permissions,
+            // and its history stays in the event log.
+            await apiKey.update({permissions}, {transaction});
+
+            await recordEvent({
+                kind: EventLogItemKind.ApiKeyUpdate,
+                targetId: apiKey.id,
+                parentId: ownerId,
+                details: {permissions, previousPermissions},
+                userId: updater.id
+            }, transaction);
+        }
     }
 
     public static async authenticateKey(key: string): Promise<User> {
@@ -52,8 +78,9 @@ export class ApiKey extends BaseModel {
                 return null;
             }
 
-            // The key's own value, honored directly: no intersection with what the owner holds now and no fallback to
-            // it.  The key is the credential.
+            // The key's own value, honored directly: no comparison with what the owner holds now and no fallback to it.
+            // The key is the credential.  Keys are narrowed when their owner's permissions change
+            // (User.updatePermissions), not here.
             return owner.withKeyPermissions(apiKey.permissions);
         }
 

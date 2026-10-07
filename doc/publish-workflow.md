@@ -1091,25 +1091,27 @@ raising one as a finding means disputing the decision rather than reporting a de
    caller holds every admin route as well — see E7.
 
    Who may hold the bit is the other half of that, and it is closed on both paths that write a permissions value any
-   check reads. `User.updatePermissions` (`src/models/user.ts:268`) refuses anything outside `UserPermissionsAll` with
+   check reads. `User.updatePermissions` (`src/models/user.ts:313`) refuses anything outside `UserPermissionsAll` with
    error code **1006**: a mask test for bits outside the set and a range test closing the int32 wrap. The guard sits
    after the target is resolved, so a rejected value cannot be used to tell a system user from an id that names
-   nobody, and outside the `try` whose `catch` would otherwise swallow it. `ApiKey.createApiKey`
-   (`src/models/apiKey.ts:67`) applies the same shape of test with the same code against the narrower
-   `apiKeyPermissionsAll(owner)` (`src/models/user.ts:63`) — the owner's annotation variant of the full set (single
-   when it holds `AnnotateOne`, multiple otherwise) less `Admin` — so no key can reach `InternalAccess` either.
-   `verifySystemUser`
-   seeds the three system users directly and does not come through either path, so `InternalAccess` and
-   `InternalSystem` stay where they were intended.
+   nobody. `ApiKey.createApiKey` (`src/models/apiKey.ts:94`) applies the same shape of test with the same code against
+   the narrower `apiKeyPermissionsAll(owner)` (`src/models/user.ts:63`) — the owner's annotation variant of the full
+   set (single when it holds `AnnotateOne`, multiple otherwise) less `Admin` — so no key can reach `InternalAccess`
+   either. `verifySystemUser` seeds the three system users directly and does not come through either path, so
+   `InternalAccess` and `InternalSystem` stay where they were intended.
 
    One consequence to name: because the key mask excludes the internal bits as well as `Admin`, an API key cannot
    reach the internal surface today. Letting a script do so is a deliberate widening of that constant rather than
    something that happens by default.
 
 2. **An API key carries its own permissions, and never an admin bit.** `authenticateKey`
-   (`src/models/apiKey.ts:31`) resolves the owning user and returns a per-request view of it carrying the key's stored
-   `permissions` (`User.withKeyPermissions`, `src/models/user.ts:555`), so every `can…` predicate answers off the key.
-   There is no intersection with what the owner holds now and no fallback to it: the key is the credential. The
+   (`src/models/apiKey.ts:57`) resolves the owning user and returns a per-request view of it carrying the key's stored
+   `permissions` (`User.withKeyPermissions`, `src/models/user.ts:628`), so every `can…` predicate answers off the key.
+   Nothing is compared against the owner at authentication time and there is no fallback to it: the key is the
+   credential. Instead, when a change to the owner's permissions takes any capability away, `User.updatePermissions`
+   narrows every key the owner holds in the same transaction — the lower of the two annotation levels, every other bit
+   only if the owner still holds it — and records an `ApiKeyUpdate` event for each key it changes. A key is never
+   widened, and a change that only widens the owner leaves its keys as they are. The
    default at creation mirrors the owner's permissions masked with `apiKeyPermissionsAll`, so an account holding
    `Admin` and nothing else mints an empty key — the rule working rather than failing, since admin power is not
    delegable to something a script holds unattended. A key therefore cannot mint another key, `createApiKey` being
@@ -1122,8 +1124,8 @@ raising one as a finding means disputing the decision rather than reporting a de
    cannot be resolved is a representable state: it authenticates as `null`, which `app.ts` turns into an
    unauthenticated caller, rather than raising inside context construction.
 
-   What this costs is in E8: a key is not re-checked against its owner, so narrowing a user's permissions does not
-   narrow the keys they already hold.
+   What this costs is in E9: a key whose owner no longer holds `Admin` cannot be seen or deleted through the API,
+   including one narrowed to nothing.
 3. **An import run is the only thing writing to the database while it runs.** Both import tools are operated
    deliberately, with the front end down and no other script against the same database, and neither parallelises in a
    way that puts two operations on one reconstruction at once. That is what makes their status guards sound without a
@@ -1328,7 +1330,7 @@ service behaves today. Each item names the code that produces it. Anything secti
 decision rather than by oversight. Both items below are about credentials rather than about the workflow itself.
 
 **E7 — The server authentication key is unbounded, and what its holders actually need is not recorded.**
-`ServiceOptions.serverAuthenticationKey` resolves to `User.SystemInternalUser` (`src/models/apiKey.ts:60`), whose
+`ServiceOptions.serverAuthenticationKey` resolves to `User.SystemInternalUser` (`src/models/apiKey.ts:87`), whose
 `InternalSystem` mask is `0xFFFFFFF` and so carries `Admin` and every other bit alongside `InternalAccess`. A caller
 holding that key can therefore reach every admin-gated mutation as well as the internal surface, and the narrowing
 that applies to ordinary keys (section 3) does not reach it: there is no `ApiKey` row on that path and no per-key
@@ -1347,11 +1349,14 @@ close a credential that is far wider than its documented purpose, and would brea
 mask — which has to be determined from the callers, not assumed. The intermediate step that costs nothing is to
 record, beside `SystemInternalUser`, which services hold the key and which operations each one performs.
 
-**E8 — A key is not re-checked against its owner, so narrowing a user does not narrow their keys.**
-`authenticateKey` honours the permissions stored on the key and does not intersect them with what the owner holds now
-(`src/models/apiKey.ts:31`), which is what makes a deliberately narrow key narrow. The other direction is the gap: a
-user whose permissions are reduced, or who should no longer be publishing at all, keeps every key already minted, and
-nothing invalidates or re-scopes them. The exposure is bounded — a key can only ever carry the annotate, edit and
-review bits, never `Admin` and never the internal ones — and the remedy is to delete the keys, which `deleteApiKey`
-supports and nothing does automatically. Invalidating a user's keys when `updatePermissions` narrows them is the
-eventual answer.
+**E9 — A key whose owner no longer holds `Admin` cannot be seen or deleted through the API.**
+The `apiKeys` query, `createApiKey` and `deleteApiKey` are admin-only and act only on the caller's own keys
+(`src/graphql/secureResolvers.ts:130`, `:309`), and `ApiKey.deleteApiKey` refuses a key whose `userId` is not the
+caller's (`src/models/apiKey.ts:143`). An owner who loses `Admin` therefore keeps keys that neither they nor any admin
+can list or delete. That includes a key narrowed to nothing, which still authenticates as its owner with no
+permissions.
+
+The exposure is bounded. Losing `Admin` is itself a narrowing change, so the owner's keys are brought down to what the
+owner still holds when it happens, and every later narrowing keeps them there: such a key never carries more than its
+owner. Keys minted before narrowing existed are not backfilled. Until admins can manage other users' keys, cleanup is
+done directly in the database; a fuller admin API over keys is the eventual answer.

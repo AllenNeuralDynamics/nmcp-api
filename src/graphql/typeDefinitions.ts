@@ -159,7 +159,8 @@ export const typeDefinitions = gql`
 
         """Sets an ordinary user's permissions.  Errors with code 1006 if the value carries any bit outside the
 normal-user set — the internal-access bits belong to the seeded system users and cannot be granted here.  A system
-user is a no-op, returning null."""
+user is a no-op, returning null.  A change that takes any capability away also narrows every API key the user owns, in
+the same transaction."""
         updateUserPermissions(id: String!, permissions: Int!): User
         updateUserAnonymity(id: String!, anonymousAnnotation: Boolean!, anonymousPublish: Boolean!): User
 

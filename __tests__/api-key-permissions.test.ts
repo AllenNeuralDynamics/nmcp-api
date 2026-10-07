@@ -2,11 +2,13 @@ import {expect, test, vi, describe, afterEach} from "vitest";
 
 // require() rather than import: the .ts sources are compiled to .js in place, and an ESM import yields a
 // different module instance than the CJS one the model methods call into, so the spies would not apply.
-const {User, UserPermissions, UserPermissionsAll, UserPermissionsMultipleAnnotationsAll, UserPermissionsSingleAnnotationAll, apiKeyPermissionsAll} = require("../src/models/user");
+const {User, UserPermissions, UserPermissionsAll, UserPermissionsMultipleAnnotationsAll, UserPermissionsSingleAnnotationAll, apiKeyPermissionsAll, narrowApiKeyPermissions, losesCapability} = require("../src/models/user");
 const {ApiKey} = require("../src/models/apiKey");
-const {EventLogItem} = require("../src/models/eventLogItem");
+const {EventLogItem, EventLogItemKind} = require("../src/models/eventLogItem");
 
 const transaction = {sentinel: "t"} as any;
+
+const carriesTransaction = expect.objectContaining({transaction: transaction});
 
 function userWith(permissions: number, id: string = "user-1") {
     const user = Object.create(User.prototype);
@@ -261,5 +263,199 @@ describe("withKeyPermissions", () => {
         expect(scoped.ip).toBe("203.0.113.1");
         expect(scoped.permissions).toBe(UserPermissions.PublishReview);
         expect(scoped.isAdmin()).toBe(false);
+    });
+});
+
+// Mirrors the rule independently, so the invariants below are not checked against the implementation itself.
+function annotationLevel(permissions: number): number {
+    if ((permissions & UserPermissions.AnnotateOne) !== 0) {
+        return 1;
+    }
+
+    return (permissions & UserPermissions.AnnotateMany) !== 0 ? 2 : 0;
+}
+
+const annotationBits = UserPermissions.AnnotateOne | UserPermissions.AnnotateMany;
+
+// Every bit the rule distinguishes; each subset of these is one value in the exhaustive checks.
+const sweepBits = [UserPermissions.AnnotateOne, UserPermissions.AnnotateMany, UserPermissions.Edit, UserPermissions.PublishReview,
+    UserPermissions.PeerReview, UserPermissions.TeamReview, UserPermissions.Admin];
+
+function subsetValue(subset: number): number {
+    return sweepBits.reduce((value: number, bit: number, position: number) => (subset & (1 << position)) !== 0 ? value | bit : value, 0);
+}
+
+const allSubsetValues = Array.from({length: 1 << sweepBits.length}, (_unused, subset) => subsetValue(subset));
+
+describe("narrowApiKeyPermissions", () => {
+    test.each([
+        ["owner Many to One", UserPermissions.AnnotateMany | UserPermissions.PublishReview, UserPermissions.AnnotateOne | UserPermissions.PublishReview, UserPermissions.AnnotateOne | UserPermissions.PublishReview],
+        ["owner One to Many", UserPermissions.AnnotateOne | UserPermissions.PeerReview, UserPermissions.AnnotateMany | UserPermissions.PeerReview, UserPermissions.AnnotateOne | UserPermissions.PeerReview],
+        ["owner loses annotation", UserPermissions.AnnotateMany | UserPermissions.EditAll, UserPermissions.EditAll, UserPermissions.EditAll],
+        ["owner drops one review bit", UserPermissions.AnnotateMany | UserPermissions.PublishReview | UserPermissions.PeerReview, UserPermissions.AnnotateMany | UserPermissions.PeerReview, UserPermissions.AnnotateMany | UserPermissions.PeerReview],
+        ["a key with no annotation bit stays without one", UserPermissions.PublishReview, UserPermissions.AnnotateMany | UserPermissions.PublishReview, UserPermissions.PublishReview],
+        ["an owner holding both bits counts as One", UserPermissions.AnnotateMany, UserPermissions.AnnotateOne | UserPermissions.AnnotateMany, UserPermissions.AnnotateOne],
+        ["a key holding both bits counts as One", UserPermissions.AnnotateOne | UserPermissions.AnnotateMany, UserPermissions.AnnotateMany, UserPermissions.AnnotateOne],
+        ["an owner holding only Admin", UserPermissions.EditAll | UserPermissions.TeamReview, UserPermissions.Admin, UserPermissions.None],
+        ["a key already within its owner", UserPermissions.AnnotateMany | UserPermissions.EditAll, UserPermissionsMultipleAnnotationsAll, UserPermissions.AnnotateMany | UserPermissions.EditAll]
+    ])("%s", (_label: string, key: number, owner: number, expected: number) => {
+        expect(narrowApiKeyPermissions(key, owner)).toBe(expected);
+    });
+
+    test("never adds capability, over every combination", () => {
+        const counterexamples: object[] = [];
+
+        for (const key of allSubsetValues) {
+            for (const owner of allSubsetValues) {
+                const narrowed = narrowApiKeyPermissions(key, owner);
+                const otherBits = narrowed & ~annotationBits;
+                const annotation = narrowed & annotationBits;
+                const expectedLevel = Math.min(annotationLevel(key), annotationLevel(owner));
+
+                const holds = (otherBits & ~key) === 0
+                    && (otherBits & ~owner) === 0
+                    && annotation !== annotationBits
+                    && annotationLevel(annotation) === expectedLevel
+                    && narrowApiKeyPermissions(narrowed, owner) === narrowed;
+
+                if (!holds) {
+                    counterexamples.push({key, owner, narrowed});
+                }
+            }
+        }
+
+        expect(counterexamples).toEqual([]);
+    });
+});
+
+describe("losesCapability", () => {
+    test.each([
+        ["Many to One", UserPermissions.AnnotateMany, UserPermissions.AnnotateOne, true],
+        ["One to Many", UserPermissions.AnnotateOne, UserPermissions.AnnotateMany, false],
+        ["Many to none", UserPermissions.AnnotateMany, UserPermissions.None, true],
+        ["both bits to Many", UserPermissions.AnnotateOne | UserPermissions.AnnotateMany, UserPermissions.AnnotateMany, false],
+        ["Many to both bits", UserPermissions.AnnotateMany, UserPermissions.AnnotateOne | UserPermissions.AnnotateMany, true],
+        ["an unchanged value", UserPermissions.AnnotateMany | UserPermissions.Edit, UserPermissions.AnnotateMany | UserPermissions.Edit, false],
+        ["gaining TeamReview", UserPermissions.PeerReview, UserPermissions.PeerReview | UserPermissions.TeamReview, false],
+        ["losing PeerReview", UserPermissions.PeerReview | UserPermissions.TeamReview, UserPermissions.TeamReview, true],
+        ["losing Admin", UserPermissions.Admin | UserPermissions.AnnotateMany, UserPermissions.AnnotateMany, true],
+        ["trading PeerReview for TeamReview", UserPermissions.PeerReview, UserPermissions.TeamReview, true]
+    ])("%s", (_label: string, previous: number, next: number, expected: boolean) => {
+        expect(losesCapability(previous, next)).toBe(expected);
+    });
+
+    // Ties the gate exactly to "a key holding everything the owner held would change".
+    test("is true exactly when a key equal to the old permissions would be narrowed", () => {
+        const counterexamples: object[] = [];
+
+        for (const previous of allSubsetValues) {
+            for (const next of allSubsetValues) {
+                const changes = narrowApiKeyPermissions(previous, next) !== narrowApiKeyPermissions(previous, previous);
+
+                if (losesCapability(previous, next) !== changes) {
+                    counterexamples.push({previous, next});
+                }
+            }
+        }
+
+        expect(counterexamples).toEqual([]);
+    });
+});
+
+describe("findByUserId", () => {
+    test("reads every key of the owner in the given transaction, expired ones included", async () => {
+        const findAll = vi.spyOn(ApiKey, "findAll").mockResolvedValue([]);
+
+        await ApiKey.findByUserId("user-1", transaction);
+
+        expect(findAll).toHaveBeenCalledWith({where: {userId: "user-1"}, transaction: transaction});
+    });
+
+    test("without a transaction, passes null", async () => {
+        const findAll = vi.spyOn(ApiKey, "findAll").mockResolvedValue([]);
+
+        await ApiKey.findByUserId("user-1");
+
+        expect(findAll).toHaveBeenCalledWith({where: {userId: "user-1"}, transaction: null});
+    });
+});
+
+describe("narrowForOwner", () => {
+    const updater = userWith(UserPermissions.Admin, "admin-1");
+
+    function keyStub(id: string, permissions: number) {
+        const apiKey = Object.create(ApiKey.prototype);
+
+        Object.assign(apiKey, {id, permissions});
+
+        apiKey.update = vi.fn().mockImplementation(async (values: any) => {
+            Object.assign(apiKey, values);
+            return apiKey;
+        });
+
+        apiKey.destroy = vi.fn().mockResolvedValue(undefined);
+
+        return apiKey;
+    }
+
+    function stubKeys(apiKeys: any[]) {
+        const findByUserId = vi.spyOn(ApiKey, "findByUserId").mockResolvedValue(apiKeys);
+        const create = vi.spyOn(EventLogItem, "create").mockResolvedValue({id: "event-1"} as any);
+
+        return {findByUserId, create};
+    }
+
+    test("writes and logs only the keys whose value changes", async () => {
+        const wide = keyStub("key-wide", UserPermissions.AnnotateMany | UserPermissions.PublishReview);
+        const compliant = keyStub("key-compliant", UserPermissions.AnnotateMany);
+        const {findByUserId, create} = stubKeys([wide, compliant]);
+
+        await ApiKey.narrowForOwner("owner-1", UserPermissions.AnnotateMany, updater, transaction);
+
+        expect(findByUserId).toHaveBeenCalledWith("owner-1", transaction);
+
+        expect(wide.update).toHaveBeenCalledWith({permissions: UserPermissions.AnnotateMany}, carriesTransaction);
+        expect(compliant.update).not.toHaveBeenCalled();
+
+        expect(create).toHaveBeenCalledTimes(1);
+        expect(create).toHaveBeenCalledWith(expect.objectContaining({
+            kind: EventLogItemKind.ApiKeyUpdate,
+            name: "ApiKeyUpdate",
+            targetId: "key-wide",
+            parentId: "owner-1",
+            userId: "admin-1",
+            details: {permissions: UserPermissions.AnnotateMany, previousPermissions: UserPermissions.AnnotateMany | UserPermissions.PublishReview}
+        }), carriesTransaction);
+    });
+
+    test("keeps a key narrowed to nothing", async () => {
+        const apiKey = keyStub("key-1", UserPermissions.EditAll | UserPermissions.TeamReview);
+        const {create} = stubKeys([apiKey]);
+
+        await ApiKey.narrowForOwner("owner-1", UserPermissions.Admin, updater, transaction);
+
+        expect(apiKey.update).toHaveBeenCalledWith({permissions: UserPermissions.None}, carriesTransaction);
+        expect(apiKey.destroy).not.toHaveBeenCalled();
+        expect(create).toHaveBeenCalledWith(expect.objectContaining({
+            kind: EventLogItemKind.ApiKeyUpdate,
+            details: {permissions: UserPermissions.None, previousPermissions: UserPermissions.EditAll | UserPermissions.TeamReview}
+        }), carriesTransaction);
+    });
+
+    test("a failed key update reaches the caller", async () => {
+        const apiKey = keyStub("key-1", UserPermissions.AnnotateMany | UserPermissions.PublishReview);
+        const failure = new Error("update failed");
+        apiKey.update = vi.fn().mockRejectedValue(failure);
+        stubKeys([apiKey]);
+
+        await expect(ApiKey.narrowForOwner("owner-1", UserPermissions.AnnotateMany, updater, transaction)).rejects.toBe(failure);
+    });
+
+    test("an owner with no keys writes nothing", async () => {
+        const {create} = stubKeys([]);
+
+        await ApiKey.narrowForOwner("owner-1", UserPermissions.None, updater, transaction);
+
+        expect(create).not.toHaveBeenCalled();
     });
 });
