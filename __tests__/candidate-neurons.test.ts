@@ -4,7 +4,7 @@ import {expect, test, vi, describe, afterEach} from "vitest";
 // different module instance than the CJS one the model methods call into, so the spies would not apply.
 const {Op} = require("sequelize");
 const {Neuron} = require("../src/models/neuron");
-const {Reconstruction, CandidateBlockingStatuses, PublishedCandidateBlockingStatuses} = require("../src/models/reconstruction");
+const {Reconstruction, CandidateBlockingStatuses, PublishedCandidateBlockingStatuses, CandidateExcludedStatuses} = require("../src/models/reconstruction");
 const {ReconstructionStatus} = require("../src/models/reconstructionStatus");
 const {Atlas} = require("../src/models/atlas");
 
@@ -22,11 +22,12 @@ function stubNeurons(allNeuronIds: string[]) {
     return findAll;
 }
 
-function stubReconstructions(rows: { neuronId: string, status: number }[]) {
+// deleted marks a soft-deleted row, as an untraceable one is: only a query with paranoid: false sees it.
+function stubReconstructions(rows: { neuronId: string, status: number, deleted?: boolean }[]) {
     // The query is the model's own filter, so the stub applies it rather than returning everything.
     return vi.spyOn(Reconstruction, "findAll").mockImplementation(async (options: any) => {
-        const blocking = options.where.status[Op.in] as number[];
-        return rows.filter(row => blocking.includes(row.status)) as any;
+        const statuses = options.where.status[Op.in] as number[];
+        return rows.filter(row => statuses.includes(row.status) && (!row.deleted || options.paranoid === false)) as any;
     });
 }
 
@@ -55,19 +56,31 @@ describe("getCandidateNeurons blocking statuses", () => {
 });
 
 describe("getCandidateNeurons results", () => {
-    // The rows F5 was losing neurons to: a held or archived attempt no longer holds its neuron.
+    // The rows F5 was losing neurons to: a held or archived attempt no longer holds its neuron.  Incomplete and
+    // Duplicate are excluded by default, so they are released only once nothing is excluded.
     test.each([ReconstructionStatus.OnHold, ReconstructionStatus.Incomplete, ReconstructionStatus.Duplicate, ReconstructionStatus.Archived])(
-        "a neuron whose only row is %s is a candidate either way",
+        "a neuron whose only row is %s is not blocked either way",
         async (status: number) => {
             for (const includeInProgress of [false, true]) {
                 vi.restoreAllMocks();
                 stubNeurons(["neuron-1"]);
                 stubReconstructions([{neuronId: "neuron-1", status: status}]);
 
-                const output = await Neuron.getCandidateNeurons({}, includeInProgress);
+                const output = await Neuron.getCandidateNeurons({}, includeInProgress, []);
 
                 expect(output.items.map((neuron: any) => neuron.id)).toEqual(["neuron-1"]);
             }
+        });
+
+    test.each([ReconstructionStatus.OnHold, ReconstructionStatus.Archived])(
+        "a neuron whose only row is %s is a candidate by default",
+        async (status: number) => {
+            stubNeurons(["neuron-1"]);
+            stubReconstructions([{neuronId: "neuron-1", status: status}]);
+
+            const output = await Neuron.getCandidateNeurons({});
+
+            expect(output.items.map((neuron: any) => neuron.id)).toEqual(["neuron-1"]);
         });
 
     test.each([ReconstructionStatus.Rejected, ReconstructionStatus.Publishing])(
@@ -136,5 +149,81 @@ describe("getCandidateNeurons structure filter", () => {
         stubAtlas();
 
         await expect(Neuron.getCandidateNeurons({atlasStructureIds: ["missing-id"]})).rejects.toThrow(/Atlas structures not found/);
+    });
+});
+
+describe("getCandidateNeurons excluded reconstruction statuses", () => {
+    test("the default excludes Untraceable, Duplicate and Incomplete, reading soft-deleted rows", async () => {
+        stubNeurons([]);
+        const findAll = stubReconstructions([]);
+
+        await Neuron.getCandidateNeurons({});
+
+        const options = findAll.mock.calls[1][0];
+
+        expect(options.where.status[Op.in]).toBe(CandidateExcludedStatuses);
+        expect([...CandidateExcludedStatuses].sort()).toEqual([
+            ReconstructionStatus.Untraceable,
+            ReconstructionStatus.Duplicate,
+            ReconstructionStatus.Incomplete
+        ].sort());
+        expect(options.paranoid).toBe(false);
+    });
+
+    test.each([
+        {status: ReconstructionStatus.Untraceable, deleted: true},
+        {status: ReconstructionStatus.Duplicate, deleted: false},
+        {status: ReconstructionStatus.Incomplete, deleted: false}
+    ])("a neuron with a $status row is left out by default", async ({status, deleted}) => {
+        stubNeurons(["neuron-1", "neuron-2"]);
+        stubReconstructions([{neuronId: "neuron-1", status: status, deleted: deleted}]);
+
+        const output = await Neuron.getCandidateNeurons({});
+
+        expect(output.items.map((neuron: any) => neuron.id)).toEqual(["neuron-2"]);
+    });
+
+    test("an explicit list replaces the default", async () => {
+        stubNeurons(["neuron-1", "neuron-2", "neuron-3"]);
+        stubReconstructions([
+            {neuronId: "neuron-1", status: ReconstructionStatus.OnHold},
+            {neuronId: "neuron-2", status: ReconstructionStatus.Duplicate},
+        ]);
+
+        const output = await Neuron.getCandidateNeurons({}, false, [ReconstructionStatus.OnHold]);
+
+        expect(output.items.map((neuron: any) => neuron.id)).toEqual(["neuron-2", "neuron-3"]);
+    });
+
+    test("an empty list excludes nothing and skips the query", async () => {
+        stubNeurons(["neuron-1"]);
+        const findAll = stubReconstructions([{neuronId: "neuron-1", status: ReconstructionStatus.Untraceable, deleted: true}]);
+
+        const output = await Neuron.getCandidateNeurons({}, false, []);
+
+        expect(output.items.map((neuron: any) => neuron.id)).toEqual(["neuron-1"]);
+        expect(findAll).toHaveBeenCalledTimes(1);
+    });
+
+    // Independent of the blocking lists: excluding nothing does not release a blocked neuron.
+    test("blocking still applies whatever is excluded", async () => {
+        stubNeurons(["neuron-1"]);
+        stubReconstructions([{neuronId: "neuron-1", status: ReconstructionStatus.InProgress}]);
+
+        const output = await Neuron.getCandidateNeurons({}, false, []);
+
+        expect(output.items).toEqual([]);
+    });
+
+    test("excludes alongside includeInProgress", async () => {
+        stubNeurons(["neuron-1", "neuron-2"]);
+        stubReconstructions([
+            {neuronId: "neuron-1", status: ReconstructionStatus.InProgress},
+            {neuronId: "neuron-2", status: ReconstructionStatus.Duplicate}
+        ]);
+
+        const output = await Neuron.getCandidateNeurons({}, true);
+
+        expect(output.items.map((neuron: any) => neuron.id)).toEqual(["neuron-1"]);
     });
 });

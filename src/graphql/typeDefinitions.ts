@@ -61,8 +61,10 @@ export const typeDefinitions = gql`
         """Returns details for a single a neuron."""
         neuron(id: String!): Neuron
 
-        """Returns a filtered list of candidate neurons."""
-        candidateNeurons(input: NeuronQueryInput, includeInProgress: Boolean): QueryNeurons
+        """Returns a filtered list of candidate neurons.  A neuron with a reconstruction, by any annotator, at any of
+        excludedReconstructionStatuses is left out.  Omitted or null, that list is Untraceable, Duplicate and
+        Incomplete; an empty list excludes nothing.  It applies in addition to includeInProgress."""
+        candidateNeurons(input: NeuronQueryInput, includeInProgress: Boolean, excludedReconstructionStatuses: [Int!]): QueryNeurons
 
         """Returns a set of reconstructions based on the provided search criteria."""
         searchNeurons(context: SearchContext): SearchOutput

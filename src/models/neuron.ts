@@ -35,7 +35,7 @@ import {UnauthorizedError} from "../graphql/secureResolvers";
 import {normalizeKeywords, substringMatchPatterns} from "../util/keywords";
 import {Genotype} from "./genotype";
 import {isNullOrEmpty} from "../util/objectUtil";
-import {CandidateBlockingStatuses, PublishedCandidateBlockingStatuses, Reconstruction} from "./reconstruction";
+import {CandidateBlockingStatuses, CandidateExcludedStatuses, PublishedCandidateBlockingStatuses, Reconstruction} from "./reconstruction";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {Collection} from "./collection";
 import {DataCiteService, DataCiteServiceStatus, DataCiteRelatedIdentifier} from "../data-access/doi/dataCiteService";
@@ -268,7 +268,7 @@ export class Neuron extends BaseModel {
         return {totalCount: count, items: neurons};
     }
 
-    public static async getCandidateNeurons(input: NeuronQueryInput, includeInProgress: boolean = false): Promise<EntityQueryOutput<Neuron>> {
+    public static async getCandidateNeurons(input: NeuronQueryInput, includeInProgress: boolean = false, excludedReconstructionStatuses: ReconstructionStatus[] = CandidateExcludedStatuses): Promise<EntityQueryOutput<Neuron>> {
         const neuronIds = (await Neuron.findAll({attributes: ["id"]})).map(n => n.id);
 
         // includeInProgress reads backwards: it means only a finished (or in-flight) publication holds the neuron back.
@@ -282,7 +282,16 @@ export class Neuron extends BaseModel {
 
         const neuronsWithCompletedReconstruction = _.uniq(neuronIdsWithCompletedReconstruction);
 
-        const candidateNeuronIds = _.difference(neuronIds, neuronsWithCompletedReconstruction);
+        // paranoid: false because marking a reconstruction untraceable soft-deletes it, and Untraceable is in the default.
+        const neuronIdsWithExcludedReconstruction = excludedReconstructionStatuses.length > 0
+            ? (await Reconstruction.findAll({
+                where: {status: {[Op.in]: excludedReconstructionStatuses}},
+                attributes: ["id", "neuronId"],
+                paranoid: false
+            })).map(reconstruction => reconstruction.neuronId)
+            : [];
+
+        const candidateNeuronIds = _.difference(neuronIds, neuronsWithCompletedReconstruction, neuronIdsWithExcludedReconstruction);
 
         let options: FindOptions = {where: {id: {[Op.in]: candidateNeuronIds}}, include: [], offset: 0};
 

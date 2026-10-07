@@ -196,11 +196,20 @@ members, and those modules form a require cycle with `reconstruction.ts` that a 
 
 ### 1.1 Opening from a candidate
 
-A candidate neuron is one `candidateNeurons` returns — by default, a neuron with no reconstruction in any of
-`CandidateBlockingStatuses` (`src/models/reconstruction.ts:197`; `Neuron.getCandidateNeurons`,
-`src/models/neuron.ts:271`). `OnHold`, `Incomplete`, `Duplicate` and `Archived` are deliberately absent from that list:
-a held reconstruction releases its neuron back to the pool, and an archived one is not a live publication. `Discarded` and `Untraceable`
-rows are soft-deleted and never reach the query.
+A candidate neuron is one `candidateNeurons` returns. Two independent filters decide it (`Neuron.getCandidateNeurons`,
+`src/models/neuron.ts:271`):
+
+- **Blocking.** By default a neuron with a reconstruction in any of `CandidateBlockingStatuses`
+  (`src/models/reconstruction.ts:200`) is held out; `includeInProgress: true` narrows that to
+  `PublishedCandidateBlockingStatuses`. `OnHold`, `Incomplete`, `Duplicate` and `Archived` are deliberately absent from
+  both lists: a held reconstruction does not block its neuron, and an archived one is not a live publication.
+  `Discarded` and `Untraceable` rows are soft-deleted and never reach this query.
+- **Exclusion.** A neuron with a reconstruction, by any annotator, at any status in `excludedReconstructionStatuses` is
+  left out as well. Omitted, the list is `CandidateExcludedStatuses` (`src/models/reconstruction.ts:216`): `Untraceable`,
+  `Duplicate` and `Incomplete`. An empty list excludes nothing. This query reads soft-deleted rows, so it is what keeps
+  an untraceable neuron out. It applies whatever `includeInProgress` is, and never releases a blocked neuron.
+
+So by default, of the holds, only `OnHold` returns a neuron to the listing.
 
 The annotator calls `openReconstruction(neuronId)`, which creates the `Reconstruction` at `InProgress` with
 `startedAt` set, and the paired `AtlasReconstruction` at `Initialized`.
@@ -256,8 +265,9 @@ write their own status (`OnHold`, `Incomplete`, `Duplicate`) and their own event
 the annotator or an admin. All three share one implementation, `Reconstruction.holdReconstruction`
 (`src/models/reconstruction.ts:802`), so they cannot drift apart. A hold is left only by `resumeReconstruction`
 (`ResumableSourceStatuses`), so moving from one hold to another means resuming first, and no hold is a source for any
-review target. Each is a distinct value, filtered on its own. All three release the neuron to the candidate pool, and
-none counts toward the single-annotation limit (1.1). Resuming takes the slot back, so for an annotator holding only
+review target. Each is a distinct value, filtered on its own. None of the three blocks its neuron, though by default
+`candidateNeurons` excludes a neuron with an `Incomplete` or `Duplicate` row (1.1), and none counts toward the
+single-annotation limit (1.1). Resuming takes the slot back, so for an annotator holding only
 `AnnotateOne` `resumeReconstruction` refuses with code 1002 while another of their reconstructions holds it - the same
 locked count `openReconstruction` makes, against the annotator's permissions even when an admin resumes on their
 behalf.
@@ -448,8 +458,9 @@ instead: the parent lands at `Rejected` and the child rewinds to `ReadyToProcess
 | `markReconstructionUntraceable` | InProgress, OnHold, Incomplete, Duplicate, Rejected | Annotator, peer or publish reviewer, or admin |
 
 Discard and untraceable tear the row down identically — status set, then the row and everything downstream of it
-soft-deleted, and the neuron returns to the candidate pool. `Untraceable` is the "this neuron cannot be traced" verdict
-and is surfaced on the neuron; `Discarded` is "this attempt was no good" and is not.
+soft-deleted, and the row no longer blocks the neuron. `Untraceable` is the "this neuron cannot be traced" verdict
+and is surfaced on the neuron, and `candidateNeurons` excludes the neuron by default (1.1); `Discarded` is "this attempt
+was no good" and is neither, so the neuron returns to the candidate pool.
 
 The annotator is deliberately absent from the post-approval routes: a reconstruction inside the pipeline is not theirs
 to abandon. `User.isReviewerAbandonable` (`src/models/user.ts:406`) is where that rule lives, and both

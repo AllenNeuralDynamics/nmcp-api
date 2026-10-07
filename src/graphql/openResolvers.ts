@@ -20,6 +20,7 @@ import {Injection} from "../models/injection";
 import {InjectionVirus} from "../models/injectionVirus";
 import {Fluorophore} from "../models/fluorophore";
 import {Reconstruction, PublishedReconstructionQueryResponse} from "../models/reconstruction";
+import {ReconstructionStatus} from "../models/reconstructionStatus";
 import {getSystemSettings, SystemSettings} from "../models/systemSettings";
 import {AccessRequest, AccessRequestShape, RequestAccessResponse} from "../models/accessRequest";
 import {getNeuronVersionHistory} from "../models/neuronVersionHistory";
@@ -95,8 +96,9 @@ export const openResolvers = {
             return Neuron.findByPk(args.id);
         },
 
-        candidateNeurons(_: any, args: { input: NeuronQueryInput, includeInProgress: boolean }): Promise<EntityQueryOutput<Neuron>> {
-            return Neuron.getCandidateNeurons(args.input, args.includeInProgress);
+        candidateNeurons(_: any, args: { input: NeuronQueryInput, includeInProgress: boolean, excludedReconstructionStatuses?: ReconstructionStatus[] }): Promise<EntityQueryOutput<Neuron>> {
+            // An explicit null from the client becomes undefined so the model's default applies.
+            return Neuron.getCandidateNeurons(args.input, args.includeInProgress, args.excludedReconstructionStatuses ?? undefined);
         },
 
         nearestNode(_: any, args: { id: string, location: number[] }, __: User): Promise<NearestNodeOutput> {

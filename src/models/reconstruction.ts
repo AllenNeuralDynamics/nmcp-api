@@ -209,6 +209,16 @@ export const CandidateBlockingStatuses: ReconstructionStatus[] = [
     ...PublishedCandidateBlockingStatuses
 ];
 
+/**
+ * The default for getCandidateNeurons' excludedReconstructionStatuses: a neuron with a reconstruction at any of these,
+ * by any annotator, is left out of the candidate list.  Independent of the blocking lists above, which still apply.
+ */
+export const CandidateExcludedStatuses: ReconstructionStatus[] = [
+    ReconstructionStatus.Untraceable,
+    ReconstructionStatus.Duplicate,
+    ReconstructionStatus.Incomplete
+];
+
 export type ReconstructionStatusFilter = {
     status: ReconstructionStatus;
     atlasStatus?: AtlasReconstructionStatus[];
