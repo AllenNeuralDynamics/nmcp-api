@@ -1204,6 +1204,8 @@ export class AtlasReconstruction extends BaseModel {
             id: reconstruction.id,
             annotationSpace: PortalAnnotationSpace.Atlas,
             doi: reconstruction.doi,
+            // The parent's publish date: the atlas row's own publishedAt is when the search index was updated.
+            publishedAt: reconstruction.Reconstruction.publishedAt ?? null,
             neuron: reconstruction.Reconstruction.Neuron.toPortalFormat(),
             annotator: reconstruction.Reconstruction.Annotator?.toPortalFormat() ?? null,
             proofreader: reconstruction.Reviewer?.toPortalFormat() ?? null,

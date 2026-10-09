@@ -5,6 +5,7 @@ import {expect, test, vi, describe, afterEach} from "vitest";
 const {User, UserPermissions} = require("../src/models/user");
 const {Reconstruction} = require("../src/models/reconstruction");
 const {AtlasReconstruction} = require("../src/models/atlasReconstruction");
+const {Neuron} = require("../src/models/neuron");
 const {PortalAnnotationSpace} = require("../src/io/portalFormat");
 
 // Both producers are gated on canRequestReconstructionData, which is InternalAccess alone with no admin bypass.
@@ -31,8 +32,12 @@ function portalUser(id: string, isSystemUser: boolean = false) {
 }
 
 function neuronStub() {
-    return {toPortalFormat: () => ({id: "neuron-1", label: "N1", specimen: null})};
+    return {toPortalFormat: () => ({id: "neuron-1", label: "N1", canonicalDoi: null, specimen: null})};
 }
+
+// Distinct dates, so a mix-up between the parent's and the atlas row's shows in the failure.
+const parentDate = new Date("2026-03-01T12:00:00Z");
+const atlasDate = new Date("2026-04-15T08:30:00Z");
 
 afterEach(() => {
     vi.restoreAllMocks();
@@ -104,6 +109,41 @@ describe("AtlasReconstruction.toPortalFormat", () => {
         expect(nested.include).toEqual(expect.arrayContaining([{model: User, as: "TeamReviewer"}]));
     });
 
+    test("emits the parent's publish date, not the atlas row's", async () => {
+        const instance = atlasStub({publishedAt: parentDate});
+        instance.publishedAt = atlasDate;
+        stub(instance);
+
+        const portal = await AtlasReconstruction.toPortalFormat(exporter, "atlas-1");
+
+        expect(portal.publishedAt).toBe(parentDate);
+        expect(portal.doi).toBe("10.0000/atlas-1");
+    });
+
+    test("emits null when the parent is unpublished, whatever the atlas row holds", async () => {
+        const instance = atlasStub();
+        instance.publishedAt = atlasDate;
+        stub(instance);
+
+        const portal = await AtlasReconstruction.toPortalFormat(exporter, "atlas-1");
+
+        expect(portal.publishedAt).toBeNull();
+    });
+
+    test("emits the parent's publish date when found through the reconstruction id", async () => {
+        const instance = atlasStub({publishedAt: parentDate});
+        instance.publishedAt = atlasDate;
+
+        vi.spyOn(AtlasReconstruction, "findByPk").mockResolvedValue(null);
+        vi.spyOn(Reconstruction, "findByPk").mockResolvedValue({id: "reconstruction-1"});
+        vi.spyOn(AtlasReconstruction, "findOne").mockResolvedValue(instance);
+        vi.spyOn(AtlasReconstruction, "serializeNodes").mockResolvedValue([]);
+
+        const portal = await AtlasReconstruction.toPortalFormat(exporter, "reconstruction-1");
+
+        expect(portal.publishedAt).toBe(parentDate);
+    });
+
     test("refuses a caller without InternalAccess", async () => {
         const caller = Object.create(User.prototype);
         caller.permissions = UserPermissions.Admin | UserPermissions.ReviewAll;
@@ -173,10 +213,63 @@ describe("Reconstruction.toPortalFormat", () => {
         ]));
     });
 
+    test("emits the publish date", async () => {
+        stub(specimenStub({publishedAt: parentDate}));
+
+        const portal = await Reconstruction.toPortalFormat(exporter, "reconstruction-1");
+
+        expect(portal.publishedAt).toBe(parentDate);
+        expect(portal.doi).toBeNull();
+    });
+
+    test("emits null when unpublished", async () => {
+        stub(specimenStub());
+
+        const portal = await Reconstruction.toPortalFormat(exporter, "reconstruction-1");
+
+        expect(portal.publishedAt).toBeNull();
+        expect(portal.doi).toBeNull();
+    });
+
     test("refuses a caller without InternalAccess", async () => {
         const caller = Object.create(User.prototype);
         caller.permissions = UserPermissions.Admin | UserPermissions.ReviewAll;
 
         await expect(Reconstruction.toPortalFormat(caller, "reconstruction-1")).rejects.toThrow();
+    });
+});
+
+describe("Neuron.toPortalFormat", () => {
+    function neuron(canonicalDoi: string | null | undefined) {
+        return Object.assign(Object.create(Neuron.prototype), {
+            id: "neuron-1",
+            label: "N1",
+            canonicalDoi: canonicalDoi,
+            Specimen: {toPortalFormat: () => null}
+        });
+    }
+
+    test("emits a set canonical DOI", () => {
+        expect(neuron("10.48813/abcd-1234").toPortalFormat().canonicalDoi).toBe("10.48813/abcd-1234");
+    });
+
+    test("trims surrounding whitespace", () => {
+        expect(neuron(" 10.48813/abcd-1234 ").toPortalFormat().canonicalDoi).toBe("10.48813/abcd-1234");
+    });
+
+    test.each([null, undefined, "", "   "])("emits null for %j", (value: string | null | undefined) => {
+        expect(neuron(value).toPortalFormat().canonicalDoi).toBeNull();
+    });
+
+    test("still emits the id, label and specimen", () => {
+        const specimen = {id: "specimen-1"};
+        const instance = neuron("10.48813/abcd-1234");
+        instance.Specimen = {toPortalFormat: () => specimen};
+
+        const portal = instance.toPortalFormat();
+
+        expect(portal.id).toBe("neuron-1");
+        expect(portal.label).toBe("N1");
+        expect(portal.specimen).toBe(specimen);
     });
 });

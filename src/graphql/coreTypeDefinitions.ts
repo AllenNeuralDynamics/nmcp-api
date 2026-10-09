@@ -434,6 +434,7 @@ export const coreTypeDefinitions = gql`
     type PortalNeuron {
         id: String!
         label: String
+        canonicalDoi: String
         specimen: PortalSpecimen
     }
 
@@ -447,6 +448,8 @@ export const coreTypeDefinitions = gql`
     type PortalReconstruction {
         id: String!
         annotationSpace: Int
+        doi: String
+        publishedAt: Date
         neuron: PortalNeuron
         annotator: PortalUser
         peerReviewer: PortalUser

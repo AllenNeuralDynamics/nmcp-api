@@ -2,12 +2,13 @@ import {expect, test, vi, describe, afterEach} from "vitest";
 
 // require() rather than import: the .ts sources are compiled to .js in place, and an ESM import yields a
 // different module instance than the CJS one the model methods call into, so the spies would not apply.
-const {GraphQLList, GraphQLNonNull, GraphQLObjectType, GraphQLString} = require("graphql");
+const {graphql, GraphQLList, GraphQLNonNull, GraphQLObjectType, GraphQLString} = require("graphql");
 const {createSchema} = require("../src/graphql/schema");
 const {secureResolvers} = require("../src/graphql/secureResolvers");
 const {openResolvers} = require("../src/graphql/openResolvers");
 const {User} = require("../src/models/user");
 const {Reconstruction} = require("../src/models/reconstruction");
+const {AtlasReconstruction} = require("../src/models/atlasReconstruction");
 const {Atlas} = require("../src/models/atlas");
 const {AtlasKind} = require("../src/models/atlasKind");
 const {AtlasStructure} = require("../src/models/atlasStructure");
@@ -170,5 +171,77 @@ describe("atlas discovery resolvers", () => {
 
         expect(await openResolvers.Atlas.atlasStructures({id: "atlas-1"})).toBe(result);
         expect(spy).toHaveBeenCalledWith("atlas-1");
+    });
+});
+
+describe("portal export types in the schema", () => {
+    const schema = createSchema();
+
+    test("PortalNeuron exposes a nullable canonicalDoi", () => {
+        expect(schema.getType("PortalNeuron").getFields().canonicalDoi.type).toBe(GraphQLString);
+    });
+
+    test("PortalReconstruction exposes a nullable doi", () => {
+        expect(schema.getType("PortalReconstruction").getFields().doi.type).toBe(GraphQLString);
+    });
+
+    test("PortalReconstruction exposes a nullable publishedAt Date", () => {
+        const type = schema.getType("PortalReconstruction").getFields().publishedAt.type;
+
+        expect(type).not.toBeInstanceOf(GraphQLNonNull);
+        expect(type.name).toBe("Date");
+    });
+});
+
+describe("portal export serialization", () => {
+    const schema = createSchema();
+    const exporterUser = Object.create(User.prototype);
+    const parentDate = new Date("2026-03-01T12:00:00Z");
+
+    function portalReconstruction(overrides: object) {
+        return {
+            id: "reconstruction-1",
+            annotationSpace: 0,
+            neuron: {id: "neuron-1", label: "N1", canonicalDoi: "10.48813/abcd-1234", specimen: null},
+            annotator: null,
+            peerReviewer: null,
+            teamReviewer: null,
+            proofreader: null,
+            nodes: [],
+            ...overrides
+        };
+    }
+
+    // Guards against the producer handing the Date scalar a number, which it serializes as 0.
+    test("exportedSpecimenReconstruction serializes publishedAt as epoch milliseconds", async () => {
+        vi.spyOn(Reconstruction, "toPortalFormat").mockResolvedValue(portalReconstruction({doi: null, publishedAt: parentDate}));
+
+        const result: any = await graphql({
+            schema,
+            source: "{ exportedSpecimenReconstruction(id: \"reconstruction-1\") { doi publishedAt neuron { canonicalDoi } } }",
+            contextValue: exporterUser
+        });
+
+        expect(result.errors).toBeUndefined();
+
+        const exported = result.data.exportedSpecimenReconstruction;
+
+        expect(exported.publishedAt).toBe(parentDate.getTime());
+        expect(exported.doi).toBeNull();
+        expect(exported.neuron.canonicalDoi).toBe("10.48813/abcd-1234");
+    });
+
+    test("exportedAtlasReconstruction serializes the atlas doi and a null publishedAt", async () => {
+        vi.spyOn(AtlasReconstruction, "toPortalFormat").mockResolvedValue(portalReconstruction({doi: "10.0000/atlas-1", publishedAt: null}));
+
+        const result: any = await graphql({
+            schema,
+            source: "{ exportedAtlasReconstruction(id: \"atlas-1\") { doi publishedAt } }",
+            contextValue: exporterUser
+        });
+
+        expect(result.errors).toBeUndefined();
+        expect(result.data.exportedAtlasReconstruction.doi).toBe("10.0000/atlas-1");
+        expect(result.data.exportedAtlasReconstruction.publishedAt).toBeNull();
     });
 });

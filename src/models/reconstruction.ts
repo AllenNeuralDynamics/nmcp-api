@@ -1493,6 +1493,7 @@ export class Reconstruction extends BaseModel {
             id: reconstruction.id,
             annotationSpace: PortalAnnotationSpace.Specimen,
             doi: null,
+            publishedAt: reconstruction.publishedAt ?? null,
             neuron: reconstruction.Neuron.toPortalFormat(),
             annotator: reconstruction.Annotator?.toPortalFormat() ?? null,
             peerReviewer: reconstruction.Reviewer?.toPortalFormat() ?? null,

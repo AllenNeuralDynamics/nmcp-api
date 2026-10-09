@@ -798,6 +798,7 @@ export class Neuron extends BaseModel {
         return {
             id: this.id,
             label: this.label,
+            canonicalDoi: this.canonicalDoi?.trim() || null,
             specimen: this.Specimen.toPortalFormat()
         }
     }

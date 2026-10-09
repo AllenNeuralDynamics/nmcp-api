@@ -39,6 +39,7 @@ export type PortalSpecimen = {
 export type PortalNeuron = {
     id: string
     label: string;
+    canonicalDoi: string | null;
     specimen: PortalSpecimen;
 }
 
@@ -53,6 +54,7 @@ export type PortalReconstruction = {
     id: string;
     annotationSpace: PortalAnnotationSpace;
     doi: string | null;
+    publishedAt: Date | null;
     neuron: PortalNeuron;
     annotator: PortalUser | null;
     peerReviewer: PortalUser | null;
