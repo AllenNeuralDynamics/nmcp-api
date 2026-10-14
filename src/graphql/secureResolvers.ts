@@ -21,6 +21,7 @@ import {
 import GraphQLUpload = require("graphql-upload/GraphQLUpload.js");
 import {QualityControl} from "../models/qualityControl";
 import {AtlasNode} from "../models/atlasNode";
+import {SpecimenNode} from "../models/specimenNode";
 import {Precomputed} from "../models/precomputed";
 import {NodeStructure} from "../models/nodeStructure";
 import {SpecimenSpacePrecomputed} from "../models/specimenSpacePrecomputed";
@@ -357,6 +358,9 @@ export const secureResolvers = {
 
             return {phase: child.status, reason: child.failureReason ?? null, failedAt: child.failedAt ?? null};
         },
+        soma(reconstruction: Reconstruction): Promise<SpecimenNode> {
+            return reconstruction.getSoma();
+        },
         precomputed(reconstruction: Reconstruction): Promise<SpecimenSpacePrecomputed> {
             return reconstruction.getPrecomputed();
         },
@@ -389,6 +393,11 @@ export const secureResolvers = {
     },
     AtlasNode: {
         nodeStructure(node: AtlasNode): Promise<NodeStructure> {
+            return node.getNodeStructure();
+        }
+    },
+    SpecimenNode: {
+        nodeStructure(node: SpecimenNode): Promise<NodeStructure> {
             return node.getNodeStructure();
         }
     },

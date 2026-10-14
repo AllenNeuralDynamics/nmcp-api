@@ -217,6 +217,19 @@ export const coreTypeDefinitions = gql`
         atlasStructure: AtlasStructure
     }
 
+    type SpecimenNode {
+        id: String!
+        index: Int
+        parentIndex: Int
+        x: Float
+        y: Float
+        z: Float
+        radius: Float
+        lengthToParent: Float
+        nodeStructureId: String
+        nodeStructure: NodeStructure
+    }
+
     type NodeCount {
         total: Int
         soma: Int
@@ -246,6 +259,7 @@ export const coreTypeDefinitions = gql`
         durationHours: Float
         specimenLengthMillimeters: Float
         specimenNodeCounts: NodeCounts
+        soma: SpecimenNode
         annotatorId: String
         annotator: User
         reviewerId: String
