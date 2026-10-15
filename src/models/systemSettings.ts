@@ -4,9 +4,7 @@ import {Neuron} from "./neuron";
 export type SystemSettings = {
     apiVersion: string;
     neuronCount: number;
-    features: {
-        enableUpdatedViewer: boolean;
-    }
+    enableExperimentalFeatures: boolean;
 }
 
 let publishCount: number = -1;
@@ -31,8 +29,6 @@ export async function getSystemSettings(): Promise<SystemSettings> {
     return {
         apiVersion: ServiceOptions.version,
         neuronCount: await publishedCount(),
-        features: {
-            enableUpdatedViewer: ServiceOptions.allowExperimentalFeatures
-        }
+        enableExperimentalFeatures: ServiceOptions.allowExperimentalFeatures
     }
 }

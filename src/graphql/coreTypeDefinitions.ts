@@ -5,14 +5,10 @@ export const coreTypeDefinitions = gql`
     scalar Upload
     scalar Date
 
-    type Features {
-        enableUpdatedViewer: Boolean
-    }
-
     type SystemSettings {
         apiVersion: String
         neuronCount: Int
-        features: Features
+        enableExperimentalFeatures: Boolean
     }
 
     type User {
