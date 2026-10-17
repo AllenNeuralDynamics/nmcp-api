@@ -151,12 +151,21 @@ export const inputTypeDefinitions = gql`
         z: Float
     }
 
+    """On update, merged into the stored value: a field left out keeps its stored value and a null field is stored
+    as null.  Send null for the whole object to clear it."""
+    input NeuronMetadataInput {
+        instance: Int
+        priority: Int
+        somaGroup: String
+    }
+
     input NeuronInput {
         id: String
         label: String
         keywords: [String!]
         specimenSoma: SomaLocationInput
         atlasSoma: SomaLocationInput
+        metadata: NeuronMetadataInput
         atlasStructureId: String
         specimenId: String
     }

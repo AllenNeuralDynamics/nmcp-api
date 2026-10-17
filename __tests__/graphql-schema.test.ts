@@ -2,7 +2,7 @@ import {expect, test, vi, describe, afterEach} from "vitest";
 
 // require() rather than import: the .ts sources are compiled to .js in place, and an ESM import yields a
 // different module instance than the CJS one the model methods call into, so the spies would not apply.
-const {graphql, GraphQLList, GraphQLNonNull, GraphQLObjectType, GraphQLString} = require("graphql");
+const {graphql, GraphQLInt, GraphQLList, GraphQLNonNull, GraphQLObjectType, GraphQLString} = require("graphql");
 const {createSchema} = require("../src/graphql/schema");
 const {secureResolvers} = require("../src/graphql/secureResolvers");
 const {openResolvers} = require("../src/graphql/openResolvers");
@@ -243,5 +243,35 @@ describe("portal export serialization", () => {
         expect(result.errors).toBeUndefined();
         expect(result.data.exportedAtlasReconstruction.doi).toBe("10.0000/atlas-1");
         expect(result.data.exportedAtlasReconstruction.publishedAt).toBeNull();
+    });
+});
+
+describe("neuron metadata in the schema", () => {
+    const schema = createSchema();
+
+    function expectNullableFields(typeName: string, expected: object) {
+        const fields = schema.getType(typeName).getFields();
+
+        for (const [name, scalar] of Object.entries(expected)) {
+            expect(fields[name].type).toBe(scalar);
+        }
+    }
+
+    test("Neuron exposes a nullable NeuronMetadata", () => {
+        const type = schema.getType("Neuron").getFields().metadata.type;
+
+        expect(type).not.toBeInstanceOf(GraphQLNonNull);
+        expect(type.name).toBe("NeuronMetadata");
+
+        expectNullableFields("NeuronMetadata", {instance: GraphQLInt, priority: GraphQLInt, somaGroup: GraphQLString});
+    });
+
+    test("NeuronInput takes a nullable NeuronMetadataInput", () => {
+        const type = schema.getType("NeuronInput").getFields().metadata.type;
+
+        expect(type).not.toBeInstanceOf(GraphQLNonNull);
+        expect(type.name).toBe("NeuronMetadataInput");
+
+        expectNullableFields("NeuronMetadataInput", {instance: GraphQLInt, priority: GraphQLInt, somaGroup: GraphQLString});
     });
 });

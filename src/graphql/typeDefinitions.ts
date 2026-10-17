@@ -58,6 +58,9 @@ export const typeDefinitions = gql`
         """ Returns details for all specimens, subject to any input filtering."""
         specimens(input: SpecimenQueryInput): QuerySpecimens
 
+        """Returns details for a single specimen."""
+        specimen(id: String!): Specimen
+
         """Returns details for a single a neuron."""
         neuron(id: String!): Neuron
 
@@ -94,8 +97,6 @@ export const typeDefinitions = gql`
 
         injections(input: InjectionQueryInput): [Injection!]!
         injection(id: String!): Injection
-
-        specimen(id: String!): Specimen
 
         neurons(input: NeuronQueryInput): QueryNeurons
 

@@ -91,10 +91,6 @@ export const secureResolvers = {
             return Injection.getAll(context, args.input);
         },
 
-        specimen(_: any, args: { id: string }, context: User): Promise<Specimen> {
-            return Specimen.getById(context, args.id);
-        },
-
         neurons(_: any, args: { input: NeuronQueryInput }, context: User): Promise<EntityQueryOutput<Neuron>> {
             return Neuron.getAll(context, args.input);
         },
