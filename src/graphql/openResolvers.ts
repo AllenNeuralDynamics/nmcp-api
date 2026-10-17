@@ -88,6 +88,10 @@ export const openResolvers = {
             return InjectionVirus.findAll();
         },
 
+        specimen(_: any, args: { id: string }): Promise<Specimen> {
+            return Specimen.findByPk(args.id);
+        },
+
         specimens(_: any, args: { input: SpecimenQueryArgs }): Promise<EntityQueryOutput<Specimen>> {
             return Specimen.getAll(args.input);
         },

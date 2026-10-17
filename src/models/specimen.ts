@@ -116,7 +116,7 @@ export class Specimen extends BaseModel {
     public readonly Injections?: Injection[];
     public readonly Neurons?: Neuron[];
 
-    private async recordEvent(kind: EventLogItemKind, details: SpecimenShape | CandidateImportShape, user: User, t: Transaction, substituteUser: User = null): Promise<void> {
+    private async recordEvent(kind: EventLogItemKind, details: SpecimenShape | CandidateImportShape | SpecimenSomaProperties, user: User, t: Transaction, substituteUser: User = null): Promise<void> {
         await recordEvent({
             kind: kind,
             targetId: this.id,
@@ -125,14 +125,6 @@ export class Specimen extends BaseModel {
             userId: user.id,
             substituteUserId: substituteUser?.id
         }, t);
-    }
-
-    public static async getById(user: User, id: string): Promise<Specimen> {
-        if (!user?.canViewData()) {
-            throw new UnauthorizedError();
-        }
-
-        return Specimen.findByPk(id);
     }
 
     public static async getAll(input: SpecimenQueryArgs): Promise<EntityQueryOutput<Specimen>> {
@@ -336,7 +328,8 @@ export class Specimen extends BaseModel {
             return await this.sequelize.transaction(async (t) => {
                 const count = await Neuron.insertSomaEntries(user, records, nextNumber, t);
 
-                const properties = specimen.somaProperties ?? {};
+                // A copy: Sequelize deep-compares a JSONB value with the current one, so mutating it in place skips the write.
+                const properties: SpecimenSomaProperties = {...specimen.somaProperties};
                 let needsUpdate = false;
 
                 if (options.defaultBrightness) {

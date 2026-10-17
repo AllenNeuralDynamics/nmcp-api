@@ -179,6 +179,12 @@ export const coreTypeDefinitions = gql`
         z: Float
     }
 
+    type NeuronMetadata {
+        instance: Int
+        priority: Int
+        somaGroup: String
+    }
+
     type Neuron {
         id: String
         label: String
@@ -187,6 +193,7 @@ export const coreTypeDefinitions = gql`
         atlasSoma: SomaLocation
         atlasStructureId: String
         atlasStructure: AtlasStructure
+        metadata: NeuronMetadata
         canonicalDoi: String
         specimen: Specimen
         published: AtlasReconstruction

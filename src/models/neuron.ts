@@ -34,7 +34,7 @@ import {User} from "./user";
 import {UnauthorizedError} from "../graphql/secureResolvers";
 import {normalizeKeywords, substringMatchPatterns} from "../util/keywords";
 import {Genotype} from "./genotype";
-import {isNullOrEmpty} from "../util/objectUtil";
+import {isNullOrEmpty, mergeJsonProperties} from "../util/objectUtil";
 import {CandidateBlockingStatuses, CandidateExcludedStatuses, PublishedCandidateBlockingStatuses, Reconstruction} from "./reconstruction";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {Collection} from "./collection";
@@ -64,6 +64,12 @@ export type SomaProperties = {
     brightness?: number;
     volume?: number;
     radii?: SomaLocation;
+}
+
+export type NeuronMetadata = {
+    instance?: number;
+    priority?: number;
+    somaGroup?: string;
 }
 
 export type SomaImportResponse = {
@@ -100,6 +106,7 @@ export type NeuronShape = {
     specimenSoma: SomaLocation;
     atlasSoma: SomaLocation;
     somaProperties?: SomaProperties;
+    metadata?: NeuronMetadata;
     atlasStructureId?: string;
     specimenId?: string;
 }
@@ -129,6 +136,7 @@ export class Neuron extends BaseModel {
     public specimenSoma: SomaLocation;
     public atlasSoma: SomaLocation
     public somaProperties?: SomaProperties;
+    public metadata?: NeuronMetadata;
     public canonicalDoi: string;
     public specimenId: string;
     public atlasStructureId?: string;
@@ -379,6 +387,7 @@ export class Neuron extends BaseModel {
             keywords: normalizeKeywords(inputShape.keywords),
             specimenSoma: inputShape.specimenSoma ?? {x: 0, y: 0, z: 0},
             atlasSoma: inputShape.atlasSoma ?? {x: 0, y: 0, z: 0},
+            metadata: inputShape.metadata ?? null,
             atlasStructureId: inputShape.atlasStructureId,
             specimenId: inputShape.specimenId
         };
@@ -432,6 +441,10 @@ export class Neuron extends BaseModel {
         // Undefined is ok (no update) - but prefer not null
         if (shape.keywords !== undefined) {
             shape.keywords = normalizeKeywords(shape.keywords);
+        }
+
+        if (shape.metadata) {
+            shape.metadata = mergeJsonProperties(this.metadata, shape.metadata);
         }
 
         if (shape.specimenSoma === null) {
@@ -830,6 +843,10 @@ export const modelInit = (sequelize: Sequelize) => {
             defaultValue: null
         },
         somaProperties: {
+            type: DataTypes.JSONB,
+            defaultValue: null
+        },
+        metadata: {
             type: DataTypes.JSONB,
             defaultValue: null
         },
