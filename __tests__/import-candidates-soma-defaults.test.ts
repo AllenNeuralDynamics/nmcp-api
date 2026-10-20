@@ -3,6 +3,7 @@ import {Readable} from "stream";
 
 // require() rather than import: the .ts sources are compiled to .js in place, and an ESM import yields a
 // different module instance than the CJS one the model methods call into, so the spies would not apply.
+const {Transaction} = require("sequelize");
 const {User, UserPermissions} = require("../src/models/user");
 const {Specimen} = require("../src/models/specimen");
 const {Neuron} = require("../src/models/neuron");
@@ -103,5 +104,42 @@ describe("candidate import soma defaults", () => {
 
         expect(specimen.update).not.toHaveBeenCalled();
         expect(stored).toStrictEqual({defaultBrightness: 1, defaultVolume: 2});
+    });
+});
+
+describe("candidate import specimen lock", () => {
+    test("locks the specimen in the write transaction", async () => {
+        stubImport(null);
+
+        await importWith({});
+
+        const findByPk = Specimen.findByPk as any;
+        const lockIndex = findByPk.mock.calls.findIndex((call: any) => call[1]?.lock);
+
+        expect(findByPk.mock.calls[lockIndex]).toEqual([specimenId, {transaction, lock: Transaction.LOCK.NO_KEY_UPDATE}]);
+        expect(findByPk.mock.invocationCallOrder[lockIndex]).toBeLessThan((Neuron.insertSomaEntries as any).mock.invocationCallOrder[0]);
+    });
+
+    test("refuses a specimen deleted before its lock", async () => {
+        const specimen = stubImport(null);
+
+        // The locked re-read finds nothing, as when a delete committed while the import waited.
+        vi.spyOn(Specimen, "findByPk").mockImplementation(async (_: any, options: any) => options?.lock ? null : specimen);
+
+        await expect(importWith({})).rejects.toMatchObject({name: "ImportSomasError", message: expect.stringMatching(/does not exist/)});
+
+        expect(Neuron.insertSomaEntries).not.toHaveBeenCalled();
+    });
+
+    test("writes the defaults to the locked row", async () => {
+        const specimen = stubImport({defaultBrightness: 1, defaultVolume: 2});
+        const locked = prototypeStub(Specimen, {id: specimenId, atlasId: "atlas-1", somaProperties: {defaultBrightness: 7, defaultVolume: 8}});
+
+        vi.spyOn(Specimen, "findByPk").mockImplementation(async (_: any, options: any) => options?.lock ? locked : specimen);
+
+        await importWith({defaultBrightness: 5});
+
+        expect(locked.update.mock.calls[0][0].somaProperties).toStrictEqual({defaultBrightness: 5, defaultVolume: 8});
+        expect(specimen.update).not.toHaveBeenCalled();
     });
 });

@@ -3,32 +3,26 @@ import {expect, test, vi, describe, afterEach} from "vitest";
 // require() rather than import: the .ts sources are compiled to .js in place, and an ESM import yields a
 // different module instance than the CJS one the model methods call into, so the spies would not apply.
 const {Op} = require("sequelize");
-const {Neuron} = require("../src/models/neuron");
-const {Reconstruction, CandidateBlockingStatuses, PublishedCandidateBlockingStatuses, CandidateExcludedStatuses} = require("../src/models/reconstruction");
+const {Neuron, NeuronStatusFilter} = require("../src/models/neuron");
+const {CandidateBlockingStatuses, PublishedCandidateBlockingStatuses, CandidateExcludedStatuses} = require("../src/models/reconstruction");
 const {ReconstructionStatus} = require("../src/models/reconstructionStatus");
 const {Atlas} = require("../src/models/atlas");
 
-// getCandidateNeurons runs two Neuron.findAll calls: the id sweep first, then the filtered page.  The second is what
-// carries the candidate set, so the stub answers by call order.
-function stubNeurons(allNeuronIds: string[]) {
-    const findAll = vi.spyOn(Neuron, "findAll");
+// The candidate query runs no SQL here, so these assert on the options it builds: the correlated predicates, the
+// status lists they bind, and the paging handed to findAll.
+function stubQueries(total: number = 0, rows: any[] = []) {
+    const count = vi.spyOn(Neuron, "count").mockResolvedValue(total);
+    const findAll = vi.spyOn(Neuron, "findAll").mockResolvedValue(rows);
 
-    findAll.mockResolvedValueOnce(allNeuronIds.map(id => ({id})) as any);
-    findAll.mockImplementation(async (options: any) => (options.where.id[Op.in] as string[]).map(id => ({id})) as any);
-
-    // setSortAndLimiting runs a count against the database; the candidate ids are already in the options by then.
-    vi.spyOn(Neuron as any, "setSortAndLimiting").mockResolvedValue(0);
-
-    return findAll;
+    return {count, findAll};
 }
 
-// deleted marks a soft-deleted row, as an untraceable one is: only a query with paranoid: false sees it.
-function stubReconstructions(rows: { neuronId: string, status: number, deleted?: boolean }[]) {
-    // The query is the model's own filter, so the stub applies it rather than returning everything.
-    return vi.spyOn(Reconstruction, "findAll").mockImplementation(async (options: any) => {
-        const statuses = options.where.status[Op.in] as number[];
-        return rows.filter(row => statuses.includes(row.status) && (!row.deleted || options.paranoid === false)) as any;
-    });
+function predicateSql(options: any): string[] {
+    return options.where[Op.and].map((predicate: any) => predicate.val);
+}
+
+function pageOptions(findAll: any): any {
+    return findAll.mock.calls[0][0];
 }
 
 afterEach(() => {
@@ -36,194 +30,270 @@ afterEach(() => {
 });
 
 describe("getCandidateNeurons blocking statuses", () => {
-    test("the default filters on every status that holds a neuron", async () => {
-        stubNeurons([]);
-        const findAll = stubReconstructions([]);
+    test("the default blocks on every live reconstruction at a status that holds a neuron", async () => {
+        const {findAll} = stubQueries();
 
         await Neuron.getCandidateNeurons({});
 
-        expect(findAll.mock.calls[0][0].where.status[Op.in]).toBe(CandidateBlockingStatuses);
+        const options = pageOptions(findAll);
+        const blocking = predicateSql(options)[0];
+
+        expect(blocking).toContain("NOT EXISTS");
+        expect(blocking).toContain("\"deletedAt\" IS NULL");
+        expect(blocking).toContain(":candidateBlockingStatuses");
+        expect(options.replacements.candidateBlockingStatuses).toBe(CandidateBlockingStatuses);
     });
 
-    test("includeInProgress filters on the published-only list", async () => {
-        stubNeurons([]);
-        const findAll = stubReconstructions([]);
+    test("includeInProgress blocks on the published-only list", async () => {
+        const {findAll} = stubQueries();
 
         await Neuron.getCandidateNeurons({}, true);
 
-        expect(findAll.mock.calls[0][0].where.status[Op.in]).toBe(PublishedCandidateBlockingStatuses);
+        expect(pageOptions(findAll).replacements.candidateBlockingStatuses).toBe(PublishedCandidateBlockingStatuses);
     });
 });
 
-describe("getCandidateNeurons results", () => {
-    // The rows F5 was losing neurons to: a held or archived attempt no longer holds its neuron.  Incomplete and
-    // Duplicate are excluded by default, so they are released only once nothing is excluded.
-    test.each([ReconstructionStatus.OnHold, ReconstructionStatus.Incomplete, ReconstructionStatus.Duplicate, ReconstructionStatus.Archived])(
-        "a neuron whose only row is %s is not blocked either way",
-        async (status: number) => {
-            for (const includeInProgress of [false, true]) {
-                vi.restoreAllMocks();
-                stubNeurons(["neuron-1"]);
-                stubReconstructions([{neuronId: "neuron-1", status: status}]);
+// Each of these was a row-level case against the id sweep; the predicates now hand the same lists to Postgres.
+describe("candidate status lists", () => {
+    const blockingLists = [CandidateBlockingStatuses, PublishedCandidateBlockingStatuses];
 
-                const output = await Neuron.getCandidateNeurons({}, includeInProgress, []);
+    test.each([ReconstructionStatus.OnHold, ReconstructionStatus.Archived])("a %s row neither blocks nor excludes", (status: number) => {
+        for (const list of blockingLists) {
+            expect(list).not.toContain(status);
+        }
 
-                expect(output.items.map((neuron: any) => neuron.id)).toEqual(["neuron-1"]);
-            }
-        });
-
-    test.each([ReconstructionStatus.OnHold, ReconstructionStatus.Archived])(
-        "a neuron whose only row is %s is a candidate by default",
-        async (status: number) => {
-            stubNeurons(["neuron-1"]);
-            stubReconstructions([{neuronId: "neuron-1", status: status}]);
-
-            const output = await Neuron.getCandidateNeurons({});
-
-            expect(output.items.map((neuron: any) => neuron.id)).toEqual(["neuron-1"]);
-        });
-
-    test.each([ReconstructionStatus.Rejected, ReconstructionStatus.Publishing])(
-        "a neuron with a %s row is held out by default",
-        async (status: number) => {
-            stubNeurons(["neuron-1", "neuron-2"]);
-            stubReconstructions([{neuronId: "neuron-1", status: status}]);
-
-            const output = await Neuron.getCandidateNeurons({});
-
-            expect(output.items.map((neuron: any) => neuron.id)).toEqual(["neuron-2"]);
-        });
-
-    test("a Rejected row releases the neuron once only a publication counts", async () => {
-        stubNeurons(["neuron-1"]);
-        stubReconstructions([{neuronId: "neuron-1", status: ReconstructionStatus.Rejected}]);
-
-        const output = await Neuron.getCandidateNeurons({}, true);
-
-        expect(output.items.map((neuron: any) => neuron.id)).toEqual(["neuron-1"]);
+        expect(CandidateExcludedStatuses).not.toContain(status);
     });
 
-    test("a Publishing row still holds the neuron out once only a publication counts", async () => {
-        stubNeurons(["neuron-1"]);
-        stubReconstructions([{neuronId: "neuron-1", status: ReconstructionStatus.Publishing}]);
+    test.each([ReconstructionStatus.Incomplete, ReconstructionStatus.Duplicate])("a %s row is excluded by default but never blocks", (status: number) => {
+        for (const list of blockingLists) {
+            expect(list).not.toContain(status);
+        }
 
-        const output = await Neuron.getCandidateNeurons({}, true);
-
-        expect(output.items).toEqual([]);
+        expect(CandidateExcludedStatuses).toContain(status);
     });
 
-    // A row at a blocking status holds its neuron out whatever its siblings are at.
-    test("a Published row holds the neuron out even beside an OnHold one", async () => {
-        stubNeurons(["neuron-1"]);
-        stubReconstructions([
-            {neuronId: "neuron-1", status: ReconstructionStatus.OnHold},
-            {neuronId: "neuron-1", status: ReconstructionStatus.Published}
-        ]);
+    test.each([ReconstructionStatus.Rejected, ReconstructionStatus.Publishing])("a %s row blocks by default", (status: number) => {
+        expect(CandidateBlockingStatuses).toContain(status);
+    });
 
-        const output = await Neuron.getCandidateNeurons({});
+    test("only a publication blocks once includeInProgress is set", () => {
+        expect(PublishedCandidateBlockingStatuses).not.toContain(ReconstructionStatus.Rejected);
 
-        expect(output.items).toEqual([]);
+        for (const status of [ReconstructionStatus.Publishing, ReconstructionStatus.PublishFailed, ReconstructionStatus.Published]) {
+            expect(PublishedCandidateBlockingStatuses).toContain(status);
+        }
+    });
+
+    test("the default exclusions are Untraceable, Duplicate and Incomplete", () => {
+        expect([...CandidateExcludedStatuses].sort()).toEqual([
+            ReconstructionStatus.Untraceable,
+            ReconstructionStatus.Duplicate,
+            ReconstructionStatus.Incomplete
+        ].sort());
     });
 });
 
-describe("getCandidateNeurons structure filter", () => {
+describe("getCandidateNeurons excluded reconstruction statuses", () => {
+    test("the default excludes on every reconstruction, soft-deleted ones included", async () => {
+        const {findAll} = stubQueries();
+
+        await Neuron.getCandidateNeurons({});
+
+        const options = pageOptions(findAll);
+        const excluded = predicateSql(options)[1];
+
+        expect(excluded).toContain("NOT EXISTS");
+        expect(excluded).toContain(":candidateExcludedStatuses");
+        expect(excluded).not.toContain("deletedAt");
+        expect(options.replacements.candidateExcludedStatuses).toBe(CandidateExcludedStatuses);
+    });
+
+    test("an explicit list replaces the default", async () => {
+        const {findAll} = stubQueries();
+
+        await Neuron.getCandidateNeurons({}, false, [ReconstructionStatus.OnHold]);
+
+        expect(pageOptions(findAll).replacements.candidateExcludedStatuses).toEqual([ReconstructionStatus.OnHold]);
+    });
+
+    test("an empty list excludes nothing, and blocking still applies", async () => {
+        const {findAll} = stubQueries();
+
+        await Neuron.getCandidateNeurons({}, false, []);
+
+        const options = pageOptions(findAll);
+        const sql = predicateSql(options);
+
+        expect(sql).toHaveLength(1);
+        expect(sql[0]).toContain(":candidateBlockingStatuses");
+        expect(options.replacements).not.toHaveProperty("candidateExcludedStatuses");
+    });
+
+    test("excludes alongside includeInProgress", async () => {
+        const {findAll} = stubQueries();
+
+        await Neuron.getCandidateNeurons({}, true);
+
+        const options = pageOptions(findAll);
+
+        expect(predicateSql(options)).toHaveLength(2);
+        expect(options.replacements.candidateBlockingStatuses).toBe(PublishedCandidateBlockingStatuses);
+        expect(options.replacements.candidateExcludedStatuses).toBe(CandidateExcludedStatuses);
+    });
+});
+
+describe("getCandidateNeurons status filter", () => {
+    test.each([
+        {status: NeuronStatusFilter.Published, comparison: "= :candidatePublishedStatus"},
+        {status: NeuronStatusFilter.Unpublished, comparison: "<> :candidatePublishedStatus"}
+    ])("status $status is a correlated predicate rather than a has-many join", async ({status, comparison}) => {
+        const {findAll} = stubQueries();
+
+        await Neuron.getCandidateNeurons({status});
+
+        const options = pageOptions(findAll);
+        const filter = predicateSql(options)[2];
+
+        expect(filter).toMatch(/^EXISTS/);
+        expect(filter).toContain(comparison);
+        expect(filter).toContain("\"deletedAt\" IS NULL");
+        expect(options.replacements.candidatePublishedStatus).toBe(ReconstructionStatus.Published);
+        expect(options.include.some((include: any) => include.as === "SpecimenReconstruction")).toBe(false);
+    });
+});
+
+describe("getCandidateNeurons shared filters", () => {
     const atlas = {id: "atlas-1", getComprehensiveBrainArea: (structureId: string) => structureId === "region-a" ? ["region-a", "region-a-child"] : null};
 
     function stubAtlas() {
         vi.spyOn(Atlas, "getAtlasForStructure").mockImplementation((structureId: any) => structureId === "region-a" ? atlas : null);
     }
 
+    test("keywords add their predicate without displacing the candidate replacements", async () => {
+        const {findAll} = stubQueries();
+
+        await Neuron.getCandidateNeurons({keywords: ["axon"]});
+
+        const options = pageOptions(findAll);
+
+        expect(options.where.keywords).toBeDefined();
+        expect(options.replacements.neuronKeywords).toBeDefined();
+        expect(options.replacements.candidateBlockingStatuses).toBe(CandidateBlockingStatuses);
+    });
+
+    test("specimenIds filter on the joined specimen", async () => {
+        const {findAll} = stubQueries();
+
+        await Neuron.getCandidateNeurons({specimenIds: ["specimen-1"]});
+
+        expect(pageOptions(findAll).where["$Specimen.id$"][Op.in]).toEqual(["specimen-1"]);
+    });
+
     test("filters on the owning atlas's subtree", async () => {
-        const findAll = stubNeurons(["neuron-1"]);
-        stubReconstructions([]);
+        const {findAll} = stubQueries();
         stubAtlas();
 
         await Neuron.getCandidateNeurons({atlasStructureIds: ["region-a"]});
 
-        expect(findAll.mock.calls[1][0].where.atlasStructureId[Op.in]).toEqual(["region-a", "region-a-child"]);
+        expect(pageOptions(findAll).where.atlasStructureId[Op.in]).toEqual(["region-a", "region-a-child"]);
     });
 
-    test("an unknown structure id is rejected", async () => {
-        stubNeurons(["neuron-1"]);
-        stubReconstructions([]);
+    test("an unknown structure id is rejected before any query", async () => {
+        const {count, findAll} = stubQueries();
         stubAtlas();
 
         await expect(Neuron.getCandidateNeurons({atlasStructureIds: ["missing-id"]})).rejects.toThrow(/Atlas structures not found/);
+
+        expect(count).not.toHaveBeenCalled();
+        expect(findAll).not.toHaveBeenCalled();
+    });
+
+    test("a null input is the unfiltered candidate set", async () => {
+        const {findAll} = stubQueries();
+
+        await expect(Neuron.getCandidateNeurons(null)).resolves.toMatchObject({offset: 0});
+
+        expect(predicateSql(pageOptions(findAll))).toHaveLength(2);
     });
 });
 
-describe("getCandidateNeurons excluded reconstruction statuses", () => {
-    test("the default excludes Untraceable, Duplicate and Incomplete, reading soft-deleted rows", async () => {
-        stubNeurons([]);
-        const findAll = stubReconstructions([]);
+describe("getCandidateNeurons count and page", () => {
+    test("count and page share one filter", async () => {
+        const {count, findAll} = stubQueries();
+
+        await Neuron.getCandidateNeurons({keywords: ["axon"]});
+
+        const countOptions = count.mock.calls[0][0] as any;
+        const options = pageOptions(findAll);
+
+        expect(countOptions.where).toBe(options.where);
+        expect(countOptions.replacements).toBe(options.replacements);
+    });
+
+    test("orders by specimen label, neuron label, then id", async () => {
+        const {findAll} = stubQueries();
 
         await Neuron.getCandidateNeurons({});
 
-        const options = findAll.mock.calls[1][0];
-
-        expect(options.where.status[Op.in]).toBe(CandidateExcludedStatuses);
-        expect([...CandidateExcludedStatuses].sort()).toEqual([
-            ReconstructionStatus.Untraceable,
-            ReconstructionStatus.Duplicate,
-            ReconstructionStatus.Incomplete
-        ].sort());
-        expect(options.paranoid).toBe(false);
+        expect(pageOptions(findAll).order).toEqual([["Specimen", "label", "ASC"], ["label", "ASC"], ["id", "ASC"]]);
     });
 
-    test.each([
-        {status: ReconstructionStatus.Untraceable, deleted: true},
-        {status: ReconstructionStatus.Duplicate, deleted: false},
-        {status: ReconstructionStatus.Incomplete, deleted: false}
-    ])("a neuron with a $status row is left out by default", async ({status, deleted}) => {
-        stubNeurons(["neuron-1", "neuron-2"]);
-        stubReconstructions([{neuronId: "neuron-1", status: status, deleted: deleted}]);
+    test("loads the whole specimen, so the specimen field can reuse it", async () => {
+        const {findAll} = stubQueries();
 
-        const output = await Neuron.getCandidateNeurons({});
+        await Neuron.getCandidateNeurons({});
 
-        expect(output.items.map((neuron: any) => neuron.id)).toEqual(["neuron-2"]);
+        const specimen = pageOptions(findAll).include.find((include: any) => include.as === "Specimen");
+
+        expect(specimen).toBeDefined();
+        expect(specimen).not.toHaveProperty("attributes");
+    });
+});
+
+describe("getCandidateNeurons offsets", () => {
+    test("an unaligned offset is used as given", async () => {
+        const {findAll} = stubQueries(100);
+
+        const output = await Neuron.getCandidateNeurons({offset: 37, limit: 20});
+
+        expect(pageOptions(findAll).offset).toBe(37);
+        expect(pageOptions(findAll).limit).toBe(20);
+        expect(output.offset).toBe(37);
     });
 
-    test("an explicit list replaces the default", async () => {
-        stubNeurons(["neuron-1", "neuron-2", "neuron-3"]);
-        stubReconstructions([
-            {neuronId: "neuron-1", status: ReconstructionStatus.OnHold},
-            {neuronId: "neuron-2", status: ReconstructionStatus.Duplicate},
-        ]);
+    test("an offset past the end is not clamped back", async () => {
+        const {findAll} = stubQueries(100, []);
 
-        const output = await Neuron.getCandidateNeurons({}, false, [ReconstructionStatus.OnHold]);
+        const output = await Neuron.getCandidateNeurons({offset: 120, limit: 20});
 
-        expect(output.items.map((neuron: any) => neuron.id)).toEqual(["neuron-2", "neuron-3"]);
+        expect(pageOptions(findAll).offset).toBe(120);
+        expect(output).toEqual({totalCount: 100, offset: 120, items: []});
     });
 
-    test("an empty list excludes nothing and skips the query", async () => {
-        stubNeurons(["neuron-1"]);
-        const findAll = stubReconstructions([{neuronId: "neuron-1", status: ReconstructionStatus.Untraceable, deleted: true}]);
+    test("a negative offset becomes zero", async () => {
+        const {findAll} = stubQueries();
 
-        const output = await Neuron.getCandidateNeurons({}, false, []);
+        const output = await Neuron.getCandidateNeurons({offset: -5});
 
-        expect(output.items.map((neuron: any) => neuron.id)).toEqual(["neuron-1"]);
-        expect(findAll).toHaveBeenCalledTimes(1);
+        expect(pageOptions(findAll).offset).toBe(0);
+        expect(output.offset).toBe(0);
     });
 
-    // Independent of the blocking lists: excluding nothing does not release a blocked neuron.
-    test("blocking still applies whatever is excluded", async () => {
-        stubNeurons(["neuron-1"]);
-        stubReconstructions([{neuronId: "neuron-1", status: ReconstructionStatus.InProgress}]);
+    test("no limit applies none", async () => {
+        const {findAll} = stubQueries();
 
-        const output = await Neuron.getCandidateNeurons({}, false, []);
+        await Neuron.getCandidateNeurons({});
 
-        expect(output.items).toEqual([]);
+        expect(pageOptions(findAll)).not.toHaveProperty("limit");
     });
 
-    test("excludes alongside includeInProgress", async () => {
-        stubNeurons(["neuron-1", "neuron-2"]);
-        stubReconstructions([
-            {neuronId: "neuron-1", status: ReconstructionStatus.InProgress},
-            {neuronId: "neuron-2", status: ReconstructionStatus.Duplicate}
-        ]);
+    test("does not route through setSortAndLimiting", async () => {
+        stubQueries();
+        const setSortAndLimiting = vi.spyOn(Neuron as any, "setSortAndLimiting");
 
-        const output = await Neuron.getCandidateNeurons({}, true);
+        await Neuron.getCandidateNeurons({offset: 10, limit: 10});
 
-        expect(output.items.map((neuron: any) => neuron.id)).toEqual(["neuron-1"]);
+        expect(setSortAndLimiting).not.toHaveBeenCalled();
     });
 });

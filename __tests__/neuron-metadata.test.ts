@@ -8,6 +8,7 @@ const {User, UserPermissions} = require("../src/models/user");
 const {Neuron} = require("../src/models/neuron");
 const {Specimen} = require("../src/models/specimen");
 const {EventLogItem} = require("../src/models/eventLogItem");
+const {createRequestContext} = require("../src/graphql/requestContext");
 
 const transaction = {sentinel: "t"} as any;
 
@@ -173,7 +174,7 @@ describe("neuron metadata through the GraphQL API", () => {
     const schema = createSchema();
 
     async function execute(source: string, variableValues?: object) {
-        const result: any = await graphql({schema, source, variableValues, contextValue: editor()});
+        const result: any = await graphql({schema, source, variableValues, contextValue: createRequestContext(editor())});
 
         expect(result.errors).toBeUndefined();
 

@@ -8,11 +8,13 @@ import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {isNullOrEmpty} from "../util/objectUtil";
 
 export enum AtlasKindId {
-    Mouse = 100
+    Mouse = 100,
+    Marmoset = 200
 }
 
 export enum AtlasKFamilyId {
-    Mouse = 100
+    Mouse = 100,
+    Marmoset = 200
 }
 
 export type AtlasKindShape = {

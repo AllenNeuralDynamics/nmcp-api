@@ -35,6 +35,16 @@ export const queryTypeDefinitions = gql`
         items: [Neuron!]!
     }
 
+    """One chunk of candidate soma locations.  ids and locations align by index; a location is [x, y, z], or null when
+    the neuron has no complete atlas soma.  nextCursor is null on the last chunk.  totalCount is set on the first chunk
+    only."""
+    type CandidateNeuronLocations {
+        ids: [String!]!
+        locations: [[Float!]]!
+        nextCursor: String
+        totalCount: Int
+    }
+
     type EntityCount {
         id: String
         count: Int

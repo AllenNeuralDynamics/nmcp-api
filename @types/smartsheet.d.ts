@@ -1,15 +1,30 @@
 declare module "smartsheet" {
     export type Cell = {
+        columnId?: number;
         value: any;
         displayValue: string;
+        formula?: string;
     }
 
     export type Column = {
         title: string;
         id: number;
+        index?: number;
+        type?: string;
+        primary?: boolean;
+        systemColumnType?: string;
+        symbol?: string;
+        options?: string[];
+        validation?: boolean;
+        formula?: string;
+        description?: string;
+        hidden?: boolean;
     }
 
     export type Row = {
+        id?: number;
+        parentId?: number;
+        rowNumber?: number;
         cells: Cell[];
     }
 

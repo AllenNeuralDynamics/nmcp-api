@@ -9,6 +9,7 @@ const {ReconstructionStatus} = require("../src/models/reconstructionStatus");
 const {AtlasReconstruction} = require("../src/models/atlasReconstruction");
 const {AtlasReconstructionStatus, PhaseFailureStatuses} = require("../src/models/atlasReconstructionStatus");
 const {secureResolvers} = require("../src/graphql/secureResolvers");
+const {createRequestContext} = require("../src/graphql/requestContext");
 
 function userWith(permissions: number, id: string = "user-1") {
     const user = Object.create(User.prototype);
@@ -257,7 +258,7 @@ describe("the reconstructions list query loads the child once", () => {
     test("hands getAll the atlas reconstruction include", async () => {
         const getAll = vi.spyOn(Reconstruction, "getAll").mockResolvedValue({total: 0, offset: 0, reconstructions: []} as any);
 
-        await secureResolvers.Query.reconstructions({}, {queryArgs: {status: [], offset: 0, limit: 10}}, reviewer);
+        await secureResolvers.Query.reconstructions({}, {queryArgs: {status: [], offset: 0, limit: 10}}, createRequestContext(reviewer));
 
         expect(getAll.mock.calls[0][2]).toEqual([{model: AtlasReconstruction}]);
     });

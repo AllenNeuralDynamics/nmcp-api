@@ -10,7 +10,7 @@ import {AtlasKind} from "../models/atlasKind";
 import {User} from "../models/user";
 import {NodeStructure} from "../models/nodeStructure";
 import {NeuronStructure} from "../models/neuronStructure";
-import {SearchOutputPage, Neuron, NeuronQueryInput} from "../models/neuron";
+import {CandidateNeuronLocations, SearchOutputPage, Neuron, NeuronQueryInput} from "../models/neuron";
 import {SearchContextInput, SearchContext} from "../models/searchContext";
 import {Collection} from "../models/collection";
 import {EntityQueryOutput} from "../models/baseModel";
@@ -26,6 +26,7 @@ import {AccessRequest, AccessRequestShape, RequestAccessResponse} from "../model
 import {getNeuronVersionHistory} from "../models/neuronVersionHistory";
 import {QualityControl} from "../models/qualityControl";
 import {getReconstructionMetrics, ReconstructionMetrics} from "../data-access/reconstructionMetricsService";
+import {FieldResolvers, RequestContext} from "./requestContext";
 
 // noinspection JSUnusedGlobalSymbols
 /**
@@ -36,8 +37,8 @@ import {getReconstructionMetrics, ReconstructionMetrics} from "../data-access/re
  */
 export const openResolvers = {
     Query: {
-        user(_: any, __: any, context: User): User {
-            return context;
+        user(_: any, __: any, {user}: RequestContext): User {
+            return user;
         },
 
         systemSettings(): Promise<SystemSettings> {
@@ -48,11 +49,11 @@ export const openResolvers = {
             return operators;
         },
 
-        nodeStructures(_: any, __: any, ___: User): Promise<NodeStructure[]> {
+        nodeStructures(_: any, __: any, ___: RequestContext): Promise<NodeStructure[]> {
             return NodeStructure.findAll({});
         },
 
-        neuronStructures(_: any, __: any, ___: User): Promise<NeuronStructure[]> {
+        neuronStructures(_: any, __: any, ___: RequestContext): Promise<NeuronStructure[]> {
             return NeuronStructure.findAll({});
         },
 
@@ -105,7 +106,15 @@ export const openResolvers = {
             return Neuron.getCandidateNeurons(args.input, args.includeInProgress, args.excludedReconstructionStatuses ?? undefined);
         },
 
-        nearestNode(_: any, args: { id: string, location: number[] }, __: User): Promise<NearestNodeOutput> {
+        candidateNeuronLocations(_: any, args: { input: NeuronQueryInput, includeInProgress: boolean, excludedReconstructionStatuses?: ReconstructionStatus[], after?: string, chunkSize?: number }): Promise<CandidateNeuronLocations> {
+            return Neuron.getCandidateNeuronLocations(args.input, args.includeInProgress, args.excludedReconstructionStatuses ?? undefined, args.after ?? null, args.chunkSize ?? null);
+        },
+
+        candidateNeuronOffset(_: any, args: { id: string, input: NeuronQueryInput, includeInProgress: boolean, excludedReconstructionStatuses?: ReconstructionStatus[] }): Promise<number | null> {
+            return Neuron.getCandidateNeuronOffset(args.id, args.input, args.includeInProgress, args.excludedReconstructionStatuses ?? undefined);
+        },
+
+        nearestNode(_: any, args: { id: string, location: number[] }, __: RequestContext): Promise<NearestNodeOutput> {
             return AtlasReconstruction.nearestNode(args.id, args.location);
         },
 
@@ -113,33 +122,33 @@ export const openResolvers = {
             return getReconstructionMetrics(args.id);
         },
 
-        publishedReconstructions(_: any, args: { offset: number, limit: number }, user: User): Promise<PublishedReconstructionQueryResponse> {
+        publishedReconstructions(_: any, args: { offset: number, limit: number }, {user}: RequestContext): Promise<PublishedReconstructionQueryResponse> {
             return Reconstruction.getAllPublished(user, args.offset, args.limit);
         },
 
-        searchNeurons(_: any, args: { context: SearchContextInput }, __: User): Promise<SearchOutputPage> {
+        searchNeurons(_: any, args: { context: SearchContextInput }, __: RequestContext): Promise<SearchOutputPage> {
             return Neuron.getNeuronsWithPredicates(new SearchContext(args.context));
         },
 
-        neuronVersionHistory(_: any, args: { neuronId: string }, __: User) {
+        neuronVersionHistory(_: any, args: { neuronId: string }, __: RequestContext) {
             return getNeuronVersionHistory(args.neuronId);
         },
 
         // Deliberately open at every status, failed test names and affected node indices included.
-        qualityControl(_: any, args: { id: string }, context: User): Promise<QualityControl> {
+        qualityControl(_: any, args: { id: string }, context: RequestContext): Promise<QualityControl> {
             return QualityControl.findByPk(args.id);
         },
-    },
+    } satisfies FieldResolvers,
     Mutation: {
-        requestAccess(_: any, args: { request: AccessRequestShape }, user: User): Promise<RequestAccessResponse> {
+        requestAccess(_: any, args: { request: AccessRequestShape }, {user}: RequestContext): Promise<RequestAccessResponse> {
             return AccessRequest.createRequest(user, args.request);
         }
-    },
+    } satisfies FieldResolvers,
     AtlasKind: {
         atlases(atlasKind: AtlasKind): Atlas[] {
             return Atlas.getForKind(atlasKind.id);
         }
-    },
+    } satisfies FieldResolvers,
     Atlas: {
         atlasKind(atlas: Atlas): Promise<AtlasKind> {
             return atlas.getAtlasKind();
@@ -147,7 +156,7 @@ export const openResolvers = {
         atlasStructures(atlas: Atlas): Promise<AtlasStructure[]> {
             return AtlasStructure.getForAtlas(atlas.id);
         }
-    },
+    } satisfies FieldResolvers,
     Injection: {
         injectionVirus(injection: Injection): Promise<InjectionVirus> {
             return injection.getInjectionVirus();
@@ -161,7 +170,7 @@ export const openResolvers = {
         specimen(injection: Injection): Promise<Specimen> {
             return injection.getSpecimen();
         },
-    },
+    } satisfies FieldResolvers,
     Specimen: {
         async neuronCount(specimen: Specimen): Promise<number> {
             return specimen.neuronCount();
@@ -178,29 +187,29 @@ export const openResolvers = {
         neurons(specimen: Specimen): Promise<Neuron[]> {
             return specimen.getNeurons();
         }
-    },
+    } satisfies FieldResolvers,
     Neuron: {
-        reconstructionCount(neuron: Neuron): Promise<number> {
-            return Reconstruction.count({where: {neuronId: neuron.id}})
+        reconstructionCount(neuron: Neuron, _: any, {loaders}: RequestContext): Promise<number> {
+            return loaders.reconstructionCount.load(neuron.id);
         },
-        atlasStructure(neuron: Neuron): Promise<AtlasStructure> {
-            return neuron.getAtlasStructure();
+        atlasStructure(neuron: Neuron, _: any, {loaders}: RequestContext): Promise<AtlasStructure> {
+            return Promise.resolve(neuron.AtlasStructure ?? (neuron.atlasStructureId ? loaders.atlasStructure.load(neuron.atlasStructureId) : null));
         },
-        specimen(neuron: Neuron): Promise<Specimen> {
-            return neuron.getSpecimen();
+        specimen(neuron: Neuron, _: any, {loaders}: RequestContext): Promise<Specimen> {
+            // Reusing the include relies on every Neuron query that includes Specimen selecting all of its columns; a
+            // partial include would hand the client nulls for the fields it left out.
+            return Promise.resolve(neuron.Specimen ?? (neuron.specimenId ? loaders.specimen.load(neuron.specimenId) : null));
         },
-        reconstructions(neuron: Neuron): Promise<Reconstruction[]> {
-            // hasMany, so every revision of the neuron: without the include, phaseFailure and atlasReconstruction
-            // would each fetch the child once per row.
-            return neuron.getSpecimenReconstruction({include: [{model: AtlasReconstruction}]});
+        reconstructions(neuron: Neuron, _: any, {loaders}: RequestContext): Promise<Reconstruction[]> {
+            return loaders.reconstructions.load(neuron.id);
         },
-        published(neuron: Neuron): Promise<AtlasReconstruction> {
-            return neuron.published();
+        published(neuron: Neuron, _: any, {loaders}: RequestContext): Promise<AtlasReconstruction> {
+            return loaders.published.load(neuron.id);
         },
-        untraceable(neuron: Neuron): Promise<boolean> {
-            return neuron.untraceable();
+        untraceable(neuron: Neuron, _: any, {loaders}: RequestContext): Promise<boolean> {
+            return loaders.untraceable.load(neuron.id);
         }
-    },
+    } satisfies FieldResolvers,
     AtlasReconstruction: {
         async neuron(reconstruction: AtlasReconstruction): Promise<Neuron> {
             const r = await Reconstruction.findByPk(reconstruction.reconstructionId);
@@ -211,7 +220,7 @@ export const openResolvers = {
 
             return null;
         }
-    },
+    } satisfies FieldResolvers,
     Date: new GraphQLScalarType({
         name: "Date",
         description: "Date custom scalar type",

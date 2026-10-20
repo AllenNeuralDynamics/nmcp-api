@@ -2,11 +2,12 @@ import {expect, test, vi, describe, afterEach} from "vitest";
 
 // require() rather than import: the .ts sources are compiled to .js in place, and an ESM import yields a
 // different module instance than the CJS one the model methods call into, so the spies would not apply.
-const {graphql, GraphQLInt, GraphQLList, GraphQLNonNull, GraphQLObjectType, GraphQLString} = require("graphql");
+const {graphql, GraphQLFloat, GraphQLInt, GraphQLList, GraphQLNonNull, GraphQLObjectType, GraphQLString} = require("graphql");
 const {createSchema} = require("../src/graphql/schema");
 const {secureResolvers} = require("../src/graphql/secureResolvers");
 const {openResolvers} = require("../src/graphql/openResolvers");
 const {User} = require("../src/models/user");
+const {createRequestContext} = require("../src/graphql/requestContext");
 const {Reconstruction} = require("../src/models/reconstruction");
 const {AtlasReconstruction} = require("../src/models/atlasReconstruction");
 const {Atlas} = require("../src/models/atlas");
@@ -48,7 +49,7 @@ describe("the hold mutation resolvers", () => {
         const result = {id: "reconstruction-1"};
         const spy = vi.spyOn(Reconstruction, method).mockResolvedValue(result);
 
-        const output = await secureResolvers.Mutation[resolver](null, {reconstructionId: "reconstruction-1"}, user);
+        const output = await secureResolvers.Mutation[resolver](null, {reconstructionId: "reconstruction-1"}, {user});
 
         expect(spy).toHaveBeenCalledWith("reconstruction-1", user);
         expect(output).toBe(result);
@@ -219,7 +220,7 @@ describe("portal export serialization", () => {
         const result: any = await graphql({
             schema,
             source: "{ exportedSpecimenReconstruction(id: \"reconstruction-1\") { doi publishedAt neuron { canonicalDoi } } }",
-            contextValue: exporterUser
+            contextValue: createRequestContext(exporterUser)
         });
 
         expect(result.errors).toBeUndefined();
@@ -237,7 +238,7 @@ describe("portal export serialization", () => {
         const result: any = await graphql({
             schema,
             source: "{ exportedAtlasReconstruction(id: \"atlas-1\") { doi publishedAt } }",
-            contextValue: exporterUser
+            contextValue: createRequestContext(exporterUser)
         });
 
         expect(result.errors).toBeUndefined();
@@ -273,5 +274,51 @@ describe("neuron metadata in the schema", () => {
         expect(type.name).toBe("NeuronMetadataInput");
 
         expectNullableFields("NeuronMetadataInput", {instance: GraphQLInt, priority: GraphQLInt, somaGroup: GraphQLString});
+    });
+});
+
+describe("candidate locations in the schema", () => {
+    const schema = createSchema();
+
+    test("candidateNeuronLocations takes the candidate filters and a cursor, and returns a non-null chunk", () => {
+        const field = schema.getQueryType().getFields()["candidateNeuronLocations"];
+
+        expect(field.args.map((arg: any) => arg.name)).toEqual(["input", "includeInProgress", "excludedReconstructionStatuses", "after", "chunkSize"]);
+
+        expect(field.type).toBeInstanceOf(GraphQLNonNull);
+        expect(field.type.ofType.name).toBe("CandidateNeuronLocations");
+    });
+
+    test("candidateNeuronOffset takes a required id and the candidate filters, and returns a nullable Int", () => {
+        const field = schema.getQueryType().getFields()["candidateNeuronOffset"];
+
+        expect(field.args.map((arg: any) => arg.name)).toEqual(["id", "input", "includeInProgress", "excludedReconstructionStatuses"]);
+
+        const id = field.args.find((arg: any) => arg.name === "id");
+
+        expect(id.type).toBeInstanceOf(GraphQLNonNull);
+        expect(id.type.ofType).toBe(GraphQLString);
+
+        expect(field.type).toBe(GraphQLInt);
+    });
+
+    test("CandidateNeuronLocations aligns non-null ids with nullable triples of non-null floats", () => {
+        const fields = schema.getType("CandidateNeuronLocations").getFields();
+
+        expect(fields.ids.type).toBeInstanceOf(GraphQLNonNull);
+        expect(fields.ids.type.ofType).toBeInstanceOf(GraphQLList);
+        expect(fields.ids.type.ofType.ofType).toBeInstanceOf(GraphQLNonNull);
+        expect(fields.ids.type.ofType.ofType.ofType).toBe(GraphQLString);
+
+        const location = fields.locations.type.ofType.ofType;
+
+        expect(fields.locations.type).toBeInstanceOf(GraphQLNonNull);
+        expect(fields.locations.type.ofType).toBeInstanceOf(GraphQLList);
+        expect(location).toBeInstanceOf(GraphQLList);
+        expect(location.ofType).toBeInstanceOf(GraphQLNonNull);
+        expect(location.ofType.ofType).toBe(GraphQLFloat);
+
+        expect(fields.nextCursor.type).toBe(GraphQLString);
+        expect(fields.totalCount.type).toBe(GraphQLInt);
     });
 });

@@ -31,3 +31,5 @@ specimenMetadata.json
 
 # Output files from import tools
 *-import-*.md
+
+src/tools/schemas/

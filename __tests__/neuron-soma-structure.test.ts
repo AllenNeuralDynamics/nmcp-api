@@ -2,7 +2,7 @@ import {expect, test, vi, describe, afterEach} from "vitest";
 
 // require() rather than import: the .ts sources are compiled to .js in place, and an ESM import yields a
 // different module instance than the CJS one the model methods call into, so the spies would not apply.
-const {Op} = require("sequelize");
+const {Op, Transaction} = require("sequelize");
 const {User, UserPermissions} = require("../src/models/user");
 const {Neuron} = require("../src/models/neuron");
 const {Specimen} = require("../src/models/specimen");
@@ -45,7 +45,21 @@ function stubCommon() {
         return atlasId ? {id: atlasId} : null;
     });
 
-    return vi.spyOn(Specimen, "findAtlasId").mockImplementation(async (specimenId: any) => liveSpecimenAtlases.get(specimenId) ?? null);
+    // findAtlasId reads past paranoid, so deleted specimens resolve too, as they do in the database.
+    const allSpecimenAtlases = new Map([...liveSpecimenAtlases, ...deletedSpecimenAtlases]);
+
+    return vi.spyOn(Specimen, "findAtlasId").mockImplementation(async (specimenId: any) => allSpecimenAtlases.get(specimenId) ?? null);
+}
+
+// The paranoid default: only live specimens are found.
+function liveSpecimen(specimenId: string) {
+    const atlasId = liveSpecimenAtlases.get(specimenId);
+
+    return atlasId ? {id: specimenId, atlasId} : null;
+}
+
+function lockedCalls(findByPk: any): any[] {
+    return findByPk.mock.calls.filter((call: any) => call[1]?.lock);
 }
 
 afterEach(() => {
@@ -57,11 +71,40 @@ describe("neuron creation", () => {
     function stubCreate() {
         stubCommon();
 
-        vi.spyOn(Specimen, "findByPk").mockResolvedValue({id: "specimen-1", atlasId: "atlas-1"});
+        const findByPk = vi.spyOn(Specimen, "findByPk").mockResolvedValue({id: "specimen-1", atlasId: "atlas-1"});
         vi.spyOn(Neuron, "findAll").mockResolvedValue([]);
 
-        return vi.spyOn(Neuron, "create").mockImplementation(async (shape: any) => prototypeStub(Neuron, shape));
+        const create = vi.spyOn(Neuron, "create").mockImplementation(async (shape: any) => prototypeStub(Neuron, shape));
+
+        return Object.assign(create, {findByPk});
     }
+
+    test("locks its specimen in the write transaction", async () => {
+        const create = stubCreate();
+
+        await Neuron.createOrUpdateForShape({label: "N002", specimenId: "specimen-1"}, editor(), {allowCreate: true});
+
+        const locked = lockedCalls(create.findByPk);
+
+        expect(locked).toHaveLength(1);
+        expect(locked[0]).toEqual(["specimen-1", {transaction, lock: Transaction.LOCK.SHARE}]);
+
+        const lockOrder = create.findByPk.mock.invocationCallOrder[create.findByPk.mock.calls.indexOf(locked[0])];
+
+        expect(lockOrder).toBeLessThan(create.mock.invocationCallOrder[0]);
+    });
+
+    test("refuses a specimen deleted before its lock", async () => {
+        const create = stubCreate();
+
+        // The locked re-read finds nothing, as when a delete committed while the create waited.
+        create.findByPk.mockImplementation(async (_: any, options: any) => options?.lock ? null : {id: "specimen-1", atlasId: "atlas-1"});
+
+        await expect(Neuron.createOrUpdateForShape({label: "N002", specimenId: "specimen-1"}, editor(), {allowCreate: true}))
+            .rejects.toThrow(/specimen can not be found/);
+
+        expect(create).not.toHaveBeenCalled();
+    });
 
     test("accepts a structure from the specimen's atlas", async () => {
         const create = stubCreate();
@@ -91,15 +134,83 @@ describe("neuron creation", () => {
 });
 
 describe("neuron update", () => {
-    function stubUpdate() {
+    function stubUpdate(specimenId: string = "specimen-1") {
         const findAtlasId = stubCommon();
 
-        const neuron = prototypeStub(Neuron, {id: "neuron-1", label: "N001", specimenId: "specimen-1"});
+        const findByPk = vi.spyOn(Specimen, "findByPk").mockImplementation(async (id: any) => liveSpecimen(id));
+
+        const neuron = prototypeStub(Neuron, {id: "neuron-1", label: "N001", specimenId});
 
         vi.spyOn(Neuron, "findByPk").mockResolvedValue(neuron);
 
-        return {neuron, findAtlasId};
+        return {neuron, findAtlasId, findByPk};
     }
+
+    test("refuses a move to a soft-deleted specimen", async () => {
+        const stubs = stubUpdate();
+
+        await expect(Neuron.createOrUpdateForShape({id: "neuron-1", specimenId: "deleted-1"}, editor()))
+            .rejects.toThrow(/specimen can not be found/);
+
+        expect(stubs.neuron.update).not.toHaveBeenCalled();
+    });
+
+    test("accepts a move off a soft-deleted specimen", async () => {
+        const stubs = stubUpdate("deleted-1");
+
+        await Neuron.createOrUpdateForShape({id: "neuron-1", specimenId: "specimen-2"}, editor());
+
+        expect(stubs.neuron.update).toHaveBeenCalledWith(expect.objectContaining({specimenId: "specimen-2"}), expect.anything());
+    });
+
+    test("looks the target up with the paranoid default", async () => {
+        const stubs = stubUpdate();
+
+        await Neuron.createOrUpdateForShape({id: "neuron-1", specimenId: "specimen-2"}, editor());
+
+        expect(stubs.findByPk.mock.calls.length).toBeGreaterThan(0);
+
+        for (const [id, options] of stubs.findByPk.mock.calls) {
+            expect(id).toBe("specimen-2");
+            expect(options).not.toHaveProperty("paranoid");
+        }
+    });
+
+    test("locks the target in the write transaction", async () => {
+        const stubs = stubUpdate();
+
+        await Neuron.createOrUpdateForShape({id: "neuron-1", specimenId: "specimen-2"}, editor());
+
+        const locked = lockedCalls(stubs.findByPk);
+
+        expect(locked).toHaveLength(1);
+        expect(locked[0]).toEqual(["specimen-2", {transaction, lock: Transaction.LOCK.SHARE}]);
+
+        const lockOrder = stubs.findByPk.mock.invocationCallOrder[stubs.findByPk.mock.calls.indexOf(locked[0])];
+
+        expect(lockOrder).toBeLessThan(stubs.neuron.update.mock.invocationCallOrder[0]);
+    });
+
+    test("refuses a target deleted before its lock", async () => {
+        const stubs = stubUpdate();
+
+        // The locked re-read finds nothing, as when a delete committed while the move waited.
+        stubs.findByPk.mockImplementation(async (id: any, options: any) => options?.lock ? null : liveSpecimen(id));
+
+        await expect(Neuron.createOrUpdateForShape({id: "neuron-1", specimenId: "specimen-2"}, editor()))
+            .rejects.toThrow(/specimen can not be found/);
+
+        expect(stubs.neuron.update).not.toHaveBeenCalled();
+    });
+
+    test("takes no lock when the specimen is unchanged", async () => {
+        const stubs = stubUpdate();
+
+        await Neuron.createOrUpdateForShape({id: "neuron-1", atlasStructureId: "structure-1a"}, editor());
+
+        expect(lockedCalls(stubs.findByPk)).toHaveLength(0);
+        expect(stubs.neuron.update).toHaveBeenCalled();
+    });
 
     test("refuses a structure from another atlas", async () => {
         const stubs = stubUpdate();

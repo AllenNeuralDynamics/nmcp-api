@@ -2,6 +2,7 @@ import * as os from "os";
 import * as express from "express";
 import * as bodyParser from "body-parser";
 import * as cors from "cors";
+import * as compression from "compression";
 import {ApolloServer} from '@apollo/server';
 import {expressMiddleware} from '@apollo/server/express4';
 
@@ -22,6 +23,7 @@ import {openResolvers} from "./graphql/openResolvers";
 import {secureResolvers} from "./graphql/secureResolvers";
 import {internalResolvers} from "./graphql/internalResolvers";
 import {recentRequestLog} from "./util/recentRequestLog";
+import {createRequestContext, RequestContext} from "./graphql/requestContext";
 
 start().then().catch((err) => debug(err));
 
@@ -38,11 +40,13 @@ async function start() {
 
     debug(`trusting ${ServiceOptions.trustedProxyHops} proxy hop(s) when resolving the client address`);
 
+    app.use(compression());
+
     app.use(bodyParser.urlencoded({extended: true, limit: "1000mb"}));
 
     app.use(bodyParser.json({limit: "1000mb"}));
 
-    const server = new ApolloServer<User>({
+    const server = new ApolloServer<RequestContext>({
         typeDefs: typeDefinitions,
         resolvers: merge(openResolvers, secureResolvers, internalResolvers),
         introspection: process.env.NODE_ENV === "development" || process.env.NMCP_EXPERIMENTAL_ENV === "true",
@@ -95,7 +99,7 @@ async function start() {
                 // push every real client address out of the window within seconds.
                 recentRequestLog.record(requestUser.ip, req.socket.remoteAddress, req.headers["x-forwarded-for"]);
 
-                return requestUser;
+                return createRequestContext(requestUser);
             }
         })
     );

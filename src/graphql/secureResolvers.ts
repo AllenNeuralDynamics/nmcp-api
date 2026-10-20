@@ -28,6 +28,7 @@ import {SpecimenSpacePrecomputed} from "../models/specimenSpacePrecomputed";
 import {EventLogItem} from "../models/eventLogItem";
 import {ApiKey} from "../models/apiKey";
 import {AccessRequest, AccessRequestQueryInput, AccessRequestStatus} from "../models/accessRequest";
+import {FieldResolvers, RequestContext} from "./requestContext";
 
 export class UnauthorizedError extends GraphQLError {
     public constructor() {
@@ -71,31 +72,31 @@ export const secureResolvers = {
     Upload: GraphQLUpload,
 
     Query: {
-        users(_: any, args: { input: UserQueryInput }, context: User): Promise<EntityQueryOutput<User>> {
-            if (context.permissions & UserPermissions.Admin) {
+        users(_: any, args: { input: UserQueryInput }, {user}: RequestContext): Promise<EntityQueryOutput<User>> {
+            if (user.permissions & UserPermissions.Admin) {
                 return User.getAll(args.input);
             }
 
             throw new UnauthorizedError();
         },
 
-        genotype(_: any, args: { id: string }, context: User): Promise<Genotype> {
-            return Genotype.getById(context, args.id);
+        genotype(_: any, args: { id: string }, {user}: RequestContext): Promise<Genotype> {
+            return Genotype.getById(user, args.id);
         },
 
-        injection(_: any, args: { id: string }, context: User): Promise<Injection> {
-            return Injection.getById(context, args.id);
+        injection(_: any, args: { id: string }, {user}: RequestContext): Promise<Injection> {
+            return Injection.getById(user, args.id);
         },
 
-        injections(_: any, args: { input: InjectionQueryInput }, context: User): Promise<Injection[]> {
-            return Injection.getAll(context, args.input);
+        injections(_: any, args: { input: InjectionQueryInput }, {user}: RequestContext): Promise<Injection[]> {
+            return Injection.getAll(user, args.input);
         },
 
-        neurons(_: any, args: { input: NeuronQueryInput }, context: User): Promise<EntityQueryOutput<Neuron>> {
-            return Neuron.getAll(context, args.input);
+        neurons(_: any, args: { input: NeuronQueryInput }, {user}: RequestContext): Promise<EntityQueryOutput<Neuron>> {
+            return Neuron.getAll(user, args.input);
         },
 
-        reconstructions(_: any, args: { queryArgs: ReconstructionsQueryArgs }, user: User): Promise<ReconstructionQueryResponse> {
+        reconstructions(_: any, args: { queryArgs: ReconstructionsQueryArgs }, {user}: RequestContext): Promise<ReconstructionQueryResponse> {
             const queryArgs = {...args.queryArgs, userId: user.id};
             // The has-one include turns what would be two per-row fetches - atlasReconstruction and phaseFailure -
             // into one join.  Passed here rather than added to getAll's default include, so getAllPublished's own
@@ -103,8 +104,8 @@ export const secureResolvers = {
             return Reconstruction.getAll(user, queryArgs, [{model: AtlasReconstruction}]);
         },
 
-        async issueCount(_: any, __: any, context: User): Promise<number> {
-            if (context.permissions & UserPermissions.Admin) {
+        async issueCount(_: any, __: any, {user}: RequestContext): Promise<number> {
+            if (user.permissions & UserPermissions.Admin) {
                 return Issue.getOpenCount();
             }
 
@@ -116,186 +117,186 @@ export const secureResolvers = {
             });
         },
 
-        async openIssues(_: any, __: any, context: User): Promise<Issue[]> {
-            if (context.permissions & UserPermissions.Admin) {
+        async openIssues(_: any, __: any, {user}: RequestContext): Promise<Issue[]> {
+            if (user.permissions & UserPermissions.Admin) {
                 return Issue.getOpen();
             }
 
             throw new UnauthorizedError();
         },
 
-        apiKeys(_: any, __: any, context: User): Promise<ApiKey[]> {
-            if (!(context.permissions & UserPermissions.Admin)) {
+        apiKeys(_: any, __: any, {user}: RequestContext): Promise<ApiKey[]> {
+            if (!(user.permissions & UserPermissions.Admin)) {
                 throw new UnauthorizedError();
             }
 
-            return ApiKey.findByUserId(context.id);
+            return ApiKey.findByUserId(user.id);
         },
 
-        accessRequests(_: any, args: { input: AccessRequestQueryInput }, context: User): Promise<EntityQueryOutput<AccessRequest>> {
-            return AccessRequest.getAll(context, args.input);
+        accessRequests(_: any, args: { input: AccessRequestQueryInput }, {user}: RequestContext): Promise<EntityQueryOutput<AccessRequest>> {
+            return AccessRequest.getAll(user, args.input);
         }
-    },
+    } satisfies FieldResolvers,
     Mutation: {
-        updateUserPermissions(_: any, args: { id: string, permissions: number }, user: User): Promise<User> {
+        updateUserPermissions(_: any, args: { id: string, permissions: number }, {user}: RequestContext): Promise<User> {
             return User.updatePermissions(args.id, args.permissions, user);
         },
 
-        updateUserAnonymity(_: any, args: { id: string, anonymousAnnotation: boolean, anonymousPublish: boolean }, user: User): Promise<User> {
+        updateUserAnonymity(_: any, args: { id: string, anonymousAnnotation: boolean, anonymousPublish: boolean }, {user}: RequestContext): Promise<User> {
             return User.updateAnonymization(args.id, args.anonymousAnnotation, args.anonymousPublish, user);
         },
 
-        createInjection(_: any, args: { injectionInput: InjectionShape }, user: User): Promise<Injection> {
+        createInjection(_: any, args: { injectionInput: InjectionShape }, {user}: RequestContext): Promise<Injection> {
             return Injection.createOrUpdateForShape(user, args.injectionInput, true);
         },
 
-        updateInjection(_: any, args: { injectionInput: InjectionShape }, user: User): Promise<Injection> {
+        updateInjection(_: any, args: { injectionInput: InjectionShape }, {user}: RequestContext): Promise<Injection> {
             return Injection.createOrUpdateForShape(user, args.injectionInput, false);
         },
 
-        deleteInjection(_: any, args: { id: string }, user: User): Promise<string> {
+        deleteInjection(_: any, args: { id: string }, {user}: RequestContext): Promise<string> {
             return Injection.deleteByPk(user, args.id);
         },
 
-        createSpecimen(_: any, args: { specimen: SpecimenShape }, user: User): Promise<Specimen> {
+        createSpecimen(_: any, args: { specimen: SpecimenShape }, {user}: RequestContext): Promise<Specimen> {
             return Specimen.createOrUpdateForShape(args.specimen, user, {allowCreate: true});
         },
 
-        updateSpecimen(_: any, args: { specimen: SpecimenShape }, user: User): Promise<Specimen> {
+        updateSpecimen(_: any, args: { specimen: SpecimenShape }, {user}: RequestContext): Promise<Specimen> {
             return Specimen.createOrUpdateForShape(args.specimen, user);
         },
 
-        deleteSpecimen(_: any, args: { id: string }, user: User): Promise<string> {
+        deleteSpecimen(_: any, args: { id: string }, {user}: RequestContext): Promise<string> {
             return Specimen.deleteByPk(args.id, user);
         },
 
-        createNeuron(_: any, args: { neuron: NeuronShape }, user: User): Promise<Neuron> {
+        createNeuron(_: any, args: { neuron: NeuronShape }, {user}: RequestContext): Promise<Neuron> {
             return Neuron.createOrUpdateForShape(args.neuron, user, {allowCreate: true});
         },
 
-        updateNeuron(_: any, args: { neuron: NeuronShape }, user: User): Promise<Neuron> {
+        updateNeuron(_: any, args: { neuron: NeuronShape }, {user}: RequestContext): Promise<Neuron> {
             return Neuron.createOrUpdateForShape(args.neuron, user);
         },
 
-        deleteNeuron(_: any, args: { id: string }, user: User): Promise<string> {
+        deleteNeuron(_: any, args: { id: string }, {user}: RequestContext): Promise<string> {
             return Neuron.deleteByPk(args.id, user);
         },
 
-        updateNeurons(_: any, args: { input: { ids: string[] } & NeuronBulkUpdateShape }, user: User): Promise<Neuron[]> {
+        updateNeurons(_: any, args: { input: { ids: string[] } & NeuronBulkUpdateShape }, {user}: RequestContext): Promise<Neuron[]> {
             return Neuron.updateMany(args.input.ids, {keywords: args.input.keywords, atlasStructureId: args.input.atlasStructureId}, user);
         },
 
-        updateNeuronsByQuery(_: any, args: { input: { query: NeuronQueryInput } & NeuronBulkUpdateShape }, user: User): Promise<Neuron[]> {
+        updateNeuronsByQuery(_: any, args: { input: { query: NeuronQueryInput } & NeuronBulkUpdateShape }, {user}: RequestContext): Promise<Neuron[]> {
             return Neuron.updateManyByQuery(args.input.query, {keywords: args.input.keywords, atlasStructureId: args.input.atlasStructureId}, user);
         },
 
-        createCollection(_: any, args: { collection: CollectionShape }, user: User): Promise<Collection> {
+        createCollection(_: any, args: { collection: CollectionShape }, {user}: RequestContext): Promise<Collection> {
             return Collection.createOrUpdateForShape(user, args.collection, true);
         },
 
-        updateCollection(_: any, args: { collection: CollectionShape }, user: User): Promise<Collection> {
+        updateCollection(_: any, args: { collection: CollectionShape }, {user}: RequestContext): Promise<Collection> {
             return Collection.createOrUpdateForShape(user, args.collection, false);
         },
 
-        importSomas(_: any, args: { file: Promise<GqlFile>, options: CandidateImportOptions }, user: User): Promise<number> {
+        importSomas(_: any, args: { file: Promise<GqlFile>, options: CandidateImportOptions }, {user}: RequestContext): Promise<number> {
             return Specimen.receiveSomaPropertiesUpload(user, args.file, args.options);
         },
 
-        openReconstruction(_: any, args: { neuronId: string }, user: User): Promise<Reconstruction> {
+        openReconstruction(_: any, args: { neuronId: string }, {user}: RequestContext): Promise<Reconstruction> {
             return Neuron.startReconstruction(user, args.neuronId);
         },
 
-        pauseReconstruction(_: any, args: { reconstructionId: string }, user: User): Promise<Reconstruction> {
+        pauseReconstruction(_: any, args: { reconstructionId: string }, {user}: RequestContext): Promise<Reconstruction> {
             return Reconstruction.pauseReconstruction(args.reconstructionId, user);
         },
 
-        resumeReconstruction(_: any, args: { reconstructionId: string }, user: User): Promise<Reconstruction> {
+        resumeReconstruction(_: any, args: { reconstructionId: string }, {user}: RequestContext): Promise<Reconstruction> {
             return Reconstruction.resumeReconstruction(args.reconstructionId, user);
         },
 
-        markReconstructionIncomplete(_: any, args: { reconstructionId: string }, user: User): Promise<Reconstruction> {
+        markReconstructionIncomplete(_: any, args: { reconstructionId: string }, {user}: RequestContext): Promise<Reconstruction> {
             return Reconstruction.markIncomplete(args.reconstructionId, user);
         },
 
-        markReconstructionDuplicate(_: any, args: { reconstructionId: string }, user: User): Promise<Reconstruction> {
+        markReconstructionDuplicate(_: any, args: { reconstructionId: string }, {user}: RequestContext): Promise<Reconstruction> {
             return Reconstruction.markDuplicate(args.reconstructionId, user);
         },
 
-        requestReview(_: any, args: ReviewRequestArgs, user: User): Promise<Reconstruction> {
+        requestReview(_: any, args: ReviewRequestArgs, {user}: RequestContext): Promise<Reconstruction> {
             return Reconstruction.requestReview(args, user);
         },
 
-        approveReconstruction(_: any, args: { reconstructionId: string, targetStatus: number }, user: User): Promise<Reconstruction> {
+        approveReconstruction(_: any, args: { reconstructionId: string, targetStatus: number }, {user}: RequestContext): Promise<Reconstruction> {
             return Reconstruction.approveReconstruction(args.reconstructionId, args.targetStatus, user);
         },
 
-        publish(_: any, args: { reconstructionId: string, replaceExisting: boolean }, user: User): Promise<Reconstruction> {
+        publish(_: any, args: { reconstructionId: string, replaceExisting: boolean }, {user}: RequestContext): Promise<Reconstruction> {
             return Reconstruction.publish(user, args.reconstructionId, args.replaceExisting);
         },
 
-        publishAll(_: any, args: { reconstructionIds: string[] }, user: User): Promise<Reconstruction[]> {
+        publishAll(_: any, args: { reconstructionIds: string[] }, {user}: RequestContext): Promise<Reconstruction[]> {
             return Reconstruction.publishAll(user, args.reconstructionIds);
         },
 
-        rejectReconstruction(_: any, args: { reconstructionId: string }, user: User): Promise<Reconstruction> {
+        rejectReconstruction(_: any, args: { reconstructionId: string }, {user}: RequestContext): Promise<Reconstruction> {
             return Reconstruction.rejectReconstruction(args.reconstructionId, user);
         },
 
-        discardReconstruction(_: any, args: { reconstructionId: string }, user: User): Promise<Reconstruction> {
+        discardReconstruction(_: any, args: { reconstructionId: string }, {user}: RequestContext): Promise<Reconstruction> {
             return Reconstruction.discardReconstruction(args.reconstructionId, user);
         },
 
-        markReconstructionUntraceable(_: any, args: { reconstructionId: string }, user: User): Promise<Reconstruction> {
+        markReconstructionUntraceable(_: any, args: { reconstructionId: string }, {user}: RequestContext): Promise<Reconstruction> {
             return Reconstruction.markUntraceable(args.reconstructionId, user);
         },
 
-        requestSpecimenSpaceRegeneration(_: any, args: { reconstructionId: string }, user: User): Promise<SpecimenSpacePrecomputed> {
+        requestSpecimenSpaceRegeneration(_: any, args: { reconstructionId: string }, {user}: RequestContext): Promise<SpecimenSpacePrecomputed> {
             return SpecimenSpacePrecomputed.requestRegenerationForReconstruction(user, args.reconstructionId);
         },
 
-        requestQualityControlReassessment(_: any, args: { reconstructionId: string }, user: User): Promise<AtlasReconstruction> {
+        requestQualityControlReassessment(_: any, args: { reconstructionId: string }, {user}: RequestContext): Promise<AtlasReconstruction> {
             return AtlasReconstruction.requestQualityControlReassessment(user, args.reconstructionId);
         },
 
-        requestDoiAssignment(_: any, args: { reconstructionId: string }, user: User): Promise<AtlasReconstruction> {
+        requestDoiAssignment(_: any, args: { reconstructionId: string }, {user}: RequestContext): Promise<AtlasReconstruction> {
             return AtlasReconstruction.requestDoiAssignment(user, args.reconstructionId);
         },
 
-        requestStructureAssignment(_: any, args: { reconstructionId: string }, user: User): Promise<AtlasReconstruction> {
+        requestStructureAssignment(_: any, args: { reconstructionId: string }, {user}: RequestContext): Promise<AtlasReconstruction> {
             return AtlasReconstruction.requestStructureAssignment(user, args.reconstructionId);
         },
 
         // Returns the atlas reconstruction rather than the Precomputed row: the child status is what the caller
         // needs back, and it is what distinguishes this from requestSpecimenSpaceRegeneration above.
-        requestPrecomputedRegeneration(_: any, args: { reconstructionId: string }, user: User): Promise<AtlasReconstruction> {
+        requestPrecomputedRegeneration(_: any, args: { reconstructionId: string }, {user}: RequestContext): Promise<AtlasReconstruction> {
             return AtlasReconstruction.requestPrecomputedRegeneration(user, args.reconstructionId);
         },
 
-        requestSearchIndexing(_: any, args: { reconstructionId: string }, user: User): Promise<AtlasReconstruction> {
+        requestSearchIndexing(_: any, args: { reconstructionId: string }, {user}: RequestContext): Promise<AtlasReconstruction> {
             return AtlasReconstruction.requestSearchIndexing(user, args.reconstructionId);
         },
 
-        resetReconstructionPipeline(_: any, args: { reconstructionId: string }, user: User): Promise<AtlasReconstruction> {
+        resetReconstructionPipeline(_: any, args: { reconstructionId: string }, {user}: RequestContext): Promise<AtlasReconstruction> {
             return AtlasReconstruction.resetPipeline(user, args.reconstructionId);
         },
 
-        updateReconstruction(_: any, args: ReconstructionMetadataArgs, user: User): Promise<Reconstruction> {
+        updateReconstruction(_: any, args: ReconstructionMetadataArgs, {user}: RequestContext): Promise<Reconstruction> {
             return Reconstruction.updateMetadata(user, args);
         },
 
-        openReconstructionRevision(_: any, args: { reconstructionId: string, revisionKind: ReconstructionRevisionKind }, user: User): Promise<Reconstruction> {
+        openReconstructionRevision(_: any, args: { reconstructionId: string, revisionKind: ReconstructionRevisionKind }, {user}: RequestContext): Promise<Reconstruction> {
             return Reconstruction.openReconstructionRevision(user, args.reconstructionId, args.revisionKind);
         },
 
-        uploadSwcData(_: any, {uploadArgs}: { uploadArgs: ReconstructionUploadArgs }, user: User): Promise<Reconstruction> {
+        uploadSwcData(_: any, {uploadArgs}: { uploadArgs: ReconstructionUploadArgs }, {user}: RequestContext): Promise<Reconstruction> {
             return Reconstruction.fromSwcUpload(user, uploadArgs);
         },
 
-        uploadParquetData(_: any, {uploadArgs}: { uploadArgs: ReconstructionUploadArgs }, user: User): Promise<Reconstruction> {
+        uploadParquetData(_: any, {uploadArgs}: { uploadArgs: ReconstructionUploadArgs }, {user}: RequestContext): Promise<Reconstruction> {
             return Reconstruction.fromParquetUpload(user, uploadArgs);
         },
 
-        createApiKey(_: any, args: { key: string, description: string, durationDays?: number, permissions?: number }, user: User): Promise<ApiKey> {
+        createApiKey(_: any, args: { key: string, description: string, durationDays?: number, permissions?: number }, {user}: RequestContext): Promise<ApiKey> {
             if (!(user.permissions & UserPermissions.Admin)) {
                 throw new UnauthorizedError();
             }
@@ -303,7 +304,7 @@ export const secureResolvers = {
             return ApiKey.createApiKey(user, args.key, args.description, args.durationDays, args.permissions);
         },
 
-        deleteApiKey(_: any, args: { id: string }, user: User): Promise<boolean> {
+        deleteApiKey(_: any, args: { id: string }, {user}: RequestContext): Promise<boolean> {
             if (!(user.permissions & UserPermissions.Admin)) {
                 throw new UnauthorizedError();
             }
@@ -311,27 +312,27 @@ export const secureResolvers = {
             return ApiKey.deleteApiKey(args.id, user.id);
         },
 
-        updateAccessRequestStatus(_: any, args: { id: string, status: AccessRequestStatus }, user: User): Promise<AccessRequest> {
+        updateAccessRequestStatus(_: any, args: { id: string, status: AccessRequestStatus }, {user}: RequestContext): Promise<AccessRequest> {
             return AccessRequest.updateStatus(user, args.id, args.status);
         },
 
-        openIssue(_: any, args: { kind: number, description: string, references: IssueReference[] }, user: User): Promise<Issue> {
+        openIssue(_: any, args: { kind: number, description: string, references: IssueReference[] }, {user}: RequestContext): Promise<Issue> {
             return Issue.open(user, args.kind, args.description, args.references);
         },
 
-        modifyIssue(_: any, args: { id: string, status: IssueStatus }, user: User): Promise<Issue> {
+        modifyIssue(_: any, args: { id: string, status: IssueStatus }, {user}: RequestContext): Promise<Issue> {
             return Issue.modifyStatus(user, args.id, args.status);
         },
 
-        closeIssue(_: any, args: { id: string, resolutionKind: IssueResolutionKind, resolution: string }, user: User): Promise<Issue> {
+        closeIssue(_: any, args: { id: string, resolutionKind: IssueResolutionKind, resolution: string }, {user}: RequestContext): Promise<Issue> {
             return Issue.close(user, args.id, args.resolutionKind, args.resolution);
         }
-    },
+    } satisfies FieldResolvers,
     Collection: {
         specimenCount(collection: Collection): Promise<number> {
             return collection.specimenCount();
         }
-    },
+    } satisfies FieldResolvers,
     Reconstruction: {
         neuron(reconstruction: Reconstruction): Promise<Neuron> {
             return reconstruction.getNeuron();
@@ -371,7 +372,7 @@ export const secureResolvers = {
             const user = await reconstruction.getTeamReviewer({attributes: ["id", "firstName", "lastName", "isSystemUser"]});
             return user?.isSystemUser ? null : user;
         },
-    },
+    } satisfies FieldResolvers,
     AtlasReconstruction: {
         soma(reconstruction: AtlasReconstruction): Promise<AtlasNode> {
             return reconstruction.getSoma();
@@ -386,17 +387,17 @@ export const secureResolvers = {
         precomputed(reconstruction: AtlasReconstruction): Promise<Precomputed> {
             return reconstruction.getPrecomputed();
         }
-    },
+    } satisfies FieldResolvers,
     AtlasNode: {
         nodeStructure(node: AtlasNode): Promise<NodeStructure> {
             return node.getNodeStructure();
         }
-    },
+    } satisfies FieldResolvers,
     SpecimenNode: {
         nodeStructure(node: SpecimenNode): Promise<NodeStructure> {
             return node.getNodeStructure();
         }
-    },
+    } satisfies FieldResolvers,
     AccessRequest: {
         admin(request: AccessRequest): Promise<User> {
             return request.adminId ? request.getAdmin({attributes: ["id", "firstName", "lastName"]}) : null;
@@ -404,7 +405,7 @@ export const secureResolvers = {
         assigned(request: AccessRequest): Promise<User> {
             return request.assignedId ? request.getAssigned({attributes: ["id", "firstName", "lastName"]}) : null;
         }
-    },
+    } satisfies FieldResolvers,
     Issue: {
         neuron(issue: Issue) {
             return issue.getNeuron();
@@ -415,7 +416,7 @@ export const secureResolvers = {
         responder(issue: Issue): Promise<User> {
             return User.findByPk(issue.responderId);
         }
-    },
+    } satisfies FieldResolvers,
     VersionHistoryEvent: {
         details(event: EventLogItem): string | null {
             return event.details ? JSON.stringify(event.details) : null;
@@ -423,5 +424,5 @@ export const secureResolvers = {
         user(event: EventLogItem): Promise<User> {
             return event.getUser();
         }
-    }
+    } satisfies FieldResolvers
 };

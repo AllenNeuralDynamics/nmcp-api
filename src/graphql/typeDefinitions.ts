@@ -66,8 +66,23 @@ export const typeDefinitions = gql`
 
         """Returns a filtered list of candidate neurons.  A neuron with a reconstruction, by any annotator, at any of
         excludedReconstructionStatuses is left out.  Omitted or null, that list is Untraceable, Duplicate and
-        Incomplete; an empty list excludes nothing.  It applies in addition to includeInProgress."""
+        Incomplete; an empty list excludes nothing.  It applies in addition to includeInProgress.  Results are ordered by
+        specimen label, neuron label, then id.  offset is honored exactly; an offset at or past totalCount returns no
+        items."""
         candidateNeurons(input: NeuronQueryInput, includeInProgress: Boolean, excludedReconstructionStatuses: [Int!]): QueryNeurons
+
+        """Returns the atlas soma locations of the candidate neurons candidateNeurons would return for the same
+        arguments, one chunk at a time in neuron id order.  Pass the previous chunk's nextCursor as after to continue.
+        chunkSize defaults to, and is capped at, 2000.  input.offset and input.limit are ignored.  A walk never returns an
+        id twice, and a neuron that stays a candidate throughout is returned exactly once; one whose status changes
+        during the walk is reported as of when the walk reaches it, so the ids returned can differ from totalCount."""
+        candidateNeuronLocations(input: NeuronQueryInput, includeInProgress: Boolean, excludedReconstructionStatuses: [Int!], after: String, chunkSize: Int): CandidateNeuronLocations!
+
+        """Returns a candidate neuron's zero-based row index in candidateNeurons order (specimen label, neuron label, then
+        id) for the same arguments, to pass as input.offset so the returned window starts at that neuron.  Returns null
+        when id names no neuron, or one that is not a candidate under these arguments.  input.offset and input.limit are
+        ignored."""
+        candidateNeuronOffset(id: String!, input: NeuronQueryInput, includeInProgress: Boolean, excludedReconstructionStatuses: [Int!]): Int
 
         """Returns a set of reconstructions based on the provided search criteria."""
         searchNeurons(context: SearchContext): SearchOutput
@@ -146,6 +161,7 @@ export const typeDefinitions = gql`
 
         createSpecimen(specimen: SpecimenCreateInput): Specimen!
         updateSpecimen(specimen: SpecimenInput): Specimen!
+        """Soft-deletes a specimen.  Refused while the specimen has any neuron that is not deleted."""
         deleteSpecimen(id: String!): String!
 
         createNeuron(neuron: NeuronInput): Neuron!

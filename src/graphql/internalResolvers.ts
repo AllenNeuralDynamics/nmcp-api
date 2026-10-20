@@ -1,4 +1,4 @@
-import {User} from "../models/user";
+import {FieldResolvers, RequestContext} from "./requestContext";
 import {Precomputed, PrecomputedUpdateShape} from "../models/precomputed";
 import {SpecimenSpacePrecomputed} from "../models/specimenSpacePrecomputed";
 import {Reconstruction} from "../models/reconstruction";
@@ -13,35 +13,35 @@ import {RecentRequest, recentRequestLog} from "../util/recentRequestLog";
 export const internalResolvers = {
     Query: {
         // Used by export and precomputed worker services
-        exportedSpecimenReconstruction(_: any, args: { id: string }, user: User): Promise<PortalReconstruction | null> {
+        exportedSpecimenReconstruction(_: any, args: { id: string }, {user}: RequestContext): Promise<PortalReconstruction | null> {
             return Reconstruction.toPortalFormat(user, args.id);
         },
 
-        exportedAtlasReconstruction(_: any, args: { id: string }, user: User): Promise<PortalReconstruction | null> {
+        exportedAtlasReconstruction(_: any, args: { id: string }, {user}: RequestContext): Promise<PortalReconstruction | null> {
             return AtlasReconstruction.toPortalFormat(user, args.id);
         },
 
         // Used by precomputed worker service
-        pendingPrecomputed(_: any, __: any, user: User): Promise<Precomputed[]> {
+        pendingPrecomputed(_: any, __: any, {user}: RequestContext): Promise<Precomputed[]> {
             return Precomputed.getPending(user);
         },
-        specimenSpacePendingPrecomputed(_: any, __: any, user: User): Promise<SpecimenSpacePrecomputed[]> {
+        specimenSpacePendingPrecomputed(_: any, __: any, {user}: RequestContext): Promise<SpecimenSpacePrecomputed[]> {
             return SpecimenSpacePrecomputed.getPending(user);
         },
 
         // Deployment diagnostics - confirms whether client addresses are resolving distinctly or collapsing onto the
         // gateway.
-        recentRequestAddresses(_: any, __: any, user: User): RecentRequest[] {
+        recentRequestAddresses(_: any, __: any, {user}: RequestContext): RecentRequest[] {
             return recentRequestLog.recent(user);
         },
-    },
+    } satisfies FieldResolvers,
     Mutation: {
         // Used by precomputed worker service
-        updatePrecomputed(_: any, args: PrecomputedUpdateShape, user: User): Promise<Precomputed> {
+        updatePrecomputed(_: any, args: PrecomputedUpdateShape, {user}: RequestContext): Promise<Precomputed> {
             return Precomputed.updateGeneration(user, args.id, args.status, args.version, args.generatedAt);
         },
-        updateSpecimenSpacePrecomputed(_: any, args: PrecomputedUpdateShape, user: User): Promise<SpecimenSpacePrecomputed> {
+        updateSpecimenSpacePrecomputed(_: any, args: PrecomputedUpdateShape, {user}: RequestContext): Promise<SpecimenSpacePrecomputed> {
             return SpecimenSpacePrecomputed.updateGeneration(user, args.id, args.status, args.version, args.generatedAt);
         }
-    }
+    } satisfies FieldResolvers
 };

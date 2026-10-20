@@ -195,7 +195,7 @@ export const PublishedCandidateBlockingStatuses: ReconstructionStatus[] = [
  * Reconstruction statuses that hold a neuron out of the candidate pool when live work counts as well (the default).
  * OnHold, Incomplete, Duplicate and Archived are absent deliberately: a held reconstruction releases its neuron - a hold
  * is the annotator's notation, not a verdict on the neuron - and an archived one is not a live published version.  Untraceable and Discarded are absent because those rows are soft-deleted and never
- * reach the query; Neuron.untraceable is what surfaces them.
+ * reach the query; Neuron.untraceableByNeuron is what surfaces them.
  */
 export const CandidateBlockingStatuses: ReconstructionStatus[] = [
     ReconstructionStatus.InProgress,
@@ -1341,8 +1341,8 @@ export class Reconstruction extends BaseModel {
         }
 
         // Torn down exactly as a discard is: the row and everything downstream of it soft-delete, so the attempt drops
-        // out of every ordinary query.  Neuron.untraceable is the sole reader that needs it back and overrides paranoid
-        // to find it.
+        // out of every ordinary query.  Neuron.untraceableByNeuron is the sole reader that needs it back and overrides
+        // paranoid to find it.
         return await Reconstruction.sequelize.transaction(async (t) => {
             await AtlasReconstruction.discardForReconstruction(user, reconstruction.id, t);
 

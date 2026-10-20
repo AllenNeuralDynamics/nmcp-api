@@ -1,4 +1,4 @@
-import {BelongsToGetAssociationMixin, DataTypes, FindOptions, HasManyGetAssociationsMixin, OrderItem, Sequelize, Transaction} from "sequelize";
+import {BelongsToGetAssociationMixin, DataTypes, FindOptions, HasManyGetAssociationsMixin, LOCK, OrderItem, Sequelize, Transaction} from "sequelize";
 import {validate as uuidValidate, version as uuidVersion} from "uuid";
 import moment = require("moment");
 
@@ -260,7 +260,17 @@ export class Specimen extends BaseModel {
         }
 
         return await Specimen.sequelize.transaction(async (t) => {
-            const specimen = await Specimen.findByPk(id, {attributes: ["id", "collectionId"]});
+            // FOR UPDATE waits out every attach holding findLiveAndLock's lock on this specimen and holds off new ones until
+            // this transaction ends, so the count below sees every neuron that can reach the specimen.
+            const specimen = await Specimen.findByPk(id, {attributes: ["id", "collectionId"], transaction: t, lock: Transaction.LOCK.UPDATE});
+
+            // A live neuron on a deleted specimen would stay a candidate with no specimen label to sort by.
+            const liveNeuronCount = await Neuron.count({where: {specimenId: id}, transaction: t});
+
+            if (liveNeuronCount > 0) {
+                throw new Error(`The specimen could not be removed.  It still has ${liveNeuronCount} neuron(s).`);
+            }
+
             const count = await Specimen.destroy({where: {id}, transaction: t});
 
             if (count > 0) {
@@ -326,10 +336,18 @@ export class Specimen extends BaseModel {
             }
 
             return await this.sequelize.transaction(async (t) => {
+                // NO KEY UPDATE, not SHARE: this transaction may update the specimen below, and two imports that each held a
+                // share lock and then updated the row would deadlock.
+                const locked = await Specimen.findLiveAndLock(specimen.id, t, Transaction.LOCK.NO_KEY_UPDATE);
+
+                if (!locked) {
+                    throw new Error(`Specimen with id ${options.specimenId} does not exist.`);
+                }
+
                 const count = await Neuron.insertSomaEntries(user, records, nextNumber, t);
 
                 // A copy: Sequelize deep-compares a JSONB value with the current one, so mutating it in place skips the write.
-                const properties: SpecimenSomaProperties = {...specimen.somaProperties};
+                const properties: SpecimenSomaProperties = {...locked.somaProperties};
                 let needsUpdate = false;
 
                 if (options.defaultBrightness) {
@@ -343,13 +361,13 @@ export class Specimen extends BaseModel {
                 }
 
                 if (needsUpdate) {
-                    await specimen.update({somaProperties: properties}, {transaction: t});
+                    await locked.update({somaProperties: properties}, {transaction: t});
                 }
 
                 if (count > 0) {
-                    await specimen.recordEvent(EventLogItemKind.CandidatesInsert, {...options, count: count}, user, t);
+                    await locked.recordEvent(EventLogItemKind.CandidatesInsert, {...options, count: count}, user, t);
                 } else if (needsUpdate) {
-                    await specimen.recordEvent(EventLogItemKind.SpecimenUpdate, properties, user, t);
+                    await locked.recordEvent(EventLogItemKind.SpecimenUpdate, properties, user, t);
                 }
 
                 return count;
@@ -372,6 +390,13 @@ export class Specimen extends BaseModel {
     // Reads past paranoid: a soft-deleted specimen keeps its neurons, and its atlas still applies to them.
     public static async findAtlasId(specimenId: string, transaction: Transaction = null): Promise<string> {
         return (await Specimen.findByPk(specimenId, {attributes: ["id", "atlasId"], transaction, paranoid: false}))?.atlasId ?? null;
+    }
+
+    // Keeps the paranoid default on purpose.  A lock that waited on deleteByPk's FOR UPDATE is granted once the delete
+    // commits, and Postgres then re-checks "deletedAt" IS NULL against the committed row, so a specimen deleted while
+    // the caller waited comes back null.  paranoid: false would return the deleted row and let a neuron onto it.
+    public static async findLiveAndLock(specimenId: string, transaction: Transaction, lock: LOCK = Transaction.LOCK.SHARE): Promise<Specimen> {
+        return Specimen.findByPk(specimenId, {transaction, lock});
     }
 
     protected static override defaultSort(): OrderItem[] {
