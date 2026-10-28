@@ -45,7 +45,10 @@ enum ColumnName {
     Proofreader = "Proofreader",
     Assigned = "Assigned",
     Production = "Production",
-    Test = "Test"
+    Test = "Test",
+    Instance = "Instance",
+    Priority = "Priority",
+    SomaGroup = "Soma Group"
 }
 
 // Smartsheet definitions
@@ -99,6 +102,9 @@ type NeuronRowContents = {
     assigned: string;
     startedAt: Date;
     completedAt: Date;
+    instance?: number;
+    priority?: number;
+    somaGroup?: string;
 }
 
 enum ImportQualifier {
@@ -340,6 +346,11 @@ async function specimenDataFromRow(s: SpecimenRowContents, atlas: Atlas, insertR
             // entry, not two.
             keywords: assigned.length > 0 ? [assigned] : []
         };
+
+        if (n.instance !== undefined || n.priority !== undefined || n.somaGroup !== undefined) {
+            // An update merges this into the stored metadata skipping undefined, so a blank sheet cell keeps the stored value.
+            shape.metadata = {instance: n.instance, priority: n.priority, somaGroup: n.somaGroup};
+        }
 
         const neuronExisted = !!(await Neuron.findOne({where: {label: shape.label, specimenId: specimen.id}}));
 
@@ -1163,7 +1174,10 @@ class SmartSheetImport {
             proofreaderEmail: this.getStringValue(row, ColumnName.Proofreader),
             assigned: this.getStringValue(row, ColumnName.Assigned),
             startedAt: this.getDateValue(row, ColumnName.DateStarted),
-            completedAt: this.getDateValue(row, ColumnName.DateCompleted)
+            completedAt: this.getDateValue(row, ColumnName.DateCompleted),
+            instance: this.getNumericValue(row, ColumnName.Instance),
+            priority: this.getNumericValue(row, ColumnName.Priority),
+            somaGroup: this.getNonEmptyStringValue(row, ColumnName.SomaGroup)
         };
 
         specimen.neurons.push(neuron);
@@ -1237,6 +1251,20 @@ class SmartSheetImport {
 
     private getNumberValue(row: Row, name: ColumnName): number {
         return parseFloat(this.getCell(row, name)?.value);
+    }
+
+    // Unlike getNumberValue, only a cell holding an actual number qualifies; parseFloat would accept text such as "3 (tentative)".
+    private getNumericValue(row: Row, name: ColumnName): number | undefined {
+        const value = this.getCell(row, name)?.value;
+
+        return typeof value == "number" && Number.isFinite(value) ? value : undefined;
+    }
+
+    private getNonEmptyStringValue(row: Row, name: ColumnName): string | undefined {
+        const value = this.getCell(row, name)?.value;
+        const text = value === undefined || value === null ? "" : String(value).trim();
+
+        return text.length > 0 ? text : undefined;
     }
 
     private getReconstructionStatus(row: Row, name: ColumnName = ColumnName.Status1): Status {

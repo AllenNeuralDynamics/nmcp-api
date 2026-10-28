@@ -14,6 +14,7 @@
     "express": "node dist/app.js",
     "smartsheet": "tsc && node --trace-warnings --max-old-space-size=8192 src/tools/smartSheetImport.js",
     "smartsheet-schema": "tsc && node --trace-warnings src/tools/smartSheetSchema.js",
+    "smartsheet-download": "tsc && node --trace-warnings src/tools/smartSheetDownload.js",
     "import-candidates": "tsc && node --trace-warnings src/tools/importCandidates.js",
     "mouselight": "tsc && node --trace-warnings src/tools/mouselightImport.js"
   },
