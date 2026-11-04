@@ -3,16 +3,16 @@ import {expect, test, vi, describe, afterEach} from "vitest";
 // require() rather than import: the .ts sources are compiled to .js in place, and an ESM import yields a
 // different module instance than the CJS one the model methods call into, so the spies would not apply.
 const {User, UserPermissions} = require("../src/models/user");
-const {Reconstruction} = require("../src/models/reconstruction");
-const {ReconstructionStatus} = require("../src/models/reconstructionStatus");
+const {Annotation} = require("../src/models/annotation");
+const {AnnotationStatus} = require("../src/models/annotationStatus");
 const {ReconstructionSpace} = require("../src/models/reconstructionSpace");
 const {AtlasReconstruction} = require("../src/models/atlasReconstruction");
 const {AtlasReconstructionStatus} = require("../src/models/atlasReconstructionStatus");
 const {Neuron} = require("../src/models/neuron");
 const {Specimen} = require("../src/models/specimen");
 const {Atlas} = require("../src/models/atlas");
-const {SpecimenNode} = require("../src/models/specimenNode");
 const {SpecimenSpacePrecomputed} = require("../src/models/specimenSpacePrecomputed");
+const {SpecimenSpaceReconstruction} = require("../src/models/specimenSpaceReconstruction");
 const {SearchIndex} = require("../src/models/searchIndex");
 const {EventLogItem} = require("../src/models/eventLogItem");
 const {UnauthorizedError} = require("../src/graphql/secureResolvers");
@@ -24,6 +24,14 @@ function userWith(permissions: number, id: string = "user-1") {
     user.id = id;
     user.permissions = permissions;
     return user;
+}
+
+function stubSpecimenSpace() {
+    const row = Object.create(SpecimenSpaceReconstruction.prototype);
+    row.id = "specimen-space-1";
+    row.annotationId = "annotation-1";
+
+    return vi.spyOn(SpecimenSpaceReconstruction, "findOne").mockResolvedValue(row);
 }
 
 function updateMock(instance: any) {
@@ -48,13 +56,14 @@ function reconstructionData() {
 }
 
 function parentStub(status: number, extra: object = {}) {
-    const reconstruction = Object.create(Reconstruction.prototype);
+    const reconstruction = Object.create(Annotation.prototype);
 
     Object.assign(reconstruction, {
-        id: "reconstruction-1",
+        id: "annotation-1",
         neuronId: "neuron-1",
         annotatorId: "annotator-1",
-        status: status
+        status: status,
+        doi: "10.60533/nmcp-1"
     }, extra);
 
     reconstruction.update = updateMock(reconstruction);
@@ -68,9 +77,8 @@ function childStub(status: number, extra: object = {}) {
 
     Object.assign(child, {
         id: "atlas-1",
-        reconstructionId: "reconstruction-1",
+        annotationId: "annotation-1",
         status: status,
-        doi: "10.60533/nmcp-1",
         nodeCounts: {axon: {}, dendrite: {}}
     }, extra);
 
@@ -86,7 +94,7 @@ function childStub(status: number, extra: object = {}) {
 
 /**
  * Each case stubs the locked read to return a row whose status differs from the eager one, standing in for a commit
- * that landed between the two.  eagerParent is what findReconstructionAndUser handed the caller; lockedParent is what
+ * that landed between the two.  eagerParent is what findAnnotationAndUser handed the caller; lockedParent is what
  * the row actually holds by the time the transaction takes it FOR UPDATE.
  */
 function interleaved(options: {
@@ -98,7 +106,7 @@ function interleaved(options: {
 }) {
     vi.spyOn(EventLogItem, "create").mockResolvedValue({id: "event-1"} as any);
 
-    Object.defineProperty(Reconstruction, "sequelize", {
+    Object.defineProperty(Annotation, "sequelize", {
         value: {transaction: vi.fn().mockImplementation(async (callback: any) => await callback(transaction))},
         configurable: true,
         writable: true
@@ -119,7 +127,7 @@ function interleaved(options: {
     vi.spyOn(User, "findUserOrId").mockResolvedValue(options.user);
 
     // The lock option is what tells the two reads apart: without it this is the caller's eager load.
-    const findParent = vi.spyOn(Reconstruction, "findByPk").mockImplementation(async (...args: any[]) =>
+    const findParent = vi.spyOn(Annotation, "findByPk").mockImplementation(async (...args: any[]) =>
         args[1]?.lock ? locked : eager);
 
     const findChild = vi.spyOn(AtlasReconstruction, "findOne").mockResolvedValue(lockedChild);
@@ -131,7 +139,7 @@ function interleaved(options: {
 
 afterEach(() => {
     vi.restoreAllMocks();
-    delete (Reconstruction as any).sequelize;
+    delete (Annotation as any).sequelize;
     delete (AtlasReconstruction as any).sequelize;
 });
 
@@ -144,13 +152,13 @@ describe("admissibility lost between the reads", () => {
     // rewind and run a rejected reconstruction on to DOI assignment.
     test("retry versus reject", async () => {
         const stubs = interleaved({
-            eagerParent: ReconstructionStatus.WaitingForAtlasReconstruction,
+            eagerParent: AnnotationStatus.WaitingForAtlasReconstruction,
             eagerChild: AtlasReconstructionStatus.FailedStructureAssignment,
             lockedChild: AtlasReconstructionStatus.PendingStructureAssignment,
             user: userWith(UserPermissions.PublishReview)
         });
 
-        await expect(Reconstruction.rejectReconstruction("reconstruction-1", "user-1"))
+        await expect(Annotation.rejectAnnotation("annotation-1", "user-1"))
             .rejects.toBeInstanceOf(UnauthorizedError);
 
         expect(stubs.lockedChild.reject).not.toHaveBeenCalled();
@@ -159,18 +167,18 @@ describe("admissibility lost between the reads", () => {
 
     test("retry versus discard", async () => {
         const stubs = interleaved({
-            eagerParent: ReconstructionStatus.WaitingForAtlasReconstruction,
+            eagerParent: AnnotationStatus.WaitingForAtlasReconstruction,
             eagerChild: AtlasReconstructionStatus.FailedStructureAssignment,
             lockedChild: AtlasReconstructionStatus.PendingStructureAssignment,
             user: userWith(UserPermissions.PublishReview)
         });
 
-        const discardForReconstruction = vi.spyOn(AtlasReconstruction, "discardForReconstruction").mockResolvedValue(undefined);
+        const discardForAnnotation = vi.spyOn(AtlasReconstruction, "discardForAnnotation").mockResolvedValue(undefined);
 
-        await expect(Reconstruction.discardReconstruction("reconstruction-1", "user-1"))
+        await expect(Annotation.discardAnnotation("annotation-1", "user-1"))
             .rejects.toThrow(/Cannot discard a reconstruction/);
 
-        expect(discardForReconstruction).not.toHaveBeenCalled();
+        expect(discardForAnnotation).not.toHaveBeenCalled();
         expect(stubs.locked.destroy).not.toHaveBeenCalled();
     });
 
@@ -178,14 +186,14 @@ describe("admissibility lost between the reads", () => {
     // PendingSearchIndexing and set the parent to Publishing, so the replay would silently not happen.
     test("reset versus publish", async () => {
         const stubs = interleaved({
-            eagerParent: ReconstructionStatus.ReadyToPublish,
-            lockedParent: ReconstructionStatus.WaitingForAtlasReconstruction,
+            eagerParent: AnnotationStatus.ReadyToPublish,
+            lockedParent: AnnotationStatus.WaitingForAtlasReconstruction,
             eagerChild: AtlasReconstructionStatus.ReadyToPublish,
             lockedChild: AtlasReconstructionStatus.PendingQualityControl,
             user: userWith(UserPermissions.Admin)
         });
 
-        const findAll = vi.spyOn(Reconstruction, "findAll").mockResolvedValue([]);
+        const findAll = vi.spyOn(Annotation, "findAll").mockResolvedValue([]);
 
         await expect(stubs.eager.publishWithTransaction(userWith(UserPermissions.Admin), false, transaction))
             .rejects.toThrow("The reconstruction is not in a publishable state");
@@ -198,8 +206,8 @@ describe("admissibility lost between the reads", () => {
 
     test("reject versus publish", async () => {
         const stubs = interleaved({
-            eagerParent: ReconstructionStatus.ReadyToPublish,
-            lockedParent: ReconstructionStatus.Rejected,
+            eagerParent: AnnotationStatus.ReadyToPublish,
+            lockedParent: AnnotationStatus.Rejected,
             user: userWith(UserPermissions.Admin)
         });
 
@@ -214,13 +222,13 @@ describe("admissibility lost between the reads", () => {
 
     test("reject versus approval", async () => {
         const stubs = interleaved({
-            eagerParent: ReconstructionStatus.PublishReview,
-            lockedParent: ReconstructionStatus.Rejected,
+            eagerParent: AnnotationStatus.PublishReview,
+            lockedParent: AnnotationStatus.Rejected,
             eagerChild: AtlasReconstructionStatus.ReadyToProcess,
             user: userWith(UserPermissions.Admin)
         });
 
-        await expect(Reconstruction.approveReconstruction("reconstruction-1", ReconstructionStatus.Approved, "user-1"))
+        await expect(Annotation.approveAnnotation("annotation-1", AnnotationStatus.Approved, "user-1"))
             .rejects.toThrow(/Cannot approve a reconstruction/);
 
         expect(stubs.locked.update).not.toHaveBeenCalled();
@@ -231,13 +239,13 @@ describe("admissibility lost between the reads", () => {
     // rule: approving over a rejection that committed in between would silently reverse the reviewer.
     test("reject versus import approval", async () => {
         const stubs = interleaved({
-            eagerParent: ReconstructionStatus.PublishReview,
-            lockedParent: ReconstructionStatus.Rejected,
+            eagerParent: AnnotationStatus.PublishReview,
+            lockedParent: AnnotationStatus.Rejected,
             eagerChild: AtlasReconstructionStatus.ReadyToProcess,
             user: userWith(UserPermissions.None, "importer-1")
         });
 
-        await expect(Reconstruction.approveReconstruction("reconstruction-1", ReconstructionStatus.Approved, "importer-1", null, true))
+        await expect(Annotation.approveAnnotation("annotation-1", AnnotationStatus.Approved, "importer-1", null, true))
             .rejects.toThrow(/Cannot approve a reconstruction/);
 
         expect(stubs.locked.update).not.toHaveBeenCalled();
@@ -253,8 +261,8 @@ describe("admissibility lost between the reads", () => {
      */
     test("approval versus atlas upload", async () => {
         const stubs = interleaved({
-            eagerParent: ReconstructionStatus.PublishReview,
-            lockedParent: ReconstructionStatus.WaitingForAtlasReconstruction,
+            eagerParent: AnnotationStatus.PublishReview,
+            lockedParent: AnnotationStatus.WaitingForAtlasReconstruction,
             lockedChild: AtlasReconstructionStatus.PendingQualityControl,
             user: userWith(UserPermissions.PublishReview)
         });
@@ -270,12 +278,13 @@ describe("admissibility lost between the reads", () => {
     // approved.
     test("approval versus specimen upload", async () => {
         const stubs = interleaved({
-            eagerParent: ReconstructionStatus.PublishReview,
-            lockedParent: ReconstructionStatus.WaitingForAtlasReconstruction,
+            eagerParent: AnnotationStatus.PublishReview,
+            lockedParent: AnnotationStatus.WaitingForAtlasReconstruction,
             user: userWith(UserPermissions.PublishReview)
         });
 
-        const replaceNodeData = vi.spyOn(Reconstruction.prototype as any, "replaceNodeData").mockResolvedValue(undefined);
+        stubSpecimenSpace();
+        const replaceNodeData = vi.spyOn(SpecimenSpaceReconstruction.prototype as any, "replaceNodeData").mockResolvedValue(undefined);
         const findPrecomputed = vi.spyOn(SpecimenSpacePrecomputed, "findOne")
             .mockResolvedValue({requestGeneration: vi.fn().mockResolvedValue(undefined)} as any);
 
@@ -294,12 +303,12 @@ describe("admissibility lost between the reads", () => {
 describe("the actor changes with the status", () => {
     test("peer approval versus peer-reviewer reject", async () => {
         const stubs = interleaved({
-            eagerParent: ReconstructionStatus.PeerReview,
-            lockedParent: ReconstructionStatus.PublishReview,
+            eagerParent: AnnotationStatus.PeerReview,
+            lockedParent: AnnotationStatus.PublishReview,
             user: userWith(UserPermissions.PeerReview)
         });
 
-        await expect(Reconstruction.rejectReconstruction("reconstruction-1", "user-1"))
+        await expect(Annotation.rejectAnnotation("annotation-1", "user-1"))
             .rejects.toBeInstanceOf(UnauthorizedError);
 
         expect(stubs.locked.update).not.toHaveBeenCalled();
@@ -308,18 +317,18 @@ describe("the actor changes with the status", () => {
 
     test("requestReview versus annotator discard", async () => {
         const stubs = interleaved({
-            eagerParent: ReconstructionStatus.Rejected,
-            lockedParent: ReconstructionStatus.PublishReview,
+            eagerParent: AnnotationStatus.Rejected,
+            lockedParent: AnnotationStatus.PublishReview,
             user: userWith(UserPermissions.AnnotateOne, "annotator-1")
         });
 
-        const discardForReconstruction = vi.spyOn(AtlasReconstruction, "discardForReconstruction").mockResolvedValue(undefined);
-        vi.spyOn(SpecimenNode, "destroy").mockResolvedValue(0);
+        const discardForAnnotation = vi.spyOn(AtlasReconstruction, "discardForAnnotation").mockResolvedValue(undefined);
+        vi.spyOn(SpecimenSpaceReconstruction, "discardForAnnotation").mockResolvedValue(undefined);
 
-        await expect(Reconstruction.discardReconstruction("reconstruction-1", "annotator-1"))
+        await expect(Annotation.discardAnnotation("annotation-1", "annotator-1"))
             .rejects.toBeInstanceOf(UnauthorizedError);
 
-        expect(discardForReconstruction).not.toHaveBeenCalled();
+        expect(discardForAnnotation).not.toHaveBeenCalled();
         expect(stubs.locked.update).not.toHaveBeenCalled();
     });
 
@@ -327,12 +336,13 @@ describe("the actor changes with the status", () => {
     // actually in is who may rewrite its nodes.
     test("peer approval versus peer-reviewer specimen upload", async () => {
         const stubs = interleaved({
-            eagerParent: ReconstructionStatus.PeerReview,
-            lockedParent: ReconstructionStatus.PublishReview,
+            eagerParent: AnnotationStatus.PeerReview,
+            lockedParent: AnnotationStatus.PublishReview,
             user: userWith(UserPermissions.PeerReview)
         });
 
-        const replaceNodeData = vi.spyOn(Reconstruction.prototype as any, "replaceNodeData").mockResolvedValue(undefined);
+        stubSpecimenSpace();
+        const replaceNodeData = vi.spyOn(SpecimenSpaceReconstruction.prototype as any, "replaceNodeData").mockResolvedValue(undefined);
 
         await expect(stubs.eager.fromParsedStructures(userWith(UserPermissions.PeerReview), ReconstructionSpace.Specimen, reconstructionData()))
             .rejects.toBeInstanceOf(UnauthorizedError);
@@ -340,14 +350,48 @@ describe("the actor changes with the status", () => {
         expect(replaceNodeData).not.toHaveBeenCalled();
     });
 
+    // The annotator's own upload source ends with their request: PeerReview admits the peer reviewer, not them.
+    test("requestReview versus owning-annotator specimen upload", async () => {
+        const stubs = interleaved({
+            eagerParent: AnnotationStatus.InProgress,
+            lockedParent: AnnotationStatus.PeerReview,
+            user: userWith(UserPermissions.AnnotateOne, "annotator-1")
+        });
+
+        stubSpecimenSpace();
+        const replaceNodeData = vi.spyOn(SpecimenSpaceReconstruction.prototype as any, "replaceNodeData").mockResolvedValue(undefined);
+
+        await expect(stubs.eager.fromParsedStructures(userWith(UserPermissions.AnnotateOne, "annotator-1"), ReconstructionSpace.Specimen, reconstructionData()))
+            .rejects.toBeInstanceOf(UnauthorizedError);
+
+        expect(replaceNodeData).not.toHaveBeenCalled();
+    });
+
+    test("hold versus owning-annotator specimen upload", async () => {
+        const stubs = interleaved({
+            eagerParent: AnnotationStatus.InProgress,
+            lockedParent: AnnotationStatus.OnHold,
+            user: userWith(UserPermissions.AnnotateOne, "annotator-1")
+        });
+
+        stubSpecimenSpace();
+        const replaceNodeData = vi.spyOn(SpecimenSpaceReconstruction.prototype as any, "replaceNodeData").mockResolvedValue(undefined);
+
+        await expect(stubs.eager.fromParsedStructures(userWith(UserPermissions.AnnotateOne, "annotator-1"), ReconstructionSpace.Specimen, reconstructionData()))
+            .rejects.toMatchObject({message: "Uploading the specimen-space reconstruction is not allowed while in OnHold.", extensions: {code: 1009}});
+
+        expect(replaceNodeData).not.toHaveBeenCalled();
+    });
+
     test("the same upload under disregardAuth succeeds, so the import path is unaffected", async () => {
         const stubs = interleaved({
-            eagerParent: ReconstructionStatus.PeerReview,
-            lockedParent: ReconstructionStatus.PublishReview,
+            eagerParent: AnnotationStatus.PeerReview,
+            lockedParent: AnnotationStatus.PublishReview,
             user: userWith(UserPermissions.None, "importer-1")
         });
 
-        const replaceNodeData = vi.spyOn(Reconstruction.prototype as any, "replaceNodeData").mockResolvedValue(undefined);
+        stubSpecimenSpace();
+        const replaceNodeData = vi.spyOn(SpecimenSpaceReconstruction.prototype as any, "replaceNodeData").mockResolvedValue(undefined);
         vi.spyOn(SpecimenSpacePrecomputed, "findOne")
             .mockResolvedValue({requestGeneration: vi.fn().mockResolvedValue(undefined)} as any);
 
@@ -358,14 +402,15 @@ describe("the actor changes with the status", () => {
 });
 
 /**
- * One global order: Neuron -> AtlasReconstruction -> Reconstruction.  Every path that changes the pair takes the child
- * before the parent, and the two paths that write a neuron take it before either.
+ * One global order: Neuron -> AtlasReconstruction -> Annotation -> SpecimenSpaceReconstruction.  Every path that changes
+ * the pair takes the child before the parent, and the two paths that write a neuron take it before either.  The
+ * specimen-space row is never locked on its own: every write to it holds its annotation's lock.
  */
 describe("lock order", () => {
     function ordered(parentStatus: number, childStatus: number, user: any) {
         vi.spyOn(EventLogItem, "create").mockResolvedValue({id: "event-1"} as any);
 
-        Object.defineProperty(Reconstruction, "sequelize", {
+        Object.defineProperty(Annotation, "sequelize", {
             value: {transaction: vi.fn().mockImplementation(async (callback: any) => await callback(transaction))},
             configurable: true,
             writable: true
@@ -394,7 +439,7 @@ describe("lock order", () => {
             return child;
         });
 
-        vi.spyOn(Reconstruction, "findByPk").mockImplementation(async (...args: any[]) => {
+        vi.spyOn(Annotation, "findByPk").mockImplementation(async (...args: any[]) => {
             if (args[1]?.lock) {
                 callOrder.push("parent");
             }
@@ -402,7 +447,7 @@ describe("lock order", () => {
             return parent;
         });
 
-        vi.spyOn(Reconstruction, "findAll").mockResolvedValue([]);
+        vi.spyOn(Annotation, "findAll").mockResolvedValue([]);
 
         vi.spyOn(Specimen, "findAtlasId").mockResolvedValue("atlas-1");
         vi.spyOn(Atlas, "getAtlas").mockReturnValue({id: "atlas-1"});
@@ -411,34 +456,34 @@ describe("lock order", () => {
     }
 
     test("approve takes the child before the parent", async () => {
-        const stubs = ordered(ReconstructionStatus.PublishReview, AtlasReconstructionStatus.ReadyToProcess, userWith(UserPermissions.Admin));
+        const stubs = ordered(AnnotationStatus.PublishReview, AtlasReconstructionStatus.ReadyToProcess, userWith(UserPermissions.Admin));
 
-        await Reconstruction.approveReconstruction("reconstruction-1", ReconstructionStatus.Approved, "user-1");
+        await Annotation.approveAnnotation("annotation-1", AnnotationStatus.Approved, "user-1");
 
         expect(stubs.callOrder).toEqual(["child", "parent"]);
     });
 
     test("reject takes the child before the parent", async () => {
-        const stubs = ordered(ReconstructionStatus.PublishReview, AtlasReconstructionStatus.ReadyToPublish, userWith(UserPermissions.Admin));
+        const stubs = ordered(AnnotationStatus.PublishReview, AtlasReconstructionStatus.ReadyToPublish, userWith(UserPermissions.Admin));
 
-        await Reconstruction.rejectReconstruction("reconstruction-1", "user-1");
+        await Annotation.rejectAnnotation("annotation-1", "user-1");
 
         expect(stubs.callOrder).toEqual(["child", "parent"]);
     });
 
     test("discard takes the child before the parent", async () => {
-        const stubs = ordered(ReconstructionStatus.PublishReview, AtlasReconstructionStatus.ReadyToPublish, userWith(UserPermissions.Admin));
+        const stubs = ordered(AnnotationStatus.PublishReview, AtlasReconstructionStatus.ReadyToPublish, userWith(UserPermissions.Admin));
 
-        vi.spyOn(AtlasReconstruction, "discardForReconstruction").mockResolvedValue(undefined);
-        vi.spyOn(SpecimenNode, "destroy").mockResolvedValue(0);
+        vi.spyOn(AtlasReconstruction, "discardForAnnotation").mockResolvedValue(undefined);
+        vi.spyOn(SpecimenSpaceReconstruction, "discardForAnnotation").mockResolvedValue(undefined);
 
-        await Reconstruction.discardReconstruction("reconstruction-1", "user-1");
+        await Annotation.discardAnnotation("annotation-1", "user-1");
 
         expect(stubs.callOrder).toEqual(["child", "parent"]);
     });
 
     test("the reset takes the child before the parent", async () => {
-        const stubs = ordered(ReconstructionStatus.ReadyToPublish, AtlasReconstructionStatus.ReadyToPublish, userWith(UserPermissions.Admin));
+        const stubs = ordered(AnnotationStatus.ReadyToPublish, AtlasReconstructionStatus.ReadyToPublish, userWith(UserPermissions.Admin));
 
         const {QualityControl} = require("../src/models/qualityControl");
         const {Precomputed} = require("../src/models/precomputed");
@@ -446,7 +491,7 @@ describe("lock order", () => {
         vi.spyOn(QualityControl, "findOne").mockResolvedValue({makePending: vi.fn().mockResolvedValue(undefined)} as any);
         vi.spyOn(Precomputed, "findOne").mockResolvedValue({id: "precomputed-1"} as any);
 
-        await AtlasReconstruction.resetPipeline(userWith(UserPermissions.Admin), "reconstruction-1");
+        await AtlasReconstruction.resetPipeline(userWith(UserPermissions.Admin), "annotation-1");
 
         expect(stubs.callOrder).toEqual(["child", "parent"]);
     });
@@ -454,7 +499,7 @@ describe("lock order", () => {
     // The two paths that write a Neuron.  Taking that row last in the upload is the inversion that deadlocks against a
     // publish holding the neuron and waiting on the child.
     test("publish takes the neuron, then the child, then the parent", async () => {
-        const stubs = ordered(ReconstructionStatus.ReadyToPublish, AtlasReconstructionStatus.ReadyToPublish, userWith(UserPermissions.Admin));
+        const stubs = ordered(AnnotationStatus.ReadyToPublish, AtlasReconstructionStatus.ReadyToPublish, userWith(UserPermissions.Admin));
 
         await stubs.parent.publishWithTransaction(userWith(UserPermissions.Admin), false, transaction);
 
@@ -462,7 +507,7 @@ describe("lock order", () => {
     });
 
     test("the atlas upload takes them in that same order", async () => {
-        const stubs = ordered(ReconstructionStatus.PublishReview, AtlasReconstructionStatus.ReadyToProcess, userWith(UserPermissions.PublishReview));
+        const stubs = ordered(AnnotationStatus.PublishReview, AtlasReconstructionStatus.ReadyToProcess, userWith(UserPermissions.PublishReview));
 
         await stubs.parent.fromParsedStructures(userWith(UserPermissions.PublishReview), ReconstructionSpace.Atlas, reconstructionData());
 
@@ -472,14 +517,17 @@ describe("lock order", () => {
     // The specimen branch writes no neuron and does not touch the child, so it locks the parent alone and cannot be
     // part of a cycle either way.
     test("the specimen upload takes the parent alone", async () => {
-        const stubs = ordered(ReconstructionStatus.PublishReview, AtlasReconstructionStatus.ReadyToProcess, userWith(UserPermissions.PublishReview));
+        const stubs = ordered(AnnotationStatus.PublishReview, AtlasReconstructionStatus.ReadyToProcess, userWith(UserPermissions.PublishReview));
 
-        vi.spyOn(Reconstruction.prototype as any, "replaceNodeData").mockResolvedValue(undefined);
+        const findSpecimenSpace = stubSpecimenSpace();
+        vi.spyOn(SpecimenSpaceReconstruction.prototype as any, "replaceNodeData").mockResolvedValue(undefined);
         vi.spyOn(SpecimenSpacePrecomputed, "findOne")
             .mockResolvedValue({requestGeneration: vi.fn().mockResolvedValue(undefined)} as any);
 
         await stubs.parent.fromParsedStructures(userWith(UserPermissions.PublishReview), ReconstructionSpace.Specimen, reconstructionData());
 
         expect(stubs.callOrder).toEqual(["parent"]);
+        expect(findSpecimenSpace).toHaveBeenCalledTimes(1);
+        expect(findSpecimenSpace.mock.calls[0][0]).not.toHaveProperty("lock");
     });
 });

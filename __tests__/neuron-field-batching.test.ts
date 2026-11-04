@@ -10,9 +10,10 @@ const {createRequestContext} = require("../src/graphql/requestContext");
 const {Neuron} = require("../src/models/neuron");
 const {Specimen} = require("../src/models/specimen");
 const {AtlasStructure} = require("../src/models/atlasStructure");
-const {Reconstruction} = require("../src/models/reconstruction");
+const {Annotation} = require("../src/models/annotation");
 const {AtlasReconstruction} = require("../src/models/atlasReconstruction");
-const {ReconstructionStatus} = require("../src/models/reconstructionStatus");
+const {SpecimenSpaceReconstruction} = require("../src/models/specimenSpaceReconstruction");
+const {AnnotationStatus} = require("../src/models/annotationStatus");
 const {User} = require("../src/models/user");
 
 function userStub() {
@@ -34,10 +35,10 @@ afterEach(() => {
 });
 
 describe("Neuron batch methods", () => {
-    test("reconstructionCounts aligns grouped counts with the ids asked, zero when absent", async () => {
-        const count = vi.spyOn(Reconstruction, "count").mockResolvedValue([{neuronId: "neuron-2", count: "3"}]);
+    test("annotationCounts aligns grouped counts with the ids asked, zero when absent", async () => {
+        const count = vi.spyOn(Annotation, "count").mockResolvedValue([{neuronId: "neuron-2", count: "3"}]);
 
-        expect(await Neuron.reconstructionCounts(["neuron-1", "neuron-2"])).toEqual([0, 3]);
+        expect(await Neuron.annotationCounts(["neuron-1", "neuron-2"])).toEqual([0, 3]);
 
         const options = count.mock.calls[0][0] as any;
 
@@ -45,23 +46,24 @@ describe("Neuron batch methods", () => {
         expect(options.group).toEqual(["neuronId"]);
     });
 
-    test("reconstructionsByNeuron groups every revision under its neuron", async () => {
-        const rows = [{id: "reconstruction-1", neuronId: "neuron-2"}, {id: "reconstruction-2", neuronId: "neuron-1"}, {id: "reconstruction-3", neuronId: "neuron-2"}];
-        const findAll = vi.spyOn(Reconstruction, "findAll").mockResolvedValue(rows);
+    test("annotationsByNeuron groups every revision under its neuron", async () => {
+        const rows = [{id: "annotation-1", neuronId: "neuron-2"}, {id: "annotation-2", neuronId: "neuron-1"}, {id: "annotation-3", neuronId: "neuron-2"}];
+        const findAll = vi.spyOn(Annotation, "findAll").mockResolvedValue(rows);
 
-        expect(await Neuron.reconstructionsByNeuron(["neuron-1", "neuron-2", "neuron-3"])).toEqual([[rows[1]], [rows[0], rows[2]], []]);
-        expect((findAll.mock.calls[0][0] as any).include).toEqual([{model: AtlasReconstruction}]);
+        expect(await Neuron.annotationsByNeuron(["neuron-1", "neuron-2", "neuron-3"])).toEqual([[rows[1]], [rows[0], rows[2]], []]);
+        expect((findAll.mock.calls[0][0] as any).include).toEqual([{model: AtlasReconstruction}, {model: SpecimenSpaceReconstruction}]);
     });
 
-    test("publishedByNeuron returns each neuron's published atlas reconstruction or null", async () => {
-        const child = {id: "atlas-1"};
-        const findAll = vi.spyOn(Reconstruction, "findAll").mockResolvedValue([
-            {neuronId: "neuron-1", AtlasReconstruction: child},
+    test("publishedByNeuron returns each neuron's published annotation or null", async () => {
+        const rows = [
+            {neuronId: "neuron-1", AtlasReconstruction: {id: "atlas-1"}},
             {neuronId: "neuron-2", AtlasReconstruction: null}
-        ]);
+        ];
+        const findAll = vi.spyOn(Annotation, "findAll").mockResolvedValue(rows);
 
-        expect(await Neuron.publishedByNeuron(["neuron-1", "neuron-2", "neuron-3"])).toEqual([child, null, null]);
-        expect((findAll.mock.calls[0][0] as any).where.status).toBe(ReconstructionStatus.Published);
+        expect(await Neuron.publishedByNeuron(["neuron-1", "neuron-2", "neuron-3"])).toEqual([rows[0], rows[1], null]);
+        expect((findAll.mock.calls[0][0] as any).where.status).toBe(AnnotationStatus.Published);
+        expect((findAll.mock.calls[0][0] as any).include).toEqual([{model: AtlasReconstruction}, {model: SpecimenSpaceReconstruction}]);
     });
 });
 
@@ -102,13 +104,13 @@ describe("Neuron fields through the schema", () => {
     const schema = createSchema();
 
     const source = `{ candidateNeurons(input: {}) { items {
-        id reconstructionCount untraceable published { id } reconstructions { id } atlasStructure { id } specimen { id }
+        id annotationCount untraceable published { id } annotations { id } atlasStructure { id } specimen { id }
     } } }`;
 
     function stubBatches() {
         return {
-            reconstructionCounts: vi.spyOn(Neuron, "reconstructionCounts").mockImplementation(async (ids: any) => ids.map(() => 2)),
-            reconstructionsByNeuron: vi.spyOn(Neuron, "reconstructionsByNeuron").mockImplementation(async (ids: any) => ids.map(id => [{id: `${id}-reconstruction`}])),
+            annotationCounts: vi.spyOn(Neuron, "annotationCounts").mockImplementation(async (ids: any) => ids.map(() => 2)),
+            annotationsByNeuron: vi.spyOn(Neuron, "annotationsByNeuron").mockImplementation(async (ids: any) => ids.map(id => [{id: `${id}-annotation`}])),
             publishedByNeuron: vi.spyOn(Neuron, "publishedByNeuron").mockImplementation(async (ids: any) => ids.map(() => null)),
             untraceableByNeuron: vi.spyOn(Neuron, "untraceableByNeuron").mockImplementation(async (ids: any) => ids.map(() => false))
         };
@@ -145,7 +147,37 @@ describe("Neuron fields through the schema", () => {
 
         expect(neurons[2].atlasStructure).toBeNull();
         expect(neurons.map((neuron: any) => neuron.specimen.id)).toEqual(["specimen-1", "specimen-1", "specimen-2"]);
-        expect(neurons[0].reconstructions).toEqual([{id: "neuron-1-reconstruction"}]);
+        expect(neurons[0].annotations).toEqual([{id: "neuron-1-annotation"}]);
+    });
+
+    test("published resolves the annotation's DOI and its eager-loaded children", async () => {
+        const published = {
+            id: "annotation-1",
+            doi: "10.x/1",
+            AtlasReconstruction: {id: "atlas-1"},
+            SpecimenSpaceReconstruction: {id: "specimen-space-1"},
+            getAtlasReconstruction: vi.fn(),
+            getSpecimenSpaceReconstruction: vi.fn()
+        };
+
+        vi.spyOn(Neuron, "getCandidateNeurons").mockResolvedValue({totalCount: 1, offset: 0, items: [neuronStub({id: "neuron-1"})]});
+        vi.spyOn(Neuron, "publishedByNeuron").mockImplementation(async (ids: any) => ids.map(() => published));
+
+        const result: any = await graphql({
+            schema,
+            source: "{ candidateNeurons(input: {}) { items { published { id doi atlasReconstruction { id } specimenSpaceReconstruction { id } } } } }",
+            contextValue: createRequestContext(userStub())
+        });
+
+        expect(result.errors).toBeUndefined();
+        expect(result.data.candidateNeurons.items[0].published).toEqual({
+            id: "annotation-1",
+            doi: "10.x/1",
+            atlasReconstruction: {id: "atlas-1"},
+            specimenSpaceReconstruction: {id: "specimen-space-1"}
+        });
+        expect(published.getAtlasReconstruction).not.toHaveBeenCalled();
+        expect(published.getSpecimenSpaceReconstruction).not.toHaveBeenCalled();
     });
 
     test("an eager-loaded specimen is reused", async () => {
@@ -166,33 +198,33 @@ describe("Neuron fields through the schema", () => {
     });
 
     test("serial mutation fields each read the rows as the previous field left them", async () => {
-        const state = {status: ReconstructionStatus.InProgress};
+        const state = {status: AnnotationStatus.InProgress};
         const neuron = neuronStub({id: "neuron-1"});
-        const reconstruction = {id: "reconstruction-1", getNeuron: async () => neuron};
+        const annotation = {id: "annotation-1", getNeuron: async () => neuron};
 
-        vi.spyOn(Reconstruction, "pauseReconstruction").mockImplementation(async () => {
-            state.status = ReconstructionStatus.OnHold;
-            return reconstruction;
+        vi.spyOn(Annotation, "pauseAnnotation").mockImplementation(async () => {
+            state.status = AnnotationStatus.OnHold;
+            return annotation;
         });
-        vi.spyOn(Reconstruction, "resumeReconstruction").mockImplementation(async () => {
-            state.status = ReconstructionStatus.InProgress;
-            return reconstruction;
+        vi.spyOn(Annotation, "resumeAnnotation").mockImplementation(async () => {
+            state.status = AnnotationStatus.InProgress;
+            return annotation;
         });
-        const reconstructionsByNeuron = vi.spyOn(Neuron, "reconstructionsByNeuron").mockImplementation(async (ids: any) => ids.map(() => [{id: "reconstruction-1", status: state.status}]));
+        const annotationsByNeuron = vi.spyOn(Neuron, "annotationsByNeuron").mockImplementation(async (ids: any) => ids.map(() => [{id: "annotation-1", status: state.status}]));
 
         const result: any = await graphql({
             schema,
             source: `mutation {
-                paused: pauseReconstruction(reconstructionId: "reconstruction-1") { neuron { reconstructions { status } } }
-                resumed: resumeReconstruction(reconstructionId: "reconstruction-1") { neuron { reconstructions { status } } }
+                paused: pauseAnnotation(annotationId: "annotation-1") { neuron { annotations { status } } }
+                resumed: resumeAnnotation(annotationId: "annotation-1") { neuron { annotations { status } } }
             }`,
             contextValue: createRequestContext(userStub())
         });
 
         expect(result.errors).toBeUndefined();
-        expect(result.data.paused.neuron.reconstructions[0].status).toBe(ReconstructionStatus.OnHold);
-        expect(result.data.resumed.neuron.reconstructions[0].status).toBe(ReconstructionStatus.InProgress);
-        expect(reconstructionsByNeuron).toHaveBeenCalledTimes(2);
+        expect(result.data.paused.neuron.annotations[0].status).toBe(AnnotationStatus.OnHold);
+        expect(result.data.resumed.neuron.annotations[0].status).toBe(AnnotationStatus.InProgress);
+        expect(annotationsByNeuron).toHaveBeenCalledTimes(2);
     });
 });
 

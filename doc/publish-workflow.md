@@ -1,6 +1,6 @@
 # Reconstruction Publish Workflow
 
-_Updated: 2026-09-23_
+_Updated: 2026-11-04_
 
 How a neuron reconstruction travels from a candidate neuron an annotator picks up, through review, through the
 automatic processing phases, to a published record in the search index — and what happens to the reconstruction it
@@ -8,17 +8,19 @@ supersedes.
 
 ## Vocabulary
 
-Two rows track one piece of work, and each has its own status enum.
+Three rows track one piece of work, and each has its own status enum.
 
 | Entity | Table | Status enum | Holds |
 |---|---|---|---|
-| `Reconstruction` | `Reconstructions` | `ReconstructionStatus` | Specimen-space nodes; the workflow state the user sees |
+| `Annotation` | `Annotations` | `AnnotationStatus` | The workflow state the user sees, and the reconstruction DOI |
+| `SpecimenSpaceReconstruction` | `SpecimenSpaceReconstructions` | `SpecimenSpaceReconstructionStatus` | Specimen-space nodes |
 | `AtlasReconstruction` | `AtlasReconstructions` | `AtlasReconstructionStatus` | Atlas-space (registered) nodes; the processing-pipeline state |
 
-An `AtlasReconstruction` is created at the same moment as its parent `Reconstruction`
-(`Reconstruction.openReconstruction`, `src/models/reconstruction.ts:588`) and stays 1:1 with it for life. The parent's
+An `AtlasReconstruction` is created at the same moment as its parent `Annotation`
+(`Annotation.openAnnotation`, `src/models/annotation.ts:655`) and stays 1:1 with it for life, which the unique,
+non-null `AtlasReconstruction.annotationId` (`src/migrations/20261104000000-annotation-doi.ts`) enforces. The parent's
 status is the coarse, user-facing state; the child's status is the fine-grained pipeline state. The parent learns
-about the child through `onAtlasReconstructionStatusChanged` (`src/models/reconstruction.ts:525`), which handles
+about the child through `onAtlasReconstructionStatusChanged` (`src/models/annotation.ts:592`), which handles
 exactly two transitions — `ReadyToPublish` and `Published`.
 
 The child also carries `failureReason` and `failedAt` (added by `../src/migrations/20260909000000-phase-failure-columns.ts`).
@@ -36,18 +38,18 @@ Two subsets of the child's statuses carry workflow rules:
   is at `FailedSearchIndexing` (1.6).
 
 Supporting rows: `QualityControl` and `Precomputed` hang off the `AtlasReconstruction`; `SpecimenSpacePrecomputed`
-hangs off the `Reconstruction` and is not part of the publish path.
+hangs off the `SpecimenSpaceReconstruction` and is not part of the publish path.
 
 ### Actors
 
 | Actor | Permission bit | Can do |
 |---|---|---|
-| Annotator | `AnnotateOne` / `AnnotateMany` | Open a reconstruction, pause/resume, mark incomplete or duplicate, request peer, team or publish review, discard, mark untraceable |
+| Annotator | `AnnotateOne` / `AnnotateMany` | Open a reconstruction, pause/resume, mark incomplete or duplicate, request peer, team or publish review, discard, mark untraceable, upload specimen-space data to their own reconstruction while `InProgress` or `Rejected` |
 | Peer reviewer | `PeerReview` | Approve peer review, reject, upload specimen-space data, mark untraceable |
 | Team reviewer | `TeamReview` | Approve team review, reject, upload specimen- **or atlas-space** data. **Not** mark untraceable — see 1.3 |
 | Publish reviewer | `PublishReview` | Approve publish review, upload specimen- or atlas-space data, reject, discard past approval, publish, retry a failed phase, replay the pipeline |
-| Admin | `Admin` | Everything above, plus the discard and reject routes reserved to admins, and the retries and the replay |
-| Internal services | `InternalAccess` | Report precomputed generation results; read export data. **No admin bypass** (`src/models/user.ts:523`) |
+| Admin | `Admin` | Everything above except uploading at `InProgress` or `Rejected` on another annotator's reconstruction (section 3, decision 19), plus the discard and reject routes reserved to admins, and the retries and the replay |
+| Internal services | `InternalAccess` | Report precomputed generation results; read export data. **No admin bypass** (`src/models/user.ts:622`) |
 | Synchronization worker | runs as `User.SystemInternalUser` | Quality control, structure assignment, DOI assignment, search indexing |
 | Import tools | none — `disregardAuth` buys out of the permission only | SmartSheet and MouseLight reconciliation, not reachable over GraphQL; held to the same source-status lists as the portal (1.2, 1.4), and beyond them to two hold rules of their own (1.4) |
 
@@ -56,9 +58,9 @@ permissions, which are a subset of the ordinary-user set and never include `Admi
 
 Two permission predicates are worth separating, because they look interchangeable and are not:
 
-- `canModifyReconstruction()` (`src/models/user.ts:379`) is `PublishReview`-only with **no admin bypass**, and gates
+- `canModifyAnnotation()` (`src/models/user.ts:452`) is `PublishReview`-only with **no admin bypass**, and gates
   exactly one thing: `updateMetadata`.
-- `canOperateReconstructionPipeline()` (`:389`) is admin **or** `PublishReview`, and gates every supervisory pipeline
+- `canOperateReconstructionPipeline()` (`:447`) is admin **or** `PublishReview`, and gates every supervisory pipeline
   action — the five per-phase retries and the replay alike. An admin holding no review bit has these, so the replay is
   never more available than the single retry it subsumes.
 
@@ -95,13 +97,13 @@ stateDiagram-v2
     direction TB
     [*] --> Candidate: neuron with no live reconstruction
 
-    Candidate --> InProgress: openReconstruction()<br/>annotator
-    InProgress --> OnHold: pauseReconstruction()
-    OnHold --> InProgress: resumeReconstruction()
-    InProgress --> Incomplete: markReconstructionIncomplete()
-    Incomplete --> InProgress: resumeReconstruction()
-    InProgress --> Duplicate: markReconstructionDuplicate()
-    Duplicate --> InProgress: resumeReconstruction()
+    Candidate --> InProgress: openAnnotation()<br/>annotator
+    InProgress --> OnHold: pauseAnnotation()
+    OnHold --> InProgress: resumeAnnotation()
+    InProgress --> Incomplete: markAnnotationIncomplete()
+    Incomplete --> InProgress: resumeAnnotation()
+    InProgress --> Duplicate: markAnnotationDuplicate()
+    Duplicate --> InProgress: resumeAnnotation()
 
     InProgress --> PeerReview: requestReview(PeerReview)<br/>annotator
     InProgress --> TeamReview: requestReview(TeamReview)<br/>annotator, skipping peer review
@@ -109,19 +111,22 @@ stateDiagram-v2
     Rejected --> PeerReview: requestReview(PeerReview)
     Rejected --> TeamReview: requestReview(TeamReview)
     Rejected --> PublishReview: requestReview(PublishReview)
-    Rejected --> OnHold: pauseReconstruction()
-    Rejected --> Incomplete: markReconstructionIncomplete()
-    Rejected --> Duplicate: markReconstructionDuplicate()
+    Rejected --> OnHold: pauseAnnotation()
+    Rejected --> Incomplete: markAnnotationIncomplete()
+    Rejected --> Duplicate: markAnnotationDuplicate()
+
+    InProgress --> InProgress: uploadSwcData / uploadParquetData<br/>(specimen space, owning annotator)
+    Rejected --> Rejected: uploadSwcData / uploadParquetData<br/>(specimen space, owning annotator)
 
     PeerReview --> PeerReview: uploadSwcData / uploadParquetData<br/>(specimen space, peer reviewer)
-    PeerReview --> TeamReview: approveReconstruction(TeamReview)<br/>peer reviewer
-    PeerReview --> PublishReview: approveReconstruction(PublishReview)<br/>peer reviewer, skipping team review
+    PeerReview --> TeamReview: approveAnnotation(TeamReview)<br/>peer reviewer
+    PeerReview --> PublishReview: approveAnnotation(PublishReview)<br/>peer reviewer, skipping team review
 
     TeamReview --> TeamReview: uploadSwcData / uploadParquetData<br/>(specimen or atlas space, team reviewer)
-    TeamReview --> PublishReview: approveReconstruction(PublishReview)<br/>team reviewer
+    TeamReview --> PublishReview: approveAnnotation(PublishReview)<br/>team reviewer
 
     PublishReview --> PublishReview: uploadSwcData / uploadParquetData<br/>(specimen or atlas space, publish reviewer)
-    PublishReview --> WaitingForAtlasReconstruction: approveReconstruction(Approved)<br/>publish reviewer, atlas data required
+    PublishReview --> WaitingForAtlasReconstruction: approveAnnotation(Approved)<br/>publish reviewer, atlas data required
 
     WaitingForAtlasReconstruction --> ReadyToPublish: automatic processing<br/>(section 2)
     ReadyToPublish --> WaitingForAtlasReconstruction: resetReconstructionPipeline()<br/>publish reviewer or admin
@@ -133,29 +138,29 @@ stateDiagram-v2
 
     Published --> Archived: superseded by<br/>publish(replaceExisting: true)
 
-    PeerReview --> Rejected: rejectReconstruction()<br/>peer reviewer
-    TeamReview --> Rejected: rejectReconstruction()<br/>team reviewer
-    PublishReview --> Rejected: rejectReconstruction()<br/>publish reviewer
-    ReadyToPublish --> Rejected: rejectReconstruction()<br/>publish reviewer
-    WaitingForAtlasReconstruction --> Rejected: rejectReconstruction()<br/>publish reviewer, from a failed phase
-    PublishFailed --> Rejected: rejectReconstruction()<br/>publish reviewer
+    PeerReview --> Rejected: rejectAnnotation()<br/>peer reviewer
+    TeamReview --> Rejected: rejectAnnotation()<br/>team reviewer
+    PublishReview --> Rejected: rejectAnnotation()<br/>publish reviewer
+    ReadyToPublish --> Rejected: rejectAnnotation()<br/>publish reviewer
+    WaitingForAtlasReconstruction --> Rejected: rejectAnnotation()<br/>publish reviewer, from a failed phase
+    PublishFailed --> Rejected: rejectAnnotation()<br/>publish reviewer
 
-    InProgress --> Discarded: discardReconstruction()
-    OnHold --> Discarded: discardReconstruction()
-    Incomplete --> Discarded: discardReconstruction()
-    Duplicate --> Discarded: discardReconstruction()
-    Rejected --> Discarded: discardReconstruction()
-    PeerReview --> Discarded: discardReconstruction()<br/>admin only
-    TeamReview --> Discarded: discardReconstruction()<br/>admin only
-    PublishReview --> Discarded: discardReconstruction()<br/>admin only
-    ReadyToPublish --> Discarded: discardReconstruction()<br/>publish reviewer
-    WaitingForAtlasReconstruction --> Discarded: discardReconstruction()<br/>publish reviewer, from a failed phase
+    InProgress --> Discarded: discardAnnotation()
+    OnHold --> Discarded: discardAnnotation()
+    Incomplete --> Discarded: discardAnnotation()
+    Duplicate --> Discarded: discardAnnotation()
+    Rejected --> Discarded: discardAnnotation()
+    PeerReview --> Discarded: discardAnnotation()<br/>admin only
+    TeamReview --> Discarded: discardAnnotation()<br/>admin only
+    PublishReview --> Discarded: discardAnnotation()<br/>admin only
+    ReadyToPublish --> Discarded: discardAnnotation()<br/>publish reviewer
+    WaitingForAtlasReconstruction --> Discarded: discardAnnotation()<br/>publish reviewer, from a failed phase
 
-    InProgress --> Untraceable: markReconstructionUntraceable()
-    OnHold --> Untraceable: markReconstructionUntraceable()
-    Incomplete --> Untraceable: markReconstructionUntraceable()
-    Duplicate --> Untraceable: markReconstructionUntraceable()
-    Rejected --> Untraceable: markReconstructionUntraceable()
+    InProgress --> Untraceable: markAnnotationUntraceable()
+    OnHold --> Untraceable: markAnnotationUntraceable()
+    Incomplete --> Untraceable: markAnnotationUntraceable()
+    Duplicate --> Untraceable: markAnnotationUntraceable()
+    Rejected --> Untraceable: markAnnotationUntraceable()
 
     Archived --> [*]
     Discarded --> [*]
@@ -163,7 +168,7 @@ stateDiagram-v2
     Published --> [*]
 ```
 
-`PublishFailed` has two edges and no more. `requestSearchIndexing` retries the index build; `rejectReconstruction`
+`PublishFailed` has two edges and no more. `requestSearchIndexing` retries the index build; `rejectAnnotation`
 gives up on the reconstruction and releases its neuron. There is no `Discarded` and no terminal edge from there: a
 reconstruction that got as far as publishing is thrown away by rejecting it first and then discarding the `Rejected`
 row, which is two deliberate acts rather than one. See 1.6 and section 3.
@@ -174,52 +179,53 @@ rests there. See 1.4.
 
 Every one of those transitions checks its source status, and the check is unconditional — `disregardAuth` buys the
 import tools out of the permission beside it, never out of the state rule. The lists are declared together at the top
-of `../src/models/reconstruction.ts` — `ReviewRequestSourceStatuses` (`:107`), `PausableSourceStatuses` (`:118`),
-`ResumableSourceStatuses` (`:128`), `DiscardableSourceStatuses` (`:137`), `AdminDiscardableSourceStatuses` (`:149`),
-`RejectableSourceStatuses` (`:159`), `ApprovalSourceStatuses` (`:172`), `UntraceableSourceStatuses` (`:94`) — so the workflow rules are readable in one
+of `../src/models/annotation.ts` — `ReviewRequestSourceStatuses` (`:103`), `PausableSourceStatuses` (`:114`),
+`ResumableSourceStatuses` (`:124`), `DiscardableSourceStatuses` (`:133`), `AdminDiscardableSourceStatuses` (`:145`),
+`RejectableSourceStatuses` (`:155`), `ApprovalSourceStatuses` (`:168`), `UntraceableSourceStatuses` (`:90`) — so the workflow rules are readable in one
 place rather than inferred from scattered conditionals. `RejectableSourceStatuses` and `AdminDiscardableSourceStatuses`
 each carry three review statuses now, and `ApprovalSourceStatuses` maps each target onto a *list* of sources rather
 than a single one, because `PublishReview` is reachable from peer review and from team review alike. The two
 transitions whose admissibility depends on the child as well as the parent, reject and discard, are composed from those
-lists plus `AbandonableFailureStatuses` by `Reconstruction.isRejectable` and `isDiscardable`, which both the early
+lists plus `AbandonableFailureStatuses` by `Annotation.isRejectable` and `isDiscardable`, which both the early
 refusal and the locked re-decision call, so the two cannot drift.
 
 Two lists are declared elsewhere, both for the same reason: their values are `UserPermissions` or `EventLogItemKind`
-members, and those modules form a require cycle with `reconstruction.ts` that a module-scope dereference from the
-`reconstruction.ts` side would break.
+members, and those modules form a require cycle with `annotation.ts` that a module-scope dereference from the
+`annotation.ts` side would break.
 
-- `UploadSourceStatuses` (`src/models/user.ts:65`) states which statuses an upload may arrive at per space, and the
-  review bit each pairs with — three statuses in specimen space and two in atlas. Both the permission predicate and the
-  locked model check read it (1.3).
+- `UploadSourceStatuses` (`src/models/user.ts:117`) states which statuses an upload may arrive at per space, and the
+  authority each pairs with — five statuses in specimen space (`InProgress` and `Rejected` for the owning annotator
+  alone, and the three reviews each paired with its bit) and two in atlas. Both the permission predicate and the locked
+  model check read it (1.3).
 - `ReviewRequestEventKinds` (`src/models/eventLogItem.ts`) maps each review target onto the event recorded for it, and
   is also the set of targets `requestReview` admits.
 
 ### 1.1 Opening from a candidate
 
 A candidate neuron is one `candidateNeurons` returns. Two independent filters decide it (`Neuron.getCandidateNeurons`,
-`src/models/neuron.ts:271`):
+`src/models/neuron.ts:361`):
 
 - **Blocking.** By default a neuron with a reconstruction in any of `CandidateBlockingStatuses`
-  (`src/models/reconstruction.ts:200`) is held out; `includeInProgress: true` narrows that to
+  (`src/models/annotation.ts:192`) is held out; `includeInProgress: true` narrows that to
   `PublishedCandidateBlockingStatuses`. `OnHold`, `Incomplete`, `Duplicate` and `Archived` are deliberately absent from
   both lists: a held reconstruction does not block its neuron, and an archived one is not a live publication.
   `Discarded` and `Untraceable` rows are soft-deleted and never reach this query.
-- **Exclusion.** A neuron with a reconstruction, by any annotator, at any status in `excludedReconstructionStatuses` is
-  left out as well. Omitted, the list is `CandidateExcludedStatuses` (`src/models/reconstruction.ts:216`): `Untraceable`,
+- **Exclusion.** A neuron with a reconstruction, by any annotator, at any status in `excludedAnnotationStatuses` is
+  left out as well. Omitted, the list is `CandidateExcludedStatuses` (`src/models/annotation.ts:208`): `Untraceable`,
   `Duplicate` and `Incomplete`. An empty list excludes nothing. This query reads soft-deleted rows, so it is what keeps
   an untraceable neuron out. It applies whatever `includeInProgress` is, and never releases a blocked neuron.
 
 So by default, of the holds, only `OnHold` returns a neuron to the listing.
 
-The annotator calls `openReconstruction(neuronId)`, which creates the `Reconstruction` at `InProgress` with
+The annotator calls `openAnnotation(neuronId)`, which creates the `Annotation` at `InProgress` with
 `startedAt` set, and the paired `AtlasReconstruction` at `Initialized`.
 
 Two limits apply:
 
 - A user holding only `AnnotateOne` may have exactly one reconstruction outside `AnnotationLimitExemptStatuses`
-  (`src/models/reconstruction.ts:70`): the closed statuses (`ClosedReconstructionStatuses` = Rejected, Published,
+  (`src/models/annotation.ts:62`): the closed statuses (`ClosedAnnotationStatuses` = Rejected, Published,
   Archived, Untraceable, Discarded) plus the three holds, `OnHold`, `Incomplete` and `Duplicate`. The check takes a row
-  lock on the user so two concurrent opens cannot both pass it. `resumeReconstruction` applies the same locked check
+  lock on the user so two concurrent opens cannot both pass it. `resumeAnnotation` applies the same locked check
   before taking a held reconstruction back to `InProgress` (1.2). Clients don't pre-check the limit; the code 1002
   refusal is the contract.
 - Re-opening the same neuron returns the existing non-closed row rather than creating a second one, and that row may be
@@ -230,10 +236,10 @@ Two limits apply:
 Actual reconstruction work happens outside this API — the annotator traces in an external tool. The portal sees nothing
 until data is uploaded.
 
-**The candidate pool is not the only entry point.** `openReconstructionRevision(reconstructionId, revisionKind)`
-(`src/models/reconstruction.ts:500`) opens a fresh `Reconstruction` on the *same neuron* as an existing one — normally
+**The candidate pool is not the only entry point.** `openAnnotationRevision(annotationId, revisionKind)`
+(`src/models/annotation.ts:567`) opens a fresh `Annotation` on the *same neuron* as an existing one — normally
 a `Published` one, which is how a neuron gets a second version to supersede the first. It is gated on
-`canReviseReconstruction()`, which is `canAnnotate()` and nothing more, and it delegates to `openReconstruction`, so
+`canReviseAnnotation()`, which is `canAnnotate()` and nothing more, and it delegates to `openAnnotation`, so
 the annotation limit and the per-annotator existing-row check both still apply. With `revisionKind: AtlasSpace` it
 also copies the source's specimen-space nodes, soma, metadata and node counts onto the new row and queues a
 specimen-space precomputed regeneration, so the revision starts at `InProgress` with specimen data already loaded and
@@ -243,10 +249,10 @@ reaches `publish(replaceExisting: true)`.
 
 ### 1.2 Requesting review
 
-The annotator calls `requestReview(reconstructionId, targetStatus)` from `InProgress` or `Rejected`. `completedAt` is
+The annotator calls `requestReview(annotationId, targetStatus)` from `InProgress` or `Rejected`. `completedAt` is
 stamped, and `durationHours` and `notes` may be supplied with the request — **this is the annotator's only route for
-recording those two fields**, since `updateReconstruction` requires the `PublishReview` bit
-(`User.canModifyReconstruction`, `src/models/user.ts:379`).
+recording those two fields**, since `updateAnnotation` requires the `PublishReview` bit
+(`User.canModifyAnnotation`, `src/models/user.ts:452`).
 
 Three targets are permitted, and the annotator may choose any of them:
 
@@ -256,21 +262,26 @@ Three targets are permitted, and the annotator may choose any of them:
 
 Skipping is supported, not a loophole, but it has the same record-keeping consequence for both optional stages: the
 reviewer pair for a stage is written only by the approval that leaves it — `reviewerId` / `reviewedAt` by
-`approveReconstruction` out of `PeerReview`, `teamReviewerId` / `teamReviewedAt` by the one out of `TeamReview` — so a
+`approveAnnotation` out of `PeerReview`, `teamReviewerId` / `teamReviewedAt` by the one out of `TeamReview` — so a
 reconstruction that skips a stage has no reviewer recorded for it, and none appears in the DOI contributor list built
 during DOI assignment (`src/models/atlasReconstruction.ts`).
 
-**Three hold statuses.** `pauseReconstruction`, `markReconstructionIncomplete` and `markReconstructionDuplicate` each
+**Three hold statuses.** `pauseAnnotation`, `markAnnotationIncomplete` and `markAnnotationDuplicate` each
 write their own status (`OnHold`, `Incomplete`, `Duplicate`) and their own event, from `InProgress` or `Rejected`, for
-the annotator or an admin. All three share one implementation, `Reconstruction.holdReconstruction`
-(`src/models/reconstruction.ts:802`), so they cannot drift apart. A hold is left only by `resumeReconstruction`
+the annotator or an admin. All three share one implementation, `Annotation.holdAnnotation`
+(`src/models/annotation.ts:796`), so they cannot drift apart. A hold is left only by `resumeAnnotation`
 (`ResumableSourceStatuses`), so moving from one hold to another means resuming first, and no hold is a source for any
 review target. Each is a distinct value, filtered on its own. None of the three blocks its neuron, though by default
 `candidateNeurons` excludes a neuron with an `Incomplete` or `Duplicate` row (1.1), and none counts toward the
 single-annotation limit (1.1). Resuming takes the slot back, so for an annotator holding only
-`AnnotateOne` `resumeReconstruction` refuses with code 1002 while another of their reconstructions holds it - the same
-locked count `openReconstruction` makes, against the annotator's permissions even when an admin resumes on their
+`AnnotateOne` `resumeAnnotation` refuses with code 1002 while another of their reconstructions holds it - the same
+locked count `openAnnotation` makes, against the annotator's permissions even when an admin resumes on their
 behalf.
+
+**Uploading before review.** The annotator may replace their own reconstruction's specimen-space node data while it is
+`InProgress` or `Rejected`, from Reconstruction Neurons. The effects are the 1.3 upload's, and no review bit is
+involved. The upload is the annotator's alone: an admin who is not the annotator is refused here (section 3,
+decision 19).
 
 ### 1.3 The Optional Reviews
 
@@ -280,33 +291,35 @@ re-derives the soma, and queues a specimen-space precomputed regeneration for th
 atlas space as well (1.4); a peer reviewer may not.
 
 Who may do that is tied to the review the reconstruction is actually in: an admin, or the bit `UploadSourceStatuses`
-pairs with the status the reconstruction holds (`User.canUploadReconstructionData`, `src/models/user.ts:506`).
-`PeerReview` requires the `PeerReview` bit, `TeamReview` the `TeamReview` bit, `PublishReview` the `PublishReview` bit,
-and any other status is not an upload source at all. The bit tracks the status rather than the space, so holding one
-review bit is no licence to rewrite data in another review.
+pairs with the status the reconstruction holds (`User.canUploadReconstructionData`, `src/models/user.ts:580`).
+`PeerReview` requires the `PeerReview` bit, `TeamReview` the `TeamReview` bit, `PublishReview` the `PublishReview` bit.
+`InProgress` and `Rejected` admit the reconstruction's own annotator alone, with no admin bypass (section 3, decision
+19), and any other status is not an upload source at all. The bit tracks the status rather than the space, so holding
+one review bit is no licence to rewrite data in another review. Ownership is read from the locked row in the re-check,
+as discard's is.
 
 One rule, one declaration, both spaces: the same map decides the eager permission and the locked check inside
-`fromParsedStructures` (`src/models/reconstruction.ts`). The locked check is what decides — the file is parsed before
+`fromParsedStructures` (`src/models/annotation.ts`). The locked check is what decides — the file is parsed before
 the transaction opens, which is the slow part, and an approval committing in between changes both the status and who is
 allowed to write at it. See 2.4, *One lock order, and one decision point*. The status half of the check sits outside
 `disregardAuth` on both branches, so the import tools are held to it as well.
 
 The reviewer then either:
 
-- `approveReconstruction(id, TeamReview)` or `approveReconstruction(id, PublishReview)` — the status becomes the target,
+- `approveAnnotation(id, TeamReview)` or `approveAnnotation(id, PublishReview)` — the status becomes the target,
   and the reviewer pair for the stage being **left** is recorded: out of `PeerReview` that is `reviewerId` /
   `reviewedAt`, whichever of the two targets it lands at, and out of `TeamReview` it is `teamReviewerId` /
   `teamReviewedAt`. Which actor may approve therefore follows the source rather than the target, and the permission is
   repeated against the locked row for exactly that reason: the two sources share the `PublishReview` target, so the
   status test alone would let a peer reviewer sign off a reconstruction a request has since moved to team review; or
-- `rejectReconstruction(id)` — status becomes `Rejected` and the reviewer pair for the source stage records the
+- `rejectAnnotation(id)` — status becomes `Rejected` and the reviewer pair for the source stage records the
   rejector. A reject from either optional review deliberately does **not** touch the child: the child's `reviewerId` is
   the publish reviewer the DOI credits, and neither a peer nor a team reviewer may overwrite it. `Rejected` is not
   terminal: it is `InProgress` with changes asked for, and carries the same rights — the annotator can request review
   again, put it on hold (pause, or mark it incomplete or a duplicate), discard, or mark it untraceable.
 
 **A team reviewer may not mark a reconstruction untraceable**, in either sense: `TeamReview` is not in
-`UntraceableSourceStatuses`, and the `TeamReview` bit is not in `canMarkReconstructionUntraceable`'s reviewer mask. A
+`UntraceableSourceStatuses`, and the `TeamReview` bit is not in `canMarkAnnotationUntraceable`'s reviewer mask. A
 team reviewer who finds a neuron untraceable rejects it, and the annotator marks it untraceable from `Rejected`. Both
 omissions are decisions rather than oversights, and each is pinned by a test.
 
@@ -315,7 +328,7 @@ omissions are decisions rather than oversights, and each is pinned by a test.
 `PublishReview` is where the reconstruction is registered into atlas space and proofread. A publish reviewer uploads
 atlas-space data with `reconstructionSpace: Atlas`, which replaces the `AtlasNode` rows, sets the child status to
 `ReadyToProcess`, records the node counts, and clears any `failureReason` left by an earlier run
-(`AtlasReconstruction.replaceNodeData`, `src/models/atlasReconstruction.ts:343`). If the neuron has no meaningful
+(`AtlasReconstruction.replaceNodeData`, `src/models/atlasReconstruction.ts:328`). If the neuron has no meaningful
 atlas soma yet, it is back-filled from the uploaded soma. The upload's integer structure ids are resolved through the
 specimen's atlas, read after the status check; if that atlas isn't loaded, the upload fails.
 
@@ -326,8 +339,8 @@ status-independent, so a child at `ReadyToProcess` under a `TeamReview` parent i
 work. The bit still tracks the status — a `TeamReview` holder is refused in atlas space at `PublishReview`, and a
 `PublishReview` holder at `TeamReview`.
 
-**The atlas upload comes first.** `approveReconstruction(id, Approved)` refuses a reconstruction whose child has no
-`nodeCounts`, with `GraphQLError` code **1005** (`src/models/reconstruction.ts`), in the permission and in the locked
+**The atlas upload comes first.** `approveAnnotation(id, Approved)` refuses a reconstruction whose child has no
+`nodeCounts`, with `GraphQLError` code **1005** (`src/models/annotation.ts`), in the permission and in the locked
 check alike. A refused approval leaves the reconstruction at `PublishReview`, where the upload, the reject and the
 admin discard are all available, so nothing is stranded.
 
@@ -335,26 +348,35 @@ There is no deferred-upload path behind that refusal. `fromParsedStructures` doe
 source and does not call `prepareToFinalize`, and `AtlasReconstruction.approve` and `prepareToFinalize` both return
 `void` rather than reporting whether they managed to start the pipeline — starting it is not conditional, because the
 data it needs is a precondition of the approval that precedes it. Both import tools follow the same order: park the
-reconstruction at `PublishReview`, upload, then approve (`src/tools/smartSheetImport.ts:473`, `:480`, `:581`, `:586`;
-`src/tools/mouselightImport.ts:380`, `:385`, `:399`), catching the refusal and recording the reconstruction as failed
+reconstruction at `PublishReview`, upload, then approve (`src/tools/smartSheetImport.ts:523`, `:534`, `:670`, `:675`;
+`src/tools/mouselightImport.ts:393`, `:398`, `:412`), catching the refusal and recording the reconstruction as failed
 to approve.
+
+**SmartSheet also loads specimen data the annotator has delivered.** A row the run creates at `InProgress` goes
+through loading rather than stopping at the transition, and an existing reconstruction the portal holds at
+`InProgress` or `Rejected` goes through loading whatever its sheet status says, unless the guard below skips the row
+(`importLoadsExistingReconstruction`, `src/tools/importTransitionGuard.ts`). Data already present is never replaced, so
+an annotator's own upload survives every run, and the atlas load in the same step is refused at those statuses as
+before. Only `PublishReview` and `Approved` sheet statuses say the data should exist
+(`sheetExpectsReconstructionData`); elsewhere the lookup is speculative, and a missing directory or file writes a
+`debug` line but no report entry.
 
 **Parking is idempotent, and only for the imports.** A run whose approve was refused for want of atlas data leaves the
 row at `PublishReview` for the next run to finish, so `requestReview(PublishReview)` under `disregardAuth` treats a
 reconstruction already at the status it is asking for as satisfied: it returns the row unchanged, writing nothing and
-recording no event (`src/models/reconstruction.ts:738`). A portal caller asking for a review the reconstruction is
+recording no event (`src/models/annotation.ts:867`). A portal caller asking for a review the reconstruction is
 already in is still refused — there it is a mistake rather than a resumption.
 
 **What the imports may move, and what they skip.** Both tools check the row against the same source-status lists
 before calling anything, so a reconstruction the portal has moved on is skipped rather than rewound
-(`importMayTransition`, `src/tools/importTransitionGuard.ts:43`, shared by both). The guard maps each target to the
+(`importMayTransition`, `src/tools/importTransitionGuard.ts:45`, shared by both). The guard maps each target to the
 list the transition requires — `OnHold`, `Incomplete` and `Duplicate` to `PausableSourceStatuses`, `PublishReview` and
 `Approved` to `ReviewRequestSourceStatuses` with the parking exemption above, `Untraceable` to
 `UntraceableSourceStatuses` — and it runs before anything in the row is written. SmartSheet maps only its `Hold` and
 `Incomplete` values; `Duplicate` is not a sheet status, because duplicates are kept out of the import by a separate
 mechanism, and only the portal sets it. Neither optional review is in that map, because neither is a target an
 import ever drives a reconstruction to: both tools park at `PublishReview` and approve from there. **The whole row is skipped, not just the refused transition**
-(`src/tools/smartSheetImport.ts:427`), matching the immutable-status guard above it: no metadata update, no report
+(`src/tools/smartSheetImport.ts:460`), matching the immutable-status guard above it: no metadata update, no report
 entry under added or modified, and no atlas upload or approval, because the upload runs after the transition and would
 otherwise write data over a row the guard has just refused. SmartSheet records each skip in its own report section,
 *Reconstructions not Updated (status no longer admits the change)*; MouseLight writes a `debug` line, having no report
@@ -366,7 +388,7 @@ effect; see section 3.
 **Two hold rules of the imports' own**, both checked ahead of the map:
 
 - **A hold is applied only by the run that creates the reconstruction.** SmartSheet passes `!reconstructionExisted`
-  (computed before `findOrOpenReconstruction`, `src/tools/smartSheetImport.ts:397`) as the guard's `createdThisRun`. A
+  (computed before `findOrOpenAnnotation`, `src/tools/smartSheetImport.ts:430`) as the guard's `createdThisRun`. A
   reconstruction that existed before the run keeps its status whatever the sheet says, so a reconstruction the
   annotator resumed in the portal is not re-held by the next run while the sheet still says hold.
 - **A held reconstruction is out of the import's reach**, whatever the sheet now says — including `In Progress` and
@@ -377,14 +399,14 @@ only target is `PublishReview`, is unaffected.
 
 The publish reviewer then either:
 
-- `approveReconstruction(id, Approved)` — `approvedAt` is stamped, the child records the approver as `reviewerId`, the
+- `approveAnnotation(id, Approved)` — `approvedAt` is stamped, the child records the approver as `reviewerId`, the
   automatic phases begin, and the parent lands at `WaitingForAtlasReconstruction` in that same transaction; or
-- `rejectReconstruction(id)` — status becomes `Rejected`, and the child records the rejector and rewinds (1.6).
+- `rejectAnnotation(id)` — status becomes `Rejected`, and the child records the rejector and rewinds (1.6).
 
 ### 1.5 Publishing
 
 Once the automatic phases finish — including DOI assignment — the reconstruction reaches `ReadyToPublish` and appears
-in the publisher's queue. A publish reviewer calls `publish(reconstructionId, replaceExisting)` or `publishAll(ids)`.
+in the publisher's queue. A publish reviewer calls `publish(annotationId, replaceExisting)` or `publishAll(ids)`.
 
 `publishAll` takes at most **50** reconstructions per call. A longer explicit list is refused outright with error code
 **1007** rather than partially executed, and `publishAll(["ALL"])` publishes the oldest 50 *publishable*
@@ -396,7 +418,7 @@ operation's.
 
 **Publishable is decided in the query, not discovered in the loop.** The `ALL` selection carries a correlated
 `NOT EXISTS` over sibling reconstructions of the same neuron at any of `PublishedCandidateBlockingStatuses`
-(`src/models/reconstruction.ts:1090`), reading off the same constant the sibling refusal below queries with, so the
+(`src/models/annotation.ts:1205`), reading off the same constant the sibling refusal below queries with, so the
 two cannot drift. Without it a reconstruction whose neuron already holds a publish is refused on every call and keeps
 its place at the head of the oldest-first batch indefinitely; with it the drain terminates by construction. It
 narrows the selection and is not a guard — a sibling committing between the query and the transaction is still refused
@@ -409,13 +431,13 @@ caller diffs it against what it sent, or on the `ALL` branch simply calls again,
 sibling that caused the refusal. Anything that is not a refusal — a lock timeout, a failed commit, a defect —
 propagates rather than being reported as a short list, because a caller told "partially done" retries into an outage
 indefinitely. The two are told apart by type rather than by message: the state and sibling refusals throw
-`PublishRefusalError` (`src/models/reconstruction.ts:72`), carrying codes **1001**, **1003** or **1008**, and nothing
+`PublishRefusalError` (`src/models/annotation.ts:79`), carrying codes **1001**, **1003** or **1008**, and nothing
 else in the publish path does.
 
 `publish` refuses unless the parent is `ReadyToPublish`, the child has `nodeCounts`, **and** both the reconstruction
 DOI and the neuron's canonical DOI are already recorded. Those are asserted, not assigned: `publish` makes no DataCite
-call at all. The guards on the eager instance (`src/models/reconstruction.ts:974`) are an early refusal; the decision
-that counts is made against rows read under lock inside the transaction (`publishWithTransaction`, `:988`), because a
+call at all. The guards on the eager instance (`src/models/annotation.ts:1089`) are an early refusal; the decision
+that counts is made against rows read under lock inside the transaction (`publishWithTransaction`, `:1104`), because a
 reject or a pipeline replay can have moved the pair since the request was loaded. A missing DOI is deliberately not a
 refusal in the `PublishRefusalError` sense: the assignment phase registers both before `ReadyToPublish` and a replay
 keeps them, so a row without one is broken rather than racing, and a bulk call surfaces it instead of stopping
@@ -433,14 +455,14 @@ Inside one transaction, holding a `LOCK.UPDATE` on the neuron row, then the chil
   so the archived version remains resolvable by DOI and by direct link.
 
 The reconstruction then moves to `Publishing` and the child to `PendingSearchIndexing`. The child's move is a
-compare-and-set on `ReadyToPublish` (`tryStartPublishing`, `src/models/atlasReconstruction.ts:973`), so a publish that
+compare-and-set on `ReadyToPublish` (`tryStartPublishing`, `src/models/atlasReconstruction.ts:958`), so a publish that
 loses a race to a replay writes nothing and returns false rather than overwriting it. It becomes `Published` when
 indexing completes, usually within one 60-second worker cycle.
 
 An index build that fails leaves the reconstruction at `PublishFailed` rather than sitting at `Publishing`, so it is
 visible in the queue as stalled rather than as still working, and it holds no rows in the search index from the moment
 the failure is recorded (2.4). Two routes lead out. `requestSearchIndexing` moves both rows back — the parent to
-`Publishing`, the child to `PendingSearchIndexing` — for the worker to retry. `rejectReconstruction` gives up on it
+`Publishing`, the child to `PendingSearchIndexing` — for the worker to retry. `rejectAnnotation` gives up on it
 instead: the parent lands at `Rejected` and the child rewinds to `ReadyToProcess`, which releases the neuron, since
 `PublishFailed` blocks a sibling's publish and `Rejected` does not (1.6).
 
@@ -448,14 +470,14 @@ instead: the parent lands at `Rejected` and the child rewinds to `ReadyToProcess
 
 | Action | From | Who |
 |---|---|---|
-| `discardReconstruction` | InProgress, OnHold, Incomplete, Duplicate, Rejected | Annotator or admin |
-| `discardReconstruction` | PeerReview, TeamReview, PublishReview | Admin only |
-| `discardReconstruction` | ReadyToPublish, or a child at an abandonable failed phase | Publish reviewer or admin |
-| `rejectReconstruction` | PeerReview | Peer reviewer or admin |
-| `rejectReconstruction` | TeamReview | Team reviewer or admin |
-| `rejectReconstruction` | PublishReview, ReadyToPublish, or a child at an abandonable failed phase | Publish reviewer or admin |
-| `rejectReconstruction` | PublishFailed, with the child at `FailedSearchIndexing` | Publish reviewer or admin |
-| `markReconstructionUntraceable` | InProgress, OnHold, Incomplete, Duplicate, Rejected | Annotator, peer or publish reviewer, or admin |
+| `discardAnnotation` | InProgress, OnHold, Incomplete, Duplicate, Rejected | Annotator or admin |
+| `discardAnnotation` | PeerReview, TeamReview, PublishReview | Admin only |
+| `discardAnnotation` | ReadyToPublish, or a child at an abandonable failed phase | Publish reviewer or admin |
+| `rejectAnnotation` | PeerReview | Peer reviewer or admin |
+| `rejectAnnotation` | TeamReview | Team reviewer or admin |
+| `rejectAnnotation` | PublishReview, ReadyToPublish, or a child at an abandonable failed phase | Publish reviewer or admin |
+| `rejectAnnotation` | PublishFailed, with the child at `FailedSearchIndexing` | Publish reviewer or admin |
+| `markAnnotationUntraceable` | InProgress, OnHold, Incomplete, Duplicate, Rejected | Annotator, peer or publish reviewer, or admin |
 
 Discard and untraceable tear the row down identically — status set, then the row and everything downstream of it
 soft-deleted, and the row no longer blocks the neuron. `Untraceable` is the "this neuron cannot be traced" verdict
@@ -463,19 +485,19 @@ and is surfaced on the neuron, and `candidateNeurons` excludes the neuron by def
 was no good" and is neither, so the neuron returns to the candidate pool.
 
 The annotator is deliberately absent from the post-approval routes: a reconstruction inside the pipeline is not theirs
-to abandon. `User.isReviewerAbandonable` (`src/models/user.ts:406`) is where that rule lives, and both
-`canRejectReconstruction` (`:443`) and `canDiscardReconstruction` (`:414`) take the child's status as an argument so
+to abandon. `User.isReviewerAbandonable` (`src/models/user.ts:479`) is where that rule lives, and both
+`canRejectAnnotation` (`:501`) and `canDiscardAnnotation` (`:472`) take the child's status as an argument so
 neither can answer for the pair without it.
 
 **Reject reaches one status discard does not.** The `PublishFailed` row above is a clause of its own in
-`Reconstruction.isRejectable` and in `canRejectReconstruction`, rather than a widening of
+`Annotation.isRejectable` and in `canRejectAnnotation`, rather than a widening of
 `AbandonableFailureStatuses` or of `isReviewerAbandonable` — both of those are shared with discard and the pipeline
 replay, and widening either would hand them a route out of `PublishFailed` that section 3 rules out deliberately. What
 the reject recovers is the neuron rather than the publication: the predecessor was archived and de-indexed when the
 publish began and reject does not put that back.
 
 **What a reject past approval leaves behind.** Rejecting from `ReadyToPublish`, from a failed phase or from
-`PublishFailed` is treated as a full reset (`AtlasReconstruction.reject`, `src/models/atlasReconstruction.ts:289`):
+`PublishFailed` is treated as a full reset (`AtlasReconstruction.reject`, `src/models/atlasReconstruction.ts:286`):
 the child returns to
 `ReadyToProcess` with `failureReason`, `failedAt` and `nodeStructureAssignmentAt` cleared, so a revised reconstruction
 re-enters the pipeline rather than resuming mid-way. `ReadyToProcess` is exactly the approvable state — atlas data
@@ -491,7 +513,7 @@ The diagram opening this section is the whole picture and stays the reference. T
 states and transitions each role actually touches, with nothing added and nothing renamed. Transitions driven by
 someone else are kept where they are the way work arrives or leaves, and labelled with the actor who drives them.
 
-`markReconstructionUntraceable` is available to the peer or publish reviewer as well as the annotator, from
+`markAnnotationUntraceable` is available to the peer or publish reviewer as well as the annotator, from
 `InProgress`, `OnHold`, `Incomplete`, `Duplicate` and `Rejected`; it appears once, in the annotator's figure, rather than in all of them. The team
 reviewer has no such edge in any figure (1.3).
 
@@ -502,13 +524,13 @@ stateDiagram-v2
     direction TB
     [*] --> Candidate: neuron with no live reconstruction
 
-    Candidate --> InProgress: openReconstruction()
-    InProgress --> OnHold: pauseReconstruction()
-    OnHold --> InProgress: resumeReconstruction()
-    InProgress --> Incomplete: markReconstructionIncomplete()
-    Incomplete --> InProgress: resumeReconstruction()
-    InProgress --> Duplicate: markReconstructionDuplicate()
-    Duplicate --> InProgress: resumeReconstruction()
+    Candidate --> InProgress: openAnnotation()
+    InProgress --> OnHold: pauseAnnotation()
+    OnHold --> InProgress: resumeAnnotation()
+    InProgress --> Incomplete: markAnnotationIncomplete()
+    Incomplete --> InProgress: resumeAnnotation()
+    InProgress --> Duplicate: markAnnotationDuplicate()
+    Duplicate --> InProgress: resumeAnnotation()
 
     InProgress --> PeerReview: requestReview(PeerReview)
     InProgress --> TeamReview: requestReview(TeamReview)<br/>skipping peer review
@@ -516,25 +538,28 @@ stateDiagram-v2
     Rejected --> PeerReview: requestReview(PeerReview)
     Rejected --> TeamReview: requestReview(TeamReview)
     Rejected --> PublishReview: requestReview(PublishReview)
-    Rejected --> OnHold: pauseReconstruction()
-    Rejected --> Incomplete: markReconstructionIncomplete()
-    Rejected --> Duplicate: markReconstructionDuplicate()
+    Rejected --> OnHold: pauseAnnotation()
+    Rejected --> Incomplete: markAnnotationIncomplete()
+    Rejected --> Duplicate: markAnnotationDuplicate()
 
-    PeerReview --> Rejected: rejectReconstruction()<br/>peer reviewer
-    TeamReview --> Rejected: rejectReconstruction()<br/>team reviewer
-    PublishReview --> Rejected: rejectReconstruction()<br/>publish reviewer
+    InProgress --> InProgress: uploadSwcData / uploadParquetData<br/>(specimen space)
+    Rejected --> Rejected: uploadSwcData / uploadParquetData<br/>(specimen space)
 
-    InProgress --> Discarded: discardReconstruction()
-    OnHold --> Discarded: discardReconstruction()
-    Incomplete --> Discarded: discardReconstruction()
-    Duplicate --> Discarded: discardReconstruction()
-    Rejected --> Discarded: discardReconstruction()
+    PeerReview --> Rejected: rejectAnnotation()<br/>peer reviewer
+    TeamReview --> Rejected: rejectAnnotation()<br/>team reviewer
+    PublishReview --> Rejected: rejectAnnotation()<br/>publish reviewer
 
-    InProgress --> Untraceable: markReconstructionUntraceable()
-    OnHold --> Untraceable: markReconstructionUntraceable()
-    Incomplete --> Untraceable: markReconstructionUntraceable()
-    Duplicate --> Untraceable: markReconstructionUntraceable()
-    Rejected --> Untraceable: markReconstructionUntraceable()
+    InProgress --> Discarded: discardAnnotation()
+    OnHold --> Discarded: discardAnnotation()
+    Incomplete --> Discarded: discardAnnotation()
+    Duplicate --> Discarded: discardAnnotation()
+    Rejected --> Discarded: discardAnnotation()
+
+    InProgress --> Untraceable: markAnnotationUntraceable()
+    OnHold --> Untraceable: markAnnotationUntraceable()
+    Incomplete --> Untraceable: markAnnotationUntraceable()
+    Duplicate --> Untraceable: markAnnotationUntraceable()
+    Rejected --> Untraceable: markAnnotationUntraceable()
 
     Discarded --> [*]
     Untraceable --> [*]
@@ -552,10 +577,10 @@ stateDiagram-v2
     Rejected --> PeerReview: requestReview(PeerReview)<br/>annotator
 
     PeerReview --> PeerReview: uploadSwcData / uploadParquetData<br/>(specimen space)
-    PeerReview --> TeamReview: approveReconstruction(TeamReview)
-    PeerReview --> PublishReview: approveReconstruction(PublishReview)<br/>skipping team review
-    PeerReview --> Rejected: rejectReconstruction()
-    PeerReview --> Discarded: discardReconstruction()<br/>admin only
+    PeerReview --> TeamReview: approveAnnotation(TeamReview)
+    PeerReview --> PublishReview: approveAnnotation(PublishReview)<br/>skipping team review
+    PeerReview --> Rejected: rejectAnnotation()
+    PeerReview --> Discarded: discardAnnotation()<br/>admin only
 
     Discarded --> [*]
 ```
@@ -571,12 +596,12 @@ stateDiagram-v2
     direction TB
     InProgress --> TeamReview: requestReview(TeamReview)<br/>annotator, skipping peer review
     Rejected --> TeamReview: requestReview(TeamReview)<br/>annotator
-    PeerReview --> TeamReview: approveReconstruction(TeamReview)<br/>peer reviewer
+    PeerReview --> TeamReview: approveAnnotation(TeamReview)<br/>peer reviewer
 
     TeamReview --> TeamReview: uploadSwcData / uploadParquetData<br/>(specimen or atlas space)
-    TeamReview --> PublishReview: approveReconstruction(PublishReview)
-    TeamReview --> Rejected: rejectReconstruction()
-    TeamReview --> Discarded: discardReconstruction()<br/>admin only
+    TeamReview --> PublishReview: approveAnnotation(PublishReview)
+    TeamReview --> Rejected: rejectAnnotation()
+    TeamReview --> Discarded: discardAnnotation()<br/>admin only
 
     Discarded --> [*]
 ```
@@ -592,11 +617,11 @@ stateDiagram-v2
     direction TB
     InProgress --> PublishReview: requestReview(PublishReview)<br/>annotator, skipping both optional reviews
     Rejected --> PublishReview: requestReview(PublishReview)<br/>annotator
-    PeerReview --> PublishReview: approveReconstruction(PublishReview)<br/>peer reviewer, skipping team review
-    TeamReview --> PublishReview: approveReconstruction(PublishReview)<br/>team reviewer
+    PeerReview --> PublishReview: approveAnnotation(PublishReview)<br/>peer reviewer, skipping team review
+    TeamReview --> PublishReview: approveAnnotation(PublishReview)<br/>team reviewer
 
     PublishReview --> PublishReview: uploadSwcData / uploadParquetData<br/>(specimen or atlas space)
-    PublishReview --> WaitingForAtlasReconstruction: approveReconstruction(Approved)<br/>atlas data required
+    PublishReview --> WaitingForAtlasReconstruction: approveAnnotation(Approved)<br/>atlas data required
 
     WaitingForAtlasReconstruction --> ReadyToPublish: automatic processing<br/>(section 2)
     ReadyToPublish --> WaitingForAtlasReconstruction: resetReconstructionPipeline()
@@ -608,14 +633,14 @@ stateDiagram-v2
 
     Published --> Archived: superseded by<br/>publish(replaceExisting: true)
 
-    PublishReview --> Rejected: rejectReconstruction()
-    ReadyToPublish --> Rejected: rejectReconstruction()
-    WaitingForAtlasReconstruction --> Rejected: rejectReconstruction()<br/>from a failed phase
-    PublishFailed --> Rejected: rejectReconstruction()
+    PublishReview --> Rejected: rejectAnnotation()
+    ReadyToPublish --> Rejected: rejectAnnotation()
+    WaitingForAtlasReconstruction --> Rejected: rejectAnnotation()<br/>from a failed phase
+    PublishFailed --> Rejected: rejectAnnotation()
 
-    PublishReview --> Discarded: discardReconstruction()<br/>admin only
-    ReadyToPublish --> Discarded: discardReconstruction()
-    WaitingForAtlasReconstruction --> Discarded: discardReconstruction()<br/>from a failed phase
+    PublishReview --> Discarded: discardAnnotation()<br/>admin only
+    ReadyToPublish --> Discarded: discardAnnotation()
+    WaitingForAtlasReconstruction --> Discarded: discardAnnotation()<br/>from a failed phase
 
     Archived --> [*]
     Discarded --> [*]
@@ -653,7 +678,7 @@ stateDiagram-v2
     PeerReview --> TeamReview
     PeerReview --> PublishReview
     TeamReview --> PublishReview
-    PublishReview --> Approved: approveReconstruction(Approved)<br/>refused without atlas data (1005)
+    PublishReview --> Approved: approveAnnotation(Approved)<br/>refused without atlas data (1005)
 
     state "Approved" as Approved
     note right of Approved
@@ -676,15 +701,15 @@ stateDiagram-v2
     PublishReview --> Rejected
     ReadyToPublish --> Rejected
     WaitingForAtlasReconstruction --> Rejected: from an abandonable failed phase
-    PublishFailed --> Rejected: rejectReconstruction()<br/>publish reviewer
+    PublishFailed --> Rejected: rejectAnnotation()<br/>publish reviewer
     Rejected --> PeerReview
     Rejected --> TeamReview
     Rejected --> PublishReview
 ```
 
-`Approved` and `WaitingForAtlasReconstruction` are two halves of one moment: `approveReconstruction` writes `Approved`,
+`Approved` and `WaitingForAtlasReconstruction` are two halves of one moment: `approveAnnotation` writes `Approved`,
 starts the child, and rewrites to `WaitingForAtlasReconstruction` before the transaction commits. The write stays
-because it carries `approvedAt` and the `ReconstructionApprovePublishReview` event, but the status is not one anything
+because it carries `approvedAt` and the `AnnotationApprovePublishReview` event, but the status is not one anything
 can be queried in. It remains in `ApprovalSourceStatuses` as an approval *target* and in `CandidateBlockingStatuses`
 harmlessly.
 
@@ -735,19 +760,19 @@ stateDiagram-v2
     FailedDoiAssignment --> PendingQualityControl: resetReconstructionPipeline()
     ReadyToPublish --> PendingQualityControl: resetReconstructionPipeline()
 
-    FailedQualityControl --> ReadyToProcess: rejectReconstruction()
-    FailedStructureAssignment --> ReadyToProcess: rejectReconstruction()
-    FailedPrecomputed --> ReadyToProcess: rejectReconstruction()
-    FailedDoiAssignment --> ReadyToProcess: rejectReconstruction()
-    ReadyToPublish --> ReadyToProcess: rejectReconstruction()
-    FailedSearchIndexing --> ReadyToProcess: rejectReconstruction()<br/>parent → Rejected
+    FailedQualityControl --> ReadyToProcess: rejectAnnotation()
+    FailedStructureAssignment --> ReadyToProcess: rejectAnnotation()
+    FailedPrecomputed --> ReadyToProcess: rejectAnnotation()
+    FailedDoiAssignment --> ReadyToProcess: rejectAnnotation()
+    ReadyToPublish --> ReadyToProcess: rejectAnnotation()
+    FailedSearchIndexing --> ReadyToProcess: rejectAnnotation()<br/>parent → Rejected
 
     Published --> [*]
 ```
 
 Each `In…` status is a **claim**, not a stage: the worker compare-and-sets `Pending…` → `In…` before doing any work,
 and every exit from a claimed item either advances it, records a failure, or releases the claim back to `Pending…`
-(`AtlasReconstruction.claim` / `release`, `src/models/atlasReconstruction.ts:140`, `:152`; the QC pair at
+(`AtlasReconstruction.claim` / `release`, `src/models/atlasReconstruction.ts:138`, `:150`; the QC pair at
 `src/models/qualityControl.ts:121`, `:149`). `ClaimedPhaseStatuses`
 (`src/models/atlasReconstructionStatus.ts:52`) is the map from claim back to pending.
 
@@ -783,15 +808,15 @@ sequenceDiagram
     PR->>API: uploadSwcData / uploadParquetData (atlas space)
     API->>DB: AtlasNode rows replaced, child → ReadyToProcess, nodeCounts set
 
-    PR->>API: approveReconstruction(id, Approved)
+    PR->>API: approveAnnotation(id, Approved)
     Note over API,DB: one transaction — child locked, then parent
     API->>DB: refuse with 1005 if the child has no nodeCounts
-    API->>DB: Reconstruction → Approved, approvedAt
+    API->>DB: Annotation → Approved, approvedAt
     API->>DB: AtlasReconstruction.reviewerId
     API->>DB: create/reset QualityControl → Pending
     API->>DB: AtlasReconstruction → PendingQualityControl, failure cleared
     API->>DB: create Precomputed (Initialized) if absent
-    API->>DB: Reconstruction → WaitingForAtlasReconstruction
+    API->>DB: Annotation → WaitingForAtlasReconstruction
 
     loop every pass, before any phase
         SW->>DB: release every In... claim left by a dead pass
@@ -830,7 +855,7 @@ sequenceDiagram
         SW->>DC: create neuron canonical DOI (findable) if absent
         SW->>DB: T1 - commit neuron.canonicalDoi
         SW->>DC: create reconstruction DOI (findable) if absent
-        SW->>DB: T2 - commit AtlasReconstruction.doi
+        SW->>DB: T2 - commit Annotation.doi
         SW->>DB: T3 - lock neuron row
         SW->>DC: add HasVersion to canonical
         SW->>DB: T4 - child → ReadyToPublish, parent → ReadyToPublish
@@ -842,14 +867,14 @@ sequenceDiagram
     API->>DB: refuse if a sibling is Publishing or PublishFailed (1003), or Published without replaceExisting (1001)
     API->>DB: archive prior Published reconstruction, delete its search rows
     API->>DB: child → PendingSearchIndexing (compare-and-set on ReadyToPublish)
-    API->>DB: Reconstruction → Publishing
+    API->>DB: Annotation → Publishing
 
     loop every 60 s
         SW->>DB: child where PendingSearchIndexing (batch 10)
         SW->>DB: claim: child → InSearchIndexing
         SW->>DB: delete and rebuild SearchIndex rows, all in one transaction
         SW->>DB: child → Published, searchIndexedAt, publishedAt
-        SW->>DB: Reconstruction → Published, publishedAt
+        SW->>DB: Annotation → Published, publishedAt
         SW-->>API: SearchIndexUpdated (reset cached published count)
     end
 ```
@@ -870,15 +895,15 @@ them do.
 3. **Authorize early, then decide *and re-authorize* late.** The permission check may run against the eager instance so
    an unauthorized caller is refused without opening a transaction. Inside the transaction, repeat both the
    admissibility test **and** any permission whose answer depends on status — which actor may act changes with the
-   status, so `canApproveReconstruction`, `canRejectReconstruction`, `canDiscardReconstruction` and
+   status, so `canApproveAnnotation`, `canRejectAnnotation`, `canDiscardAnnotation` and
    `canUploadReconstructionData` are all re-evaluated against the locked rows. Approve joined that list with team
    review: peer and team review are both sources for the `PublishReview` target, so the admissibility test alone no
    longer identifies the actor, and a peer reviewer who passed the eager check at `PeerReview` must not sign off a
    reconstruction a request has since moved to `TeamReview`. `disregardAuth` never reaches an admissibility test, locked or eager: it buys
    the import tools out of the permission, not out of the state rule. The transitions outside this protocol are named
    in decision 5 of section 3, and their status rule is unconditional too — it is the locking they lack, not the rule.
-4. **Lock order:** `Neuron` (publish and the atlas upload) → `AtlasReconstruction` → `Reconstruction` →
-   `QualityControl` / `Precomputed` / `SpecimenSpacePrecomputed`.
+4. **Lock order:** `Neuron` (publish and the atlas upload) → `AtlasReconstruction` → `Annotation` →
+   `SpecimenSpaceReconstruction` / `QualityControl` / `Precomputed` / `SpecimenSpacePrecomputed`.
 
 The atlas upload takes the neuron first because its atlas-soma back-fill updates that row, and an `update` takes the
 row's write lock whether or not the path asked for one. Taking it last would be an inversion against `publish`, which
@@ -916,9 +941,9 @@ from `FailedQualityControl`.
 **Node structure assignment.** Runs in-process in the worker, not as a service. Every atlas node whose
 `manualAtlasAssigment` flag is false is looked up in the atlas volume in 25 000-row chunks and assigned an
 `atlasStructureId`. A missing atlas for the specimen is recorded as `FailedStructureAssignment` rather than thrown,
-because every retry would find the same missing atlas (`src/models/atlasReconstruction.ts:432`). An atlas with no
+because every retry would find the same missing atlas (`src/models/atlasReconstruction.ts:417`). An atlas with no
 spatial volume is recorded the same way, but only while some node still needs a lookup: when every node arrived with
-its structure from the upload, the phase needs no volume and proceeds (`src/models/atlasReconstruction.ts:444`). On
+its structure from the upload, the phase needs no volume and proceeds (`src/models/atlasReconstruction.ts:429`). On
 completion the phase both sets the child to `PendingPrecomputed` and flips the `Precomputed` row to `Pending`, which is
 what makes the external worker pick it up.
 
@@ -926,9 +951,9 @@ what makes the external worker pick it up.
 internal-only query) and reports back through `updatePrecomputed`. That mutation advances the child to
 `PendingDoiAssignment` rather than `ReadyToPublish`, and does not notify the parent — the parent stays at
 `WaitingForAtlasReconstruction` until DOI assignment finishes. It takes the child's row lock before writing the
-`Precomputed` row (`src/models/precomputed.ts:114`), which is what puts it on the same order as everything else.
+`Precomputed` row (`src/models/precomputed.ts:130`), which is what puts it on the same order as everything else.
 
-**DOI assignment.** A worker phase (`AtlasReconstruction.assignDois`, `src/models/atlasReconstruction.ts:565`), and the
+**DOI assignment.** A worker phase (`AtlasReconstruction.assignDois`, `src/models/atlasReconstruction.ts:550`), and the
 step that finally moves the parent to `ReadyToPublish`. Two DOIs exist. The neuron's *canonical* DOI is minted once, on
 the neuron's first publication, and always resolves to the current version. The *reconstruction* DOI is minted per
 publication, linked `IsVersionOf` the canonical one, with a `HasVersion` back-reference added to the canonical. The
@@ -938,7 +963,7 @@ users. A reconstruction that skipped an optional review simply contributes nothi
 Four properties matter:
 
 - **Each step is an ensure**, so a pass that dies part-way is resumed rather than repeated: the canonical is skipped if
-  `neuron.canonicalDoi` is set, the reconstruction DOI is skipped if `AtlasReconstruction.doi` is set, and the
+  `neuron.canonicalDoi` is set, the reconstruction DOI is skipped if `Annotation.doi` is set, and the
   `HasVersion` entry is only appended if absent. This is also what makes the pipeline replay safe to run on a
   reconstruction that already holds a DOI — the phase re-runs and keeps the same identifiers.
 - **Each identifier is created exactly once, registered findable in that single call.** There is no draft state and no
@@ -955,11 +980,11 @@ Four properties matter:
 **Search indexing.** `SearchIndexOperation` counts nodes per (atlas structure × compartment) and writes one
 `SearchIndex` row per combination, denormalising the neuron label, specimen label, soma coordinates, DOIs, collection
 and atlas. The delete of the previous rows is a single call inside the same transaction as the inserts
-(`src/transform/searchIndexOperation.ts:58`). Soma rows are written twice when the neuron carries a manual soma
+(`src/transform/searchIndexOperation.ts:61`). Soma rows are written twice when the neuron carries a manual soma
 structure that disagrees with the automatic one. This is the step that makes a reconstruction findable, and the step
 that flips both statuses to `Published`.
 
-It is also the one phase whose failure moves the parent. `recordPhaseFailure` (`src/models/atlasReconstruction.ts:122`)
+It is also the one phase whose failure moves the parent. `recordPhaseFailure` (`src/models/atlasReconstruction.ts:120`)
 takes an optional `afterFailure` hook — the mirror of `requestPhaseRetry`'s `afterReset` — so the child's
 `FailedSearchIndexing` and the parent's `PublishFailed` are written in one transaction, child locked first and then
 the parent, the same order `resetPipeline` uses. Both parent writes are conditional on the status the mover expects to
@@ -967,7 +992,7 @@ find (`onSearchIndexFailed` requires `Publishing`, `resumePublishing` requires `
 clobber otherwise. The other four phases pass no hook and leave the parent where it is; a transient, which hands the
 claim back for the next pass rather than recording a failure, does not move it either.
 
-The same hook deletes this reconstruction's `SearchIndex` rows (`:1048`), so **a reconstruction whose indexing failed
+The same hook deletes this reconstruction's `SearchIndex` rows (`:1044`), so **a reconstruction whose indexing failed
 holds nothing in the search index from the instant the failure is recorded**. That is belt-and-braces rather than a
 repair — the rebuild and the status write share one transaction, so a failure has already rolled the index writes
 back — and stating it here is what lets every route out of `PublishFailed`, the retry and the reject alike, stay
@@ -977,16 +1002,16 @@ ignorant of the index. It also survives a refactor that moves `SearchIndexOperat
 
 Three things make a stuck reconstruction findable rather than indistinguishable from one still processing:
 
-- **`Reconstruction.phaseFailure`** (`src/graphql/secureResolvers.ts:343`) — a derived `{phase, reason, failedAt}`,
+- **`Annotation.phaseFailure`** (`src/graphql/secureResolvers.ts:355`) — a derived `{phase, reason, failedAt}`,
   non-null only when the child sits at one of `PhaseFailureStatuses`
   (`src/models/atlasReconstructionStatus.ts:60`). Composed on the server so no client has to know which parent status
   pairs with which child status, and derived on read so there is no second copy to drift.
-- **`reconstructions(queryArgs: {statusFilters: [{status, atlasStatus}]})`** — narrows each parent status to children at
-  the given statuses through a correlated `EXISTS` (`src/models/reconstruction.ts:374`), so "everything stuck in a
+- **`annotations(queryArgs: {statusFilters: [{status, atlasStatus}]})`** — narrows each parent status to children at
+  the given statuses through a correlated `EXISTS` (`src/models/annotation.ts:439`), so "everything stuck in a
   failed phase" is one query, and can sit beside other parent statuses left unfiltered.
 - **A retry mutation per phase**, plus one replay, all gated on `canOperateReconstructionPipeline()` — admin or the
   `PublishReview` bit. The five retries are built on `requestPhaseRetry`
-  (`src/models/atlasReconstruction.ts:777`), which locks the child, refuses unless it is at the exact `Failed…` status
+  (`src/models/atlasReconstruction.ts:762`), which locks the child, refuses unless it is at the exact `Failed…` status
   being reversed, and clears `failureReason` / `failedAt` with the rewind:
 
   | Mutation | From | To |
@@ -1010,20 +1035,20 @@ Three things make a stuck reconstruction findable rather than indistinguishable 
   failure without parsing prose. Refusing an `In…` status is deliberate: a claim is released by the worker or by the
   sweep at the top of its next pass, never by hand.
 
-### 2.6 Every ReconstructionStatus, and what can move it
+### 2.6 Every AnnotationStatus, and what can move it
 
 Column 2 lists the `AtlasReconstructionStatus` values in play for that row: every value possible while the
-`Reconstruction` holds the status in column 1, narrowed to the ones that permit the move where the move depends on
+`Annotation` holds the status in column 1, narrowed to the ones that permit the move where the move depends on
 them. Column 4 collapses permissions into the actor names from the Actors table. An admin can cause every transition
 listed, because every source-status predicate carries an admin bypass — the one exception,
-`canModifyReconstruction`, gates metadata edits rather than transitions.
+`canModifyAnnotation`, gates metadata edits rather than transitions.
 
 Where the import tool appears in column 4 it is held to the same source statuses as the row's other actors: the flag
 it carries buys it out of the permission alone. It never appears where the portal has no route either. For the hold
 statuses it follows two stricter rules of its own (1.4): it applies a hold only to a reconstruction the run created, and
 it leaves a held reconstruction alone.
 
-| `ReconstructionStatus` | `AtlasReconstructionStatus` possible | `ReconstructionStatus` can move to | Who |
+| `AnnotationStatus` | `AtlasReconstructionStatus` possible | `AnnotationStatus` can move to | Who |
 |---|---|---|---|
 | `InProgress` (100) | `Initialized` | `OnHold`, `Incomplete` | Annotator, admin, import tool (only on the run that created the reconstruction) |
 | | | `Duplicate` | Annotator, admin |
@@ -1057,15 +1082,15 @@ it leaves a held reconstruction alone.
 | | `PendingSearchIndexing` | nothing — the phase is queued | — |
 | `Published` (1000) | `Published` | `Archived`, when a sibling reconstruction of the same neuron is published with `replaceExisting` | Publish reviewer, admin |
 | `PublishFailed` (1100) | `FailedSearchIndexing` | `Publishing`, by `requestSearchIndexing`, which rewinds the child to `PendingSearchIndexing` in the same transaction | Publish reviewer, admin |
-| | `FailedSearchIndexing` | `Rejected`, by `rejectReconstruction`, which rewinds the child to `ReadyToProcess`. The only two moves: discard, untraceable and the replay all still refuse this status | Publish reviewer, admin |
+| | `FailedSearchIndexing` | `Rejected`, by `rejectAnnotation`, which rewinds the child to `ReadyToProcess`. The only two moves: discard, untraceable and the replay all still refuse this status | Publish reviewer, admin |
 | `Archived` (5000) | `Published` | Terminal | — |
-| `Untraceable` (6000) | soft-deleted with the `Reconstruction` | Terminal | — |
-| `Discarded` (10000) | soft-deleted with the `Reconstruction` | Terminal | — |
+| `Untraceable` (6000) | soft-deleted with the `Annotation` | Terminal | — |
+| `Discarded` (10000) | soft-deleted with the `Annotation` | Terminal | — |
 
 Two entries in column 2 are worth explaining. `ReadyToProcess` appears against `OnHold`, `Incomplete`, `Duplicate`,
 `PeerReview`, `TeamReview`, `PublishReview` and `Rejected` because a reject past approval rewinds the
 `AtlasReconstruction` there (1.6), and the annotator may then put the reconstruction on hold or request review again. `Initialized` appears alongside it because a
-reconstruction whose atlas data was never uploaded still has its `AtlasReconstruction` where `openReconstruction`
+reconstruction whose atlas data was never uploaded still has its `AtlasReconstruction` where `openAnnotation`
 created it.
 
 `TeamReview` is the one row where `ReadyToProcess` is reachable without a rewind: the team reviewer's own atlas-space
@@ -1082,16 +1107,16 @@ problem. Section 4 is what remains once these are taken into account, so an item
 raising one as a finding means disputing the decision rather than reporting a defect.
 
 1. **The internal-only surface deliberately shares the public endpoint.** `internalResolvers` is merged into the same
-   schema and served on the same route as everything else (`src/app.ts:47`), and that is intentional: the internal
+   schema and served on the same route as everything else (`src/app.ts:51`), and that is intentional: the internal
    surface is closed by permission rather than by route. The protection is that
    the bit is the whole gate — `canUpdatePrecomputed`, `canRequestPendingPrecomputed`,
    `canRequestReconstructionData` and `canViewRequestDiagnostics` require `InternalAccess` alone
-   (`src/models/user.ts:523`–`:571`), with no admin bypass, so an admin cannot assert that precomputed generation
+   (`src/models/user.ts:622`–`:672`), with no admin bypass, so an admin cannot assert that precomputed generation
    completed. It does not run the other way: `InternalSystem` is `0xFFFFFFF` and subsumes `Admin`, so an internal
    caller holds every admin route as well — see E7.
 
    Who may hold the bit is the other half of that, and it is closed on both paths that write a permissions value any
-   check reads. `User.updatePermissions` (`src/models/user.ts:313`) refuses anything outside `UserPermissionsAll` with
+   check reads. `User.updatePermissions` (`src/models/user.ts:328`) refuses anything outside `UserPermissionsAll` with
    error code **1006**: a mask test for bits outside the set and a range test closing the int32 wrap. The guard sits
    after the target is resolved, so a rejected value cannot be used to tell a system user from an id that names
    nobody. `ApiKey.createApiKey` (`src/models/apiKey.ts:94`) applies the same shape of test with the same code against
@@ -1106,7 +1131,7 @@ raising one as a finding means disputing the decision rather than reporting a de
 
 2. **An API key carries its own permissions, and never an admin bit.** `authenticateKey`
    (`src/models/apiKey.ts:57`) resolves the owning user and returns a per-request view of it carrying the key's stored
-   `permissions` (`User.withKeyPermissions`, `src/models/user.ts:628`), so every `can…` predicate answers off the key.
+   `permissions` (`User.withKeyPermissions`, `src/models/user.ts:654`), so every `can…` predicate answers off the key.
    Nothing is compared against the owner at authentication time and there is no fallback to it: the key is the
    credential. Instead, when a change to the owner's permissions takes any capability away, `User.updatePermissions`
    narrows every key the owner holds in the same transaction — the lower of the two annotation levels, every other bit
@@ -1154,11 +1179,11 @@ raising one as a finding means disputing the decision rather than reporting a de
    been approved likewise arrives through the portal rather than a re-run, which is the same rule seen from the other
    side.
 5. **The pre-review transitions decide on an unlocked read, because two people do not drive one reconstruction at
-   once.** `requestReview` (`src/models/reconstruction.ts:813`), `pauseReconstruction` (`:735`), `markIncomplete`
-   (`:743`), `markDuplicate` (`:751`), `resumeReconstruction` (`:790`) and `markUntraceable` (`:1268`) each make their
-   status decision against the instance `findReconstructionAndUser` loaded before the transaction opens, and then write
-   without taking a row lock or re-reading; the three hold setters share that decision in `holdReconstruction`
-   (`:763`). `updateMetadata` (`:514`) is the same shape with no status decision to lose: it tests the permission and
+   once.** `requestReview` (`src/models/annotation.ts:853`), `pauseAnnotation` (`:768`), `markIncomplete`
+   (`:776`), `markDuplicate` (`:784`), `resumeAnnotation` (`:823`) and `markUntraceable` (`:1305`) each make their
+   status decision against the instance `findAnnotationAndUser` loaded before the transaction opens, and then write
+   without taking a row lock or re-reading; the three hold setters share that decision in `holdAnnotation`
+   (`:796`). `updateMetadata` (`:533`) is the same shape with no status decision to lose: it tests the permission and
    writes its fields at whatever status the reconstruction is in. They sit outside the protocol in 2.4 deliberately,
    and that is where the line is drawn — the paths that follow the protocol are the ones a worker or an automatic
    phase can contend with, and these seven cannot, because the statuses they accept (`InProgress`, `OnHold`,
@@ -1174,8 +1199,9 @@ raising one as a finding means disputing the decision rather than reporting a de
    What it would cost if two actors did collide is worth naming, because it is not symmetrical. `markUntraceable`
    losing to `requestReview` is the sharp case: the reviewer reads the reconstruction at `InProgress`, passes both
    checks, the annotator's `requestReview` commits, and the teardown then runs on the stale decision —
-   `discardForReconstruction` destroys the `QualityControl` row, the `AtlasNode` rows and the child,
-   `SpecimenNode.destroy` removes the specimen nodes, and the parent is set to `Untraceable` and soft-deleted.
+   `discardForAnnotation` destroys the `QualityControl` row, the `AtlasNode` rows and the child,
+   `SpecimenSpaceReconstruction.discardForAnnotation` removes the specimen nodes, and the parent is set to
+   `Untraceable` and soft-deleted.
    **`AtlasNode` and `SpecimenNode` are not paranoid**, so those deletes are permanent; the parent and child rows are
    recoverable by hand, the node data only by re-upload. The mirror ordering is harmless by comparison:
    `markUntraceable` commits first, then `requestReview` issues an `UPDATE … WHERE id = …` — which Sequelize does not
@@ -1188,16 +1214,16 @@ raising one as a finding means disputing the decision rather than reporting a de
    review — so that reviewer appears nowhere, including in the DOI contributor list. The record is of what actually
    happened rather than of a stage that was required and missed.
 7. **Quality control output is readable without authentication.** The `qualityControl(id)` query sits in
-   `openResolvers` (`src/graphql/openResolvers.ts:113`) and returns the full output — failed test names and affected
+   `openResolvers` (`src/graphql/openResolvers.ts:138`) and returns the full output — failed test names and affected
    node indices — for any reconstruction at any status, annotated in the code as deliberate. The `failureReason` a
    failed or errored check records on the child is composed from that same output (`failureReasonForOutput`,
    `src/models/qualityControl.ts:33`) and is safe to store and return on exactly that basis. The two decisions move
    together: closing the open query means revisiting what a phase failure is allowed to say on the row.
 8. **Two annotators can hold live reconstructions on one neuron, and the publish reviewer is the gate.**
-   `openReconstruction` (`src/models/reconstruction.ts:588`) scopes both its existing-row lookup and the `AnnotateOne`
+   `openAnnotation` (`src/models/annotation.ts:655`) scopes both its existing-row lookup and the `AnnotateOne`
    limit to `annotatorId`, never to the neuron across users; `candidateNeurons` filters a neuron with live work out of
-   the pool, but that is a listing query rather than a guard; `openReconstructionRevision` opens a second row on one
-   neuron deliberately; and there is no unique index on `Reconstructions.neuronId`
+   the pool, but that is a listing query rather than a guard; `openAnnotationRevision` opens a second row on one
+   neuron deliberately; and there is no unique index on `Annotations.neuronId`
    (`src/migrations/20251106000500-reconstruction.ts:406` is a plain index). Both rows can therefore run the automatic
    phases in full and both can be minted a reconstruction DOI, each appending its own `HasVersion` entry to the
    canonical — which is exactly what T1 and T3 take the neuron row lock for, so the identifiers are correct rather than
@@ -1229,8 +1255,8 @@ raising one as a finding means disputing the decision rather than reporting a de
     draft and promoting it to findable only once recorded locally would close the window, at the cost of a promotion
     call on every pass — including against DOIs this service did not create, such as a MouseLight import's — which is
     not worth paying for a window that costs one stray record. Note that the JSDoc on `AtlasReconstruction.assignDois`
-    (`src/models/atlasReconstruction.ts:551`) describes that draft-then-promote scheme and contradicts both the code
-    below it and `Neuron.assignCanonicalDoi` (`src/models/neuron.ts:711`); the code is what is accurate.
+    (`src/models/atlasReconstruction.ts:536`) describes that draft-then-promote scheme and contradicts both the code
+    below it and `Neuron.assignCanonicalDoi` (`src/models/neuron.ts:921`); the code is what is accurate.
 11. **A rejected-then-revised reconstruction keeps the DOI minted against the earlier data.** The reject rewind in 1.6
     deliberately does not unwind the DOI, so a reconstruction rejected after DOI assignment, revised and re-approved
     resolves the same findable identifier to content that has changed in between. This one is a mutability question
@@ -1247,13 +1273,13 @@ raising one as a finding means disputing the decision rather than reporting a de
     The invariant this leaves is about those two rather than about abandonment generally: every state discard and the
     replay accept has the parent at `WaitingForAtlasReconstruction` or `ReadyToPublish`, so neither `Publishing` nor
     `PublishFailed` is ever a source for them. Reject is the exception, and it is written as its own clause in
-    `isRejectable` and `canRejectReconstruction` precisely so that the set those three share keeps its meaning (1.6).
-13. **`updateReconstruction` requires the `PublishReview` bit.** An annotator records duration and notes through
-    `requestReview`, which accepts both, and nowhere else. `canModifyReconstruction` has no admin bypass, deliberately —
+    `isRejectable` and `canRejectAnnotation` precisely so that the set those three share keeps its meaning (1.6).
+13. **`updateAnnotation` requires the `PublishReview` bit.** An annotator records duration and notes through
+    `requestReview`, which accepts both, and nowhere else. `canModifyAnnotation` has no admin bypass, deliberately —
     an admin who needs to edit metadata grants themselves the review bit.
 14. **DataCite calls are made while holding a `LOCK.UPDATE` on the neuron row, and that is only ever waiting.** T1
-    (`src/models/atlasReconstruction.ts:603`) holds the neuron across the canonical's `createDoi`; `crossReferenceCanonical`
-    (`:693`) holds it across `getRelatedIdentifiers` and `updateDoi`. The lock is required — `updateDoi` replaces the
+    (`src/models/atlasReconstruction.ts:588`) holds the neuron across the canonical's `createDoi`; `crossReferenceCanonical`
+    (`:690`) holds it across `getRelatedIdentifiers` and `updateDoi`. The lock is required — `updateDoi` replaces the
     whole `relatedIdentifiers` array, so two siblings appending concurrently would leave only one entry — and the cost
     is that any `publish` of that neuron, or any sibling's DOI assignment, waits for a network round trip.
 
@@ -1295,7 +1321,7 @@ raising one as a finding means disputing the decision rather than reporting a de
 17. **Exactly one API instance, and therefore exactly one synchronization worker, runs at a time.** Scaling past that is
     an architecture change, not a configuration change, and several things in the pipeline assume it:
 
-    - The pass-boundary sweep, `releasePhaseClaims` (`src/models/atlasReconstruction.ts:165` and
+    - The pass-boundary sweep, `releasePhaseClaims` (`src/models/atlasReconstruction.ts:163` and
       `src/models/qualityControl.ts:172`), resets *every* row at a claimed-phase status — the four in
       `ClaimedPhaseStatuses` plus the `QualityControl` row's own `InProgress`. That is sound only because one process polls the
       database and the four phases are awaited in sequence, so at a pass boundary nothing is legitimately claimed. A
@@ -1320,6 +1346,13 @@ raising one as a finding means disputing the decision rather than reporting a de
     cap on the request — a service that answers slowly or trickles its response resets the clock and can hold the call
     well past five minutes. Worth revisiting if the pipeline is ever expected to survive an unhealthy quality check
     service unattended.
+
+19. **The annotator's own uploads carry no admin bypass.** `InProgress` and `Rejected` are specimen-space upload
+    sources for the reconstruction's own annotator alone (`OwningAnnotator`, `src/models/user.ts:101`), unlike the
+    `isAdmin() || annotatorId == this.id` ownership predicates. Before review the reconstruction is the annotator's work
+    in progress; an admin or reviewer reaches its data once it is in review, at the statuses their bit or bypass already
+    covers. The cost: they are refused with 401 at `InProgress` and `Rejected`, where they used to get 1009, because
+    those statuses are now upload sources, just not theirs.
 
 ---
 
@@ -1351,7 +1384,7 @@ record, beside `SystemInternalUser`, which services hold the key and which opera
 
 **E9 — A key whose owner no longer holds `Admin` cannot be seen or deleted through the API.**
 The `apiKeys` query, `createApiKey` and `deleteApiKey` are admin-only and act only on the caller's own keys
-(`src/graphql/secureResolvers.ts:130`, `:309`), and `ApiKey.deleteApiKey` refuses a key whose `userId` is not the
+(`src/graphql/secureResolvers.ts:129`, `:308`), and `ApiKey.deleteApiKey` refuses a key whose `userId` is not the
 caller's (`src/models/apiKey.ts:143`). An owner who loses `Admin` therefore keeps keys that neither they nor any admin
 can list or delete. That includes a key narrowed to nothing, which still authenticates as its owner with no
 permissions.

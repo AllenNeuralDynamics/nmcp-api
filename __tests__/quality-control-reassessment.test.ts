@@ -39,7 +39,7 @@ function stub(childStatus: number | null, options: Options = {}) {
 
         Object.assign(instance, {
             id: "atlas-1",
-            reconstructionId: "reconstruction-1",
+            annotationId: "annotation-1",
             status: childStatus,
             // Populated as a child that failed quality control would be, so the reset is shown to clear them.
             failureReason: "quality control failed 2 test(s): SomaCount, Bifurcations",
@@ -78,7 +78,7 @@ describe("requestQualityControlReassessment authorization", () => {
     test("refuses a peer reviewer, before any query", async () => {
         const stubs = stub(AtlasReconstructionStatus.FailedQualityControl);
 
-        await expect(AtlasReconstruction.requestQualityControlReassessment(userWith(UserPermissions.PeerReview), "reconstruction-1"))
+        await expect(AtlasReconstruction.requestQualityControlReassessment(userWith(UserPermissions.PeerReview), "annotation-1"))
             .rejects.toBeInstanceOf(UnauthorizedError);
 
         expect(stubs.findAtlas).not.toHaveBeenCalled();
@@ -90,7 +90,7 @@ describe("requestQualityControlReassessment authorization", () => {
     ])("allows %s", async (_label: string, permissions: number) => {
         const stubs = stub(AtlasReconstructionStatus.FailedQualityControl);
 
-        await AtlasReconstruction.requestQualityControlReassessment(userWith(permissions), "reconstruction-1");
+        await AtlasReconstruction.requestQualityControlReassessment(userWith(permissions), "annotation-1");
 
         expect(stubs.existing.makePending).toHaveBeenCalledTimes(1);
     });
@@ -100,7 +100,7 @@ describe("requestQualityControlReassessment from FailedQualityControl", () => {
     test("resets the child, clears the failure metadata and records the request", async () => {
         const stubs = stub(AtlasReconstructionStatus.FailedQualityControl);
 
-        const child = await AtlasReconstruction.requestQualityControlReassessment(userWith(UserPermissions.PublishReview), "reconstruction-1");
+        const child = await AtlasReconstruction.requestQualityControlReassessment(userWith(UserPermissions.PublishReview), "annotation-1");
 
         expect(child.status).toBe(AtlasReconstructionStatus.PendingQualityControl);
         expect(stubs.atlasReconstruction.update).toHaveBeenCalledWith(
@@ -115,7 +115,7 @@ describe("requestQualityControlReassessment from FailedQualityControl", () => {
     test("makes the quality control row pending on the same transaction", async () => {
         const stubs = stub(AtlasReconstructionStatus.FailedQualityControl);
 
-        await AtlasReconstruction.requestQualityControlReassessment(userWith(UserPermissions.PublishReview), "reconstruction-1");
+        await AtlasReconstruction.requestQualityControlReassessment(userWith(UserPermissions.PublishReview), "annotation-1");
 
         expect(stubs.findQualityControl).toHaveBeenCalledWith({where: {reconstructionId: "atlas-1"}, transaction: transaction});
         expect(stubs.existing.makePending).toHaveBeenCalledWith(expect.anything(), transaction);
@@ -126,17 +126,17 @@ describe("requestQualityControlReassessment from FailedQualityControl", () => {
     test("throws when there is no quality control row", async () => {
         stub(AtlasReconstructionStatus.FailedQualityControl, {existingQualityControl: false});
 
-        await expect(AtlasReconstruction.requestQualityControlReassessment(userWith(UserPermissions.PublishReview), "reconstruction-1"))
+        await expect(AtlasReconstruction.requestQualityControlReassessment(userWith(UserPermissions.PublishReview), "annotation-1"))
             .rejects.toThrow(/No quality control record found/);
     });
 
     test("locks the atlas row for the transaction before looking the quality control row up", async () => {
         const stubs = stub(AtlasReconstructionStatus.FailedQualityControl);
 
-        await AtlasReconstruction.requestQualityControlReassessment(userWith(UserPermissions.PublishReview), "reconstruction-1");
+        await AtlasReconstruction.requestQualityControlReassessment(userWith(UserPermissions.PublishReview), "annotation-1");
 
         expect(stubs.findAtlas).toHaveBeenCalledWith({
-            where: {reconstructionId: "reconstruction-1"},
+            where: {annotationId: "annotation-1"},
             lock: Transaction.LOCK.UPDATE,
             transaction: transaction
         });
@@ -159,7 +159,7 @@ describe("requestQualityControlReassessment refused child statuses", () => {
         async (status: number) => {
             const stubs = stub(status);
 
-            await expect(AtlasReconstruction.requestQualityControlReassessment(userWith(UserPermissions.PublishReview), "reconstruction-1"))
+            await expect(AtlasReconstruction.requestQualityControlReassessment(userWith(UserPermissions.PublishReview), "annotation-1"))
                 .rejects.toMatchObject({extensions: {code: 1004}});
 
             expect(stubs.atlasReconstruction.update).not.toHaveBeenCalled();
@@ -170,7 +170,7 @@ describe("requestQualityControlReassessment refused child statuses", () => {
     test("refuses a reconstruction with no atlas child", async () => {
         stub(null);
 
-        await expect(AtlasReconstruction.requestQualityControlReassessment(userWith(UserPermissions.PublishReview), "reconstruction-1"))
+        await expect(AtlasReconstruction.requestQualityControlReassessment(userWith(UserPermissions.PublishReview), "annotation-1"))
             .rejects.toThrow(/No atlas reconstruction found/);
     });
 });

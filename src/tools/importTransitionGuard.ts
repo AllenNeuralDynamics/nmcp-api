@@ -3,8 +3,10 @@ import {
     ResumableSourceStatuses,
     ReviewRequestSourceStatuses,
     UntraceableSourceStatuses
-} from "../models/reconstruction";
-import {ReconstructionStatus} from "../models/reconstructionStatus";
+} from "../models/annotation";
+import {AnnotationStatus} from "../models/annotationStatus";
+import {ReconstructionSpace} from "../models/reconstructionSpace";
+import {isAnnotatorUploadStatus} from "../models/user";
 
 /**
  * The model list each import target is held to.  InProgress is absent because that target makes no transition at all;
@@ -13,13 +15,13 @@ import {ReconstructionStatus} from "../models/reconstructionStatus";
  * upload.  Duplicate is listed although SmartSheet never asks for it, so that the guard mirrors the model for every
  * hold target rather than admitting one by default.
  */
-const importTransitionSourceStatuses: ReadonlyMap<ReconstructionStatus, ReconstructionStatus[]> = new Map([
-    [ReconstructionStatus.OnHold, PausableSourceStatuses],
-    [ReconstructionStatus.Incomplete, PausableSourceStatuses],
-    [ReconstructionStatus.Duplicate, PausableSourceStatuses],
-    [ReconstructionStatus.PublishReview, ReviewRequestSourceStatuses],
-    [ReconstructionStatus.Approved, ReviewRequestSourceStatuses],
-    [ReconstructionStatus.Untraceable, UntraceableSourceStatuses]
+const importTransitionSourceStatuses: ReadonlyMap<AnnotationStatus, AnnotationStatus[]> = new Map([
+    [AnnotationStatus.OnHold, PausableSourceStatuses],
+    [AnnotationStatus.Incomplete, PausableSourceStatuses],
+    [AnnotationStatus.Duplicate, PausableSourceStatuses],
+    [AnnotationStatus.PublishReview, ReviewRequestSourceStatuses],
+    [AnnotationStatus.Approved, ReviewRequestSourceStatuses],
+    [AnnotationStatus.Untraceable, UntraceableSourceStatuses]
 ]);
 
 /**
@@ -40,7 +42,7 @@ const importTransitionSourceStatuses: ReadonlyMap<ReconstructionStatus, Reconstr
  * Its own module because both import tools are CLI entry points that start an import on load, so nothing can require
  * them - including a test.
  */
-export function importMayTransition(currentStatus: ReconstructionStatus, targetStatus: ReconstructionStatus, createdThisRun: boolean = false): boolean {
+export function importMayTransition(currentStatus: AnnotationStatus, targetStatus: AnnotationStatus, createdThisRun: boolean = false): boolean {
     if (ResumableSourceStatuses.includes(currentStatus)) {
         return false;
     }
@@ -55,11 +57,27 @@ export function importMayTransition(currentStatus: ReconstructionStatus, targetS
         return true;
     }
 
-    const isParkingTarget = targetStatus == ReconstructionStatus.PublishReview || targetStatus == ReconstructionStatus.Approved;
+    const isParkingTarget = targetStatus == AnnotationStatus.PublishReview || targetStatus == AnnotationStatus.Approved;
 
-    if (isParkingTarget && currentStatus == ReconstructionStatus.PublishReview) {
+    if (isParkingTarget && currentStatus == AnnotationStatus.PublishReview) {
         return true;
     }
 
     return sourceStatuses.includes(currentStatus);
+}
+
+/**
+ * The sheet statuses that say the reconstruction's data should already exist, so a missing file there is worth
+ * reporting.
+ */
+export function sheetExpectsReconstructionData(targetStatus: AnnotationStatus): boolean {
+    return targetStatus == AnnotationStatus.PublishReview || targetStatus == AnnotationStatus.Approved;
+}
+
+/**
+ * An existing reconstruction's status belongs to the portal, so beyond what the sheet promises, the run looks for
+ * specimen data the annotator may have delivered while the portal still has the reconstruction with them.
+ */
+export function importLoadsExistingReconstruction(currentStatus: AnnotationStatus, targetStatus: AnnotationStatus): boolean {
+    return sheetExpectsReconstructionData(targetStatus) || isAnnotatorUploadStatus(ReconstructionSpace.Specimen, currentStatus);
 }

@@ -4,8 +4,8 @@ import {expect, test, vi, describe, afterEach} from "vitest";
 // different module instance than the CJS one the model methods call into, so the spies would not apply.
 const {Transaction} = require("sequelize");
 const {User, UserPermissions} = require("../src/models/user");
-const {Reconstruction} = require("../src/models/reconstruction");
-const {ReconstructionStatus} = require("../src/models/reconstructionStatus");
+const {Annotation} = require("../src/models/annotation");
+const {AnnotationStatus} = require("../src/models/annotationStatus");
 const {AtlasReconstruction} = require("../src/models/atlasReconstruction");
 const {AtlasReconstructionStatus} = require("../src/models/atlasReconstructionStatus");
 const {EventLogItem, EventLogItemKind} = require("../src/models/eventLogItem");
@@ -34,8 +34,8 @@ function stub(status: number, user: any, childStatus: number = AtlasReconstructi
         reject: vi.fn().mockResolvedValue(undefined)
     };
 
-    const reconstruction = Object.create(Reconstruction.prototype);
-    reconstruction.id = "reconstruction-1";
+    const reconstruction = Object.create(Annotation.prototype);
+    reconstruction.id = "annotation-1";
     reconstruction.neuronId = "neuron-1";
     reconstruction.annotatorId = "annotator-1";
     reconstruction.status = status;
@@ -46,12 +46,12 @@ function stub(status: number, user: any, childStatus: number = AtlasReconstructi
         return reconstruction;
     });
 
-    const findByPk = vi.spyOn(Reconstruction, "findByPk").mockResolvedValue(reconstruction);
+    const findByPk = vi.spyOn(Annotation, "findByPk").mockResolvedValue(reconstruction);
     const findAtlas = vi.spyOn(AtlasReconstruction, "findOne").mockResolvedValue(atlasReconstruction as any);
 
     vi.spyOn(User, "findUserOrId").mockResolvedValue(user);
 
-    Object.defineProperty(Reconstruction, "sequelize", {
+    Object.defineProperty(Annotation, "sequelize", {
         value: {transaction: vi.fn().mockImplementation(async (callback: any) => callback(transaction))},
         configurable: true,
         writable: true
@@ -68,39 +68,39 @@ function stub(status: number, user: any, childStatus: number = AtlasReconstructi
 
 afterEach(() => {
     vi.restoreAllMocks();
-    delete (Reconstruction as any).sequelize;
+    delete (Annotation as any).sequelize;
 });
 
-describe("rejectReconstruction from publish review", () => {
+describe("rejectAnnotation from publish review", () => {
     test("rejects the atlas reconstruction as well", async () => {
         const user = userWith(UserPermissions.Admin);
-        const stubs = stub(ReconstructionStatus.PublishReview, user);
+        const stubs = stub(AnnotationStatus.PublishReview, user);
 
-        await Reconstruction.rejectReconstruction("reconstruction-1", "user-1");
+        await Annotation.rejectAnnotation("annotation-1", "user-1");
 
         expect(stubs.atlasReconstruction.reject).toHaveBeenCalledTimes(1);
         expect(stubs.atlasReconstruction.reject).toHaveBeenCalledWith(user, transaction);
     });
 
     test("does not assign a reviewer", async () => {
-        const stubs = stub(ReconstructionStatus.PublishReview, userWith(UserPermissions.Admin));
+        const stubs = stub(AnnotationStatus.PublishReview, userWith(UserPermissions.Admin));
 
-        await Reconstruction.rejectReconstruction("reconstruction-1", "user-1");
+        await Annotation.rejectAnnotation("annotation-1", "user-1");
 
-        expect(stubs.reconstruction.update.mock.calls[0][0]).toEqual({status: ReconstructionStatus.Rejected});
+        expect(stubs.reconstruction.update.mock.calls[0][0]).toEqual({status: AnnotationStatus.Rejected});
     });
 });
 
-describe("rejectReconstruction from other allowed sources", () => {
+describe("rejectAnnotation from other allowed sources", () => {
     test("a peer review source assigns the reviewer and leaves the child alone", async () => {
         const user = userWith(UserPermissions.Admin);
-        const stubs = stub(ReconstructionStatus.PeerReview, user, AtlasReconstructionStatus.Initialized);
+        const stubs = stub(AnnotationStatus.PeerReview, user, AtlasReconstructionStatus.Initialized);
 
-        await Reconstruction.rejectReconstruction("reconstruction-1", "user-1");
+        await Annotation.rejectAnnotation("annotation-1", "user-1");
 
         expect(stubs.atlasReconstruction.reject).not.toHaveBeenCalled();
         expect(stubs.reconstruction.update.mock.calls[0][0]).toEqual({
-            status: ReconstructionStatus.Rejected,
+            status: AnnotationStatus.Rejected,
             reviewerId: user.id
         });
     });
@@ -112,13 +112,13 @@ describe("rejectReconstruction from other allowed sources", () => {
      */
     test("a team review source assigns the team reviewer and leaves the child alone", async () => {
         const user = userWith(UserPermissions.TeamReview);
-        const stubs = stub(ReconstructionStatus.TeamReview, user, AtlasReconstructionStatus.Initialized);
+        const stubs = stub(AnnotationStatus.TeamReview, user, AtlasReconstructionStatus.Initialized);
 
-        await Reconstruction.rejectReconstruction("reconstruction-1", "user-1");
+        await Annotation.rejectAnnotation("annotation-1", "user-1");
 
         expect(stubs.atlasReconstruction.reject).not.toHaveBeenCalled();
         expect(stubs.reconstruction.update.mock.calls[0][0]).toEqual({
-            status: ReconstructionStatus.Rejected,
+            status: AnnotationStatus.Rejected,
             teamReviewerId: user.id
         });
     });
@@ -127,37 +127,37 @@ describe("rejectReconstruction from other allowed sources", () => {
     // approved it.
     test("a ready-to-publish source rejects the child too", async () => {
         const user = userWith(UserPermissions.PublishReview);
-        const stubs = stub(ReconstructionStatus.ReadyToPublish, user);
+        const stubs = stub(AnnotationStatus.ReadyToPublish, user);
 
-        await Reconstruction.rejectReconstruction("reconstruction-1", "user-1");
+        await Annotation.rejectAnnotation("annotation-1", "user-1");
 
         expect(stubs.atlasReconstruction.reject).toHaveBeenCalledWith(user, transaction);
-        expect(stubs.reconstruction.update.mock.calls[0][0]).toEqual({status: ReconstructionStatus.Rejected});
+        expect(stubs.reconstruction.update.mock.calls[0][0]).toEqual({status: AnnotationStatus.Rejected});
     });
 
     test.each(abandonableFailures)("a failed child at %s is rejectable by a publish reviewer", async (childStatus: number) => {
         const user = userWith(UserPermissions.PublishReview);
-        const stubs = stub(ReconstructionStatus.WaitingForAtlasReconstruction, user, childStatus);
+        const stubs = stub(AnnotationStatus.WaitingForAtlasReconstruction, user, childStatus);
 
-        await Reconstruction.rejectReconstruction("reconstruction-1", "user-1");
+        await Annotation.rejectAnnotation("annotation-1", "user-1");
 
-        expect(stubs.reconstruction.status).toBe(ReconstructionStatus.Rejected);
+        expect(stubs.reconstruction.status).toBe(AnnotationStatus.Rejected);
         expect(stubs.atlasReconstruction.reject).toHaveBeenCalledWith(user, transaction);
     });
 
     test.each([
-        ["peer review", ReconstructionStatus.PeerReview],
-        ["team review", ReconstructionStatus.TeamReview],
-        ["publish review", ReconstructionStatus.PublishReview],
-        ["ready to publish", ReconstructionStatus.ReadyToPublish]
+        ["peer review", AnnotationStatus.PeerReview],
+        ["team review", AnnotationStatus.TeamReview],
+        ["publish review", AnnotationStatus.PublishReview],
+        ["ready to publish", AnnotationStatus.ReadyToPublish]
     ])("records the reject event for a %s source", async (_label: string, status: number) => {
         const stubs = stub(status, userWith(UserPermissions.Admin));
 
-        await Reconstruction.rejectReconstruction("reconstruction-1", "user-1");
+        await Annotation.rejectAnnotation("annotation-1", "user-1");
 
         expect(stubs.create.mock.calls[0][0]).toMatchObject({
-            kind: EventLogItemKind.ReconstructionReject,
-            targetId: "reconstruction-1"
+            kind: EventLogItemKind.AnnotationReject,
+            targetId: "annotation-1"
         });
     });
 });
@@ -165,31 +165,45 @@ describe("rejectReconstruction from other allowed sources", () => {
 // B3: a reconstruction stuck at PublishFailed can be given up on rather than only retried.  What this recovers is the
 // neuron - PublishFailed is in PublishedCandidateBlockingStatuses and Rejected is not, so the siblings stop being
 // blocked - and not the search index, which the failed publish already archived and de-indexed.
-describe("rejectReconstruction from a failed search index", () => {
+describe("rejectAnnotation from a failed search index", () => {
     test.each([
         ["publish reviewer", UserPermissions.PublishReview],
         ["admin", UserPermissions.Admin]
     ])("a %s may reject a PublishFailed parent whose child failed indexing", async (_label: string, permissions: number) => {
         const user = userWith(permissions);
-        const stubs = stub(ReconstructionStatus.PublishFailed, user, AtlasReconstructionStatus.FailedSearchIndexing);
+        const stubs = stub(AnnotationStatus.PublishFailed, user, AtlasReconstructionStatus.FailedSearchIndexing);
 
-        await Reconstruction.rejectReconstruction("reconstruction-1", "user-1");
+        await Annotation.rejectAnnotation("annotation-1", "user-1");
 
-        expect(stubs.reconstruction.status).toBe(ReconstructionStatus.Rejected);
+        expect(stubs.reconstruction.status).toBe(AnnotationStatus.Rejected);
         // The source is not PeerReview, so the child is rewound to ReadyToProcess as it is from any post-approval
         // reject, and no reviewer is recorded.
         expect(stubs.atlasReconstruction.reject).toHaveBeenCalledWith(user, transaction);
-        expect(stubs.reconstruction.update.mock.calls[0][0]).toEqual({status: ReconstructionStatus.Rejected});
+        expect(stubs.reconstruction.update.mock.calls[0][0]).toEqual({status: AnnotationStatus.Rejected});
+    });
+
+    // The DOI is an external resource and is never unwound.
+    test("keeps the annotation's DOI", async () => {
+        const stubs = stub(AnnotationStatus.PublishFailed, userWith(UserPermissions.PublishReview), AtlasReconstructionStatus.FailedSearchIndexing);
+        stubs.reconstruction.doi = "10.60533/nmcp-1";
+
+        await Annotation.rejectAnnotation("annotation-1", "user-1");
+
+        expect(stubs.reconstruction.doi).toBe("10.60533/nmcp-1");
+
+        for (const call of stubs.reconstruction.update.mock.calls) {
+            expect(call[0]).not.toHaveProperty("doi");
+        }
     });
 
     test("records the reject event", async () => {
-        const stubs = stub(ReconstructionStatus.PublishFailed, userWith(UserPermissions.PublishReview), AtlasReconstructionStatus.FailedSearchIndexing);
+        const stubs = stub(AnnotationStatus.PublishFailed, userWith(UserPermissions.PublishReview), AtlasReconstructionStatus.FailedSearchIndexing);
 
-        await Reconstruction.rejectReconstruction("reconstruction-1", "user-1");
+        await Annotation.rejectAnnotation("annotation-1", "user-1");
 
         expect(stubs.create.mock.calls[0][0]).toMatchObject({
-            kind: EventLogItemKind.ReconstructionReject,
-            targetId: "reconstruction-1"
+            kind: EventLogItemKind.AnnotationReject,
+            targetId: "annotation-1"
         });
     });
 
@@ -199,9 +213,9 @@ describe("rejectReconstruction from a failed search index", () => {
         AtlasReconstructionStatus.FailedPrecomputed,
         AtlasReconstructionStatus.Published
     ])("refuses a PublishFailed parent whose child is at %s", async (childStatus: number) => {
-        const stubs = stub(ReconstructionStatus.PublishFailed, userWith(UserPermissions.Admin), childStatus);
+        const stubs = stub(AnnotationStatus.PublishFailed, userWith(UserPermissions.Admin), childStatus);
 
-        await expect(Reconstruction.rejectReconstruction("reconstruction-1", "user-1"))
+        await expect(Annotation.rejectAnnotation("annotation-1", "user-1"))
             .rejects.toThrow(/Cannot reject a reconstruction with status/);
 
         expect(stubs.reconstruction.update).not.toHaveBeenCalled();
@@ -209,27 +223,27 @@ describe("rejectReconstruction from a failed search index", () => {
     });
 
     test("an annotator still may not", async () => {
-        const stubs = stub(ReconstructionStatus.PublishFailed, userWith(UserPermissions.AnnotateOne, "annotator-1"), AtlasReconstructionStatus.FailedSearchIndexing);
+        const stubs = stub(AnnotationStatus.PublishFailed, userWith(UserPermissions.AnnotateOne, "annotator-1"), AtlasReconstructionStatus.FailedSearchIndexing);
 
-        await expect(Reconstruction.rejectReconstruction("reconstruction-1", "annotator-1"))
+        await expect(Annotation.rejectAnnotation("annotation-1", "annotator-1"))
             .rejects.toBeInstanceOf(UnauthorizedError);
 
         expect(stubs.reconstruction.update).not.toHaveBeenCalled();
     });
 });
 
-describe("rejectReconstruction refusals", () => {
+describe("rejectAnnotation refusals", () => {
     test.each([
-        ["approved", ReconstructionStatus.Approved],
-        ["publishing", ReconstructionStatus.Publishing],
-        ["published", ReconstructionStatus.Published],
-        ["archived", ReconstructionStatus.Archived],
-        ["in progress", ReconstructionStatus.InProgress],
-        ["publish failed", ReconstructionStatus.PublishFailed]
+        ["approved", AnnotationStatus.Approved],
+        ["publishing", AnnotationStatus.Publishing],
+        ["published", AnnotationStatus.Published],
+        ["archived", AnnotationStatus.Archived],
+        ["in progress", AnnotationStatus.InProgress],
+        ["publish failed", AnnotationStatus.PublishFailed]
     ])("refuses a %s source even for an admin", async (_label: string, status: number) => {
         const stubs = stub(status, userWith(UserPermissions.Admin));
 
-        await expect(Reconstruction.rejectReconstruction("reconstruction-1", "user-1"))
+        await expect(Annotation.rejectAnnotation("annotation-1", "user-1"))
             .rejects.toThrow(/Cannot reject a reconstruction with status/);
 
         expect(stubs.reconstruction.update).not.toHaveBeenCalled();
@@ -240,9 +254,9 @@ describe("rejectReconstruction refusals", () => {
     // the admin above gets the status-shaped one.  Both are worth pinning: the child here is at ReadyToPublish, and
     // PublishFailed is a reject source only for the FailedSearchIndexing pairing below.
     test("refuses a publish reviewer at PublishFailed with a child that did not fail indexing", async () => {
-        const stubs = stub(ReconstructionStatus.PublishFailed, userWith(UserPermissions.PublishReview));
+        const stubs = stub(AnnotationStatus.PublishFailed, userWith(UserPermissions.PublishReview));
 
-        await expect(Reconstruction.rejectReconstruction("reconstruction-1", "user-1"))
+        await expect(Annotation.rejectAnnotation("annotation-1", "user-1"))
             .rejects.toBeInstanceOf(UnauthorizedError);
 
         expect(stubs.reconstruction.update).not.toHaveBeenCalled();
@@ -255,9 +269,9 @@ describe("rejectReconstruction refusals", () => {
     // status at which isRejectable consults that list at all.  Changing the parent to PublishFailed would exercise the
     // new clause instead and silently drop this coverage.
     test("refuses a child at FailedSearchIndexing", async () => {
-        const stubs = stub(ReconstructionStatus.WaitingForAtlasReconstruction, userWith(UserPermissions.PublishReview), AtlasReconstructionStatus.FailedSearchIndexing);
+        const stubs = stub(AnnotationStatus.WaitingForAtlasReconstruction, userWith(UserPermissions.PublishReview), AtlasReconstructionStatus.FailedSearchIndexing);
 
-        await expect(Reconstruction.rejectReconstruction("reconstruction-1", "user-1"))
+        await expect(Annotation.rejectAnnotation("annotation-1", "user-1"))
             .rejects.toBeInstanceOf(UnauthorizedError);
 
         expect(stubs.reconstruction.update).not.toHaveBeenCalled();
@@ -270,20 +284,20 @@ describe("rejectReconstruction refusals", () => {
         AtlasReconstructionStatus.InDoiAssignment,
         AtlasReconstructionStatus.PendingQualityControl
     ])("refuses a child at %s", async (childStatus: number) => {
-        const stubs = stub(ReconstructionStatus.WaitingForAtlasReconstruction, userWith(UserPermissions.PublishReview), childStatus);
+        const stubs = stub(AnnotationStatus.WaitingForAtlasReconstruction, userWith(UserPermissions.PublishReview), childStatus);
 
-        await expect(Reconstruction.rejectReconstruction("reconstruction-1", "user-1"))
+        await expect(Annotation.rejectAnnotation("annotation-1", "user-1"))
             .rejects.toBeInstanceOf(UnauthorizedError);
 
         expect(stubs.reconstruction.update).not.toHaveBeenCalled();
     });
 
-    test.each([ReconstructionStatus.PeerReview, ReconstructionStatus.TeamReview, ReconstructionStatus.PublishReview])(
+    test.each([AnnotationStatus.PeerReview, AnnotationStatus.TeamReview, AnnotationStatus.PublishReview])(
         "refuses a user with no review permission at %s",
         async (status: number) => {
             const stubs = stub(status, userWith(UserPermissions.AnnotateOne, "annotator-1"));
 
-            await expect(Reconstruction.rejectReconstruction("reconstruction-1", "annotator-1"))
+            await expect(Annotation.rejectAnnotation("annotation-1", "annotator-1"))
                 .rejects.toBeInstanceOf(UnauthorizedError);
 
             expect(stubs.reconstruction.update).not.toHaveBeenCalled();
@@ -291,14 +305,14 @@ describe("rejectReconstruction refusals", () => {
 
     // Which actor may reject depends on the status, so a bit does not travel between review stages.
     test.each([
-        [UserPermissions.PeerReview, ReconstructionStatus.TeamReview],
-        [UserPermissions.TeamReview, ReconstructionStatus.PeerReview],
-        [UserPermissions.TeamReview, ReconstructionStatus.PublishReview],
-        [UserPermissions.PublishReview, ReconstructionStatus.TeamReview]
+        [UserPermissions.PeerReview, AnnotationStatus.TeamReview],
+        [UserPermissions.TeamReview, AnnotationStatus.PeerReview],
+        [UserPermissions.TeamReview, AnnotationStatus.PublishReview],
+        [UserPermissions.PublishReview, AnnotationStatus.TeamReview]
     ])("refuses permission %i at status %i", async (permissions: number, status: number) => {
         const stubs = stub(status, userWith(permissions));
 
-        await expect(Reconstruction.rejectReconstruction("reconstruction-1", "user-1"))
+        await expect(Annotation.rejectAnnotation("annotation-1", "user-1"))
             .rejects.toBeInstanceOf(UnauthorizedError);
 
         expect(stubs.reconstruction.update).not.toHaveBeenCalled();
@@ -306,23 +320,23 @@ describe("rejectReconstruction refusals", () => {
 
     // The annotator has no business abandoning a reconstruction that is past approval and inside the pipeline.
     test.each(abandonableFailures)("refuses the annotator at a child status of %s", async (childStatus: number) => {
-        const stubs = stub(ReconstructionStatus.WaitingForAtlasReconstruction, userWith(UserPermissions.AnnotateOne, "annotator-1"), childStatus);
+        const stubs = stub(AnnotationStatus.WaitingForAtlasReconstruction, userWith(UserPermissions.AnnotateOne, "annotator-1"), childStatus);
 
-        await expect(Reconstruction.rejectReconstruction("reconstruction-1", "annotator-1"))
+        await expect(Annotation.rejectAnnotation("annotation-1", "annotator-1"))
             .rejects.toBeInstanceOf(UnauthorizedError);
 
         expect(stubs.reconstruction.update).not.toHaveBeenCalled();
     });
 });
 
-describe("rejectReconstruction serialization", () => {
+describe("rejectAnnotation serialization", () => {
     test("locks the child before the parent, inside the one transaction", async () => {
-        const stubs = stub(ReconstructionStatus.PublishReview, userWith(UserPermissions.Admin));
+        const stubs = stub(AnnotationStatus.PublishReview, userWith(UserPermissions.Admin));
 
-        await Reconstruction.rejectReconstruction("reconstruction-1", "user-1");
+        await Annotation.rejectAnnotation("annotation-1", "user-1");
 
         expect(stubs.findAtlas).toHaveBeenCalledWith({
-            where: {reconstructionId: "reconstruction-1"},
+            where: {annotationId: "annotation-1"},
             lock: Transaction.LOCK.UPDATE,
             transaction: transaction
         });
@@ -348,9 +362,8 @@ describe("AtlasReconstruction.reject", () => {
 
         Object.assign(instance, {
             id: "atlas-1",
-            reconstructionId: "reconstruction-1",
+            annotationId: "annotation-1",
             status: status,
-            doi: "10.60533/nmcp-1",
             failureReason: "unexpected TypeError during structure assignment",
             failedAt: new Date("2026-03-01"),
             nodeStructureAssignmentAt: new Date("2026-03-01")
@@ -377,15 +390,6 @@ describe("AtlasReconstruction.reject", () => {
             expect(atlasReconstruction.nodeStructureAssignmentAt).toBeNull();
             expect(atlasReconstruction.reviewerId).toBe("rejector-1");
         });
-
-    // The DOI is an external resource and is never unwound.
-    test("leaves the DOI alone", async () => {
-        const atlasReconstruction = child(AtlasReconstructionStatus.ReadyToPublish);
-
-        await atlasReconstruction.reject(userWith(UserPermissions.PublishReview), transaction);
-
-        expect(atlasReconstruction.doi).toBe("10.60533/nmcp-1");
-    });
 
     // A child that never received atlas data would otherwise be claimed to hold node counts it does not have.
     test("records the rejector but leaves the status of a child that never received data", async () => {

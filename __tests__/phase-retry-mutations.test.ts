@@ -7,8 +7,8 @@ const {User, UserPermissions} = require("../src/models/user");
 const {AtlasReconstruction} = require("../src/models/atlasReconstruction");
 const {AtlasReconstructionStatus} = require("../src/models/atlasReconstructionStatus");
 const {EventLogItem, EventLogItemKind} = require("../src/models/eventLogItem");
-const {Reconstruction} = require("../src/models/reconstruction");
-const {ReconstructionStatus} = require("../src/models/reconstructionStatus");
+const {Annotation} = require("../src/models/annotation");
+const {AnnotationStatus} = require("../src/models/annotationStatus");
 const {QualityControl} = require("../src/models/qualityControl");
 const {UnauthorizedError} = require("../src/graphql/secureResolvers");
 
@@ -101,23 +101,23 @@ function requestable(status: number | null, options: {precomputed?: any, quality
     const parent = "parent" in options
         ? options.parent
         : (() => {
-            const instance = Object.create(Reconstruction.prototype);
+            const instance = Object.create(Annotation.prototype);
 
-            Object.assign(instance, {id: "reconstruction-1", status: ReconstructionStatus.PublishFailed});
+            Object.assign(instance, {id: "annotation-1", status: AnnotationStatus.PublishFailed});
 
             instance.update = updateMock(instance);
 
             return instance;
         })();
 
-    const lockParent = vi.spyOn(Reconstruction, "findByPk").mockResolvedValue(parent);
+    const lockParent = vi.spyOn(Annotation, "findByPk").mockResolvedValue(parent);
 
     const child = status === null ? null : (() => {
         const instance = Object.create(AtlasReconstruction.prototype);
 
         Object.assign(instance, {
             id: "atlas-1",
-            reconstructionId: "reconstruction-1",
+            annotationId: "annotation-1",
             status: status,
             // Populated as a failed child would be, so the reset is shown to clear them.
             failureReason: "unexpected TypeError during structure assignment",
@@ -151,21 +151,21 @@ describe.each(phases)("$name", (phase) => {
     test("refuses a peer reviewer and a user with no permissions, before any query", async () => {
         const stubs = requestable(phase.failed);
 
-        await expect(phase.call(userWith(UserPermissions.PeerReview), "reconstruction-1"))
+        await expect(phase.call(userWith(UserPermissions.PeerReview), "annotation-1"))
             .rejects.toBeInstanceOf(UnauthorizedError);
 
-        await expect(phase.call(userWith(UserPermissions.None), "reconstruction-1"))
+        await expect(phase.call(userWith(UserPermissions.None), "annotation-1"))
             .rejects.toBeInstanceOf(UnauthorizedError);
 
         expect(stubs.findOne).not.toHaveBeenCalled();
     });
 
-    // Restarting a phase is supervisory, so it follows resetPipeline rather than canModifyReconstruction: an admin
+    // Restarting a phase is supervisory, so it follows resetPipeline rather than canModifyAnnotation: an admin
     // holding no review bit is the right person to have it, and the replay must not be more available than the retry.
     test("allows an admin who holds no review bit", async () => {
         const stubs = requestable(phase.failed);
 
-        const child = await phase.call(userWith(UserPermissions.Admin), "reconstruction-1");
+        const child = await phase.call(userWith(UserPermissions.Admin), "annotation-1");
 
         expect(child.status).toBe(phase.pending);
         expect(stubs.findOne).toHaveBeenCalled();
@@ -174,14 +174,14 @@ describe.each(phases)("$name", (phase) => {
     test("throws when the reconstruction has no atlas child", async () => {
         requestable(null);
 
-        await expect(phase.call(userWith(UserPermissions.PublishReview), "reconstruction-1"))
+        await expect(phase.call(userWith(UserPermissions.PublishReview), "annotation-1"))
             .rejects.toThrow("No atlas reconstruction found for this reconstruction");
     });
 
     test("resets the status, clears the failure metadata and records the request", async () => {
         const stubs = requestable(phase.failed);
 
-        const child = await phase.call(userWith(UserPermissions.PublishReview), "reconstruction-1");
+        const child = await phase.call(userWith(UserPermissions.PublishReview), "annotation-1");
 
         expect(child.status).toBe(phase.pending);
         expect(child.failureReason).toBeNull();
@@ -198,10 +198,10 @@ describe.each(phases)("$name", (phase) => {
     test("locks the atlas row inside the one transaction", async () => {
         const stubs = requestable(phase.failed);
 
-        await phase.call(userWith(UserPermissions.PublishReview), "reconstruction-1");
+        await phase.call(userWith(UserPermissions.PublishReview), "annotation-1");
 
         expect(stubs.findOne).toHaveBeenCalledWith({
-            where: {reconstructionId: "reconstruction-1"},
+            where: {annotationId: "annotation-1"},
             lock: Transaction.LOCK.UPDATE,
             transaction: transaction
         });
@@ -212,7 +212,7 @@ describe.each(phases)("$name", (phase) => {
     test.each(allStatuses.filter(status => status !== phase.failed))("refuses a child at %s with code 1004", async (status: number) => {
         const stubs = requestable(status);
 
-        await expect(phase.call(userWith(UserPermissions.PublishReview), "reconstruction-1"))
+        await expect(phase.call(userWith(UserPermissions.PublishReview), "annotation-1"))
             .rejects.toMatchObject({
                 message: `This reconstruction is not waiting on ${phase.message}; its current phase has already moved on.`,
                 extensions: {code: 1004}
@@ -228,7 +228,7 @@ describe("requestPrecomputedRegeneration re-requests the generation", () => {
     test("asks the precomputed row for a fresh generation on the same transaction", async () => {
         const stubs = requestable(AtlasReconstructionStatus.FailedPrecomputed);
 
-        await AtlasReconstruction.requestPrecomputedRegeneration(userWith(UserPermissions.PublishReview), "reconstruction-1");
+        await AtlasReconstruction.requestPrecomputedRegeneration(userWith(UserPermissions.PublishReview), "annotation-1");
 
         expect(stubs.child.getPrecomputed).toHaveBeenCalledWith({transaction: transaction});
         expect(stubs.precomputed.requestGeneration).toHaveBeenCalledWith(expect.anything(), transaction);
@@ -237,7 +237,7 @@ describe("requestPrecomputedRegeneration re-requests the generation", () => {
     test("throws rather than resetting only the child when there is no precomputed row", async () => {
         requestable(AtlasReconstructionStatus.FailedPrecomputed, {precomputed: null});
 
-        await expect(AtlasReconstruction.requestPrecomputedRegeneration(userWith(UserPermissions.PublishReview), "reconstruction-1"))
+        await expect(AtlasReconstruction.requestPrecomputedRegeneration(userWith(UserPermissions.PublishReview), "annotation-1"))
             .rejects.toThrow("No precomputed record found for this reconstruction");
     });
 
@@ -247,7 +247,7 @@ describe("requestPrecomputedRegeneration re-requests the generation", () => {
         async (phase) => {
             const stubs = requestable(phase.failed);
 
-            await phase.call(userWith(UserPermissions.PublishReview), "reconstruction-1");
+            await phase.call(userWith(UserPermissions.PublishReview), "annotation-1");
 
             expect(stubs.precomputed.requestGeneration).not.toHaveBeenCalled();
         }
@@ -260,7 +260,7 @@ describe("requestQualityControlReassessment re-requests the check", () => {
     test("makes the quality control row pending on the same transaction", async () => {
         const stubs = requestable(AtlasReconstructionStatus.FailedQualityControl);
 
-        await AtlasReconstruction.requestQualityControlReassessment(userWith(UserPermissions.PublishReview), "reconstruction-1");
+        await AtlasReconstruction.requestQualityControlReassessment(userWith(UserPermissions.PublishReview), "annotation-1");
 
         expect(QualityControl.findOne).toHaveBeenCalledWith({where: {reconstructionId: "atlas-1"}, transaction: transaction});
         expect(stubs.qualityControl.makePending).toHaveBeenCalledWith(expect.anything(), transaction);
@@ -269,7 +269,7 @@ describe("requestQualityControlReassessment re-requests the check", () => {
     test("throws rather than resetting only the child when there is no quality control row", async () => {
         requestable(AtlasReconstructionStatus.FailedQualityControl, {qualityControl: null});
 
-        await expect(AtlasReconstruction.requestQualityControlReassessment(userWith(UserPermissions.PublishReview), "reconstruction-1"))
+        await expect(AtlasReconstruction.requestQualityControlReassessment(userWith(UserPermissions.PublishReview), "annotation-1"))
             .rejects.toThrow("No quality control record found for this reconstruction");
     });
 
@@ -279,7 +279,7 @@ describe("requestQualityControlReassessment re-requests the check", () => {
         async (phase) => {
             const stubs = requestable(phase.failed);
 
-            await phase.call(userWith(UserPermissions.PublishReview), "reconstruction-1");
+            await phase.call(userWith(UserPermissions.PublishReview), "annotation-1");
 
             expect(stubs.qualityControl.makePending).not.toHaveBeenCalled();
         }
@@ -293,12 +293,12 @@ describe("requestSearchIndexing restores the parent", () => {
     test("moves the parent from PublishFailed back to Publishing on the same transaction", async () => {
         const stubs = requestable(AtlasReconstructionStatus.FailedSearchIndexing);
 
-        await AtlasReconstruction.requestSearchIndexing(userWith(UserPermissions.PublishReview), "reconstruction-1");
+        await AtlasReconstruction.requestSearchIndexing(userWith(UserPermissions.PublishReview), "annotation-1");
 
-        expect(stubs.lockParent).toHaveBeenCalledWith("reconstruction-1", {transaction: transaction, lock: Transaction.LOCK.UPDATE});
+        expect(stubs.lockParent).toHaveBeenCalledWith("annotation-1", {transaction: transaction, lock: Transaction.LOCK.UPDATE});
 
-        expect(stubs.parent.status).toBe(ReconstructionStatus.Publishing);
-        expect(stubs.parent.update).toHaveBeenCalledWith({status: ReconstructionStatus.Publishing}, {transaction: transaction});
+        expect(stubs.parent.status).toBe(AnnotationStatus.Publishing);
+        expect(stubs.parent.update).toHaveBeenCalledWith({status: AnnotationStatus.Publishing}, {transaction: transaction});
 
         // Child first, then parent - the one lock order.
         expect(stubs.child.update.mock.invocationCallOrder[0]).toBeLessThan(stubs.parent.update.mock.invocationCallOrder[0]);
@@ -307,18 +307,18 @@ describe("requestSearchIndexing restores the parent", () => {
     // The guard is in resumePublishing, so a parent something else has moved since is logged and left alone rather
     // than dragged back into Publishing.  The child still resets, which is what the retry is for.
     test("leaves a parent at any other status alone, and still resets the child", async () => {
-        const parent = Object.assign(Object.create(Reconstruction.prototype), {
-            id: "reconstruction-1",
-            status: ReconstructionStatus.Published
+        const parent = Object.assign(Object.create(Annotation.prototype), {
+            id: "annotation-1",
+            status: AnnotationStatus.Published
         });
 
         parent.update = updateMock(parent);
 
         requestable(AtlasReconstructionStatus.FailedSearchIndexing, {parent: parent});
 
-        const child = await AtlasReconstruction.requestSearchIndexing(userWith(UserPermissions.PublishReview), "reconstruction-1");
+        const child = await AtlasReconstruction.requestSearchIndexing(userWith(UserPermissions.PublishReview), "annotation-1");
 
-        expect(parent.status).toBe(ReconstructionStatus.Published);
+        expect(parent.status).toBe(AnnotationStatus.Published);
         expect(parent.update).not.toHaveBeenCalled();
         expect(child.status).toBe(AtlasReconstructionStatus.PendingSearchIndexing);
     });
@@ -326,7 +326,7 @@ describe("requestSearchIndexing restores the parent", () => {
     test("throws rather than resetting only the child when there is no parent", async () => {
         requestable(AtlasReconstructionStatus.FailedSearchIndexing, {parent: null});
 
-        await expect(AtlasReconstruction.requestSearchIndexing(userWith(UserPermissions.PublishReview), "reconstruction-1"))
+        await expect(AtlasReconstruction.requestSearchIndexing(userWith(UserPermissions.PublishReview), "annotation-1"))
             .rejects.toThrow("No reconstruction found for this atlas reconstruction");
     });
 
@@ -336,7 +336,7 @@ describe("requestSearchIndexing restores the parent", () => {
         async (phase) => {
             const stubs = requestable(phase.failed);
 
-            await phase.call(userWith(UserPermissions.PublishReview), "reconstruction-1");
+            await phase.call(userWith(UserPermissions.PublishReview), "annotation-1");
 
             expect(stubs.parent.update).not.toHaveBeenCalled();
         }
@@ -355,7 +355,7 @@ describe("prepareToFinalize and replaceNodeData clear the failure metadata", () 
 
         Object.assign(instance, {
             id: "atlas-1",
-            reconstructionId: "reconstruction-1",
+            annotationId: "annotation-1",
             status: status,
             nodeCounts: {axon: {}, dendrite: {}},
             failureReason: "unexpected TypeError during structure assignment",

@@ -1,10 +1,10 @@
 import {gql} from "graphql-tag";
 
 export const queryTypeDefinitions = gql`
-    type ReconstructionsResponse {
+    type AnnotationsResponse {
         total: Int!
         offset: Int!
-        reconstructions: [Reconstruction!]!
+        annotations: [Annotation!]!
     }
     
     type AtlasReconstructionsResponse {

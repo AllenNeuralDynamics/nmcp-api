@@ -58,21 +58,21 @@ export const inputTypeDefinitions = gql`
         limit: Int
     }
 
-    """A reconstruction status, optionally narrowed to reconstructions whose atlas reconstruction is at one of
-    atlasStatus.  An absent or empty atlasStatus matches every reconstruction at the status."""
-    input ReconstructionStatusFilter {
+    """An annotation status, optionally narrowed to annotations whose atlas reconstruction is at one of
+    atlasStatus.  An absent or empty atlasStatus matches every annotation at the status."""
+    input AnnotationStatusFilter {
         status: Int!
         atlasStatus: [Int!]
     }
 
     """status and statusFilters are alternatives: a query may use one or the other but not both.  Use statusFilters
     when any status needs narrowing by atlas reconstruction status."""
-    input ReconstructionQueryArgs {
+    input AnnotationQueryArgs {
         offset: Int
         limit: Int
         userOnly: Boolean
         status: [Int!]
-        statusFilters: [ReconstructionStatusFilter!]
+        statusFilters: [AnnotationStatusFilter!]
         specimenIds: [String!]
         keywords: [String!]
     }
@@ -198,7 +198,7 @@ export const inputTypeDefinitions = gql`
     }
 
     input ReconstructionUploadArgs {
-        reconstructionId: String!
+        annotationId: String!
         reconstructionSpace: Int!
         file: Upload!
     }

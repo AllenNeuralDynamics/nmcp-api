@@ -7,8 +7,8 @@ import {FiniteMap} from "../util/finiteMap";
 import {ApiKey} from "./apiKey";
 import {UserTableName} from "./tableNames";
 import {ReconstructionSpace} from "./reconstructionSpace";
-import {AdminDiscardableSourceStatuses, DiscardableSourceStatuses, Reconstruction} from "./reconstruction";
-import {ReconstructionStatus} from "./reconstructionStatus";
+import {AdminDiscardableSourceStatuses, Annotation, DiscardableSourceStatuses} from "./annotation";
+import {AnnotationStatus} from "./annotationStatus";
 import {AbandonableFailureStatuses, AtlasReconstructionStatus} from "./atlasReconstructionStatus";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {UnauthorizedError} from "../graphql/secureResolvers";
@@ -95,27 +95,42 @@ export function losesCapability(previous: number, next: number): boolean {
 }
 
 /**
- * The source statuses an upload may arrive at, per space, and the review bit each one requires.  A status absent for a
+ * Stands in for a review bit at a status where the upload is the annotation's own annotator's alone.  Admin does not
+ * satisfy it.
+ */
+export const OwningAnnotator = "owning-annotator";
+
+export type UploadAuthority = UserPermissions | typeof OwningAnnotator;
+
+/**
+ * The source statuses an upload may arrive at, per space, and the authority each one requires.  A status absent for a
  * space is not an upload source there at all.  The bit tracks the status rather than the space: specimen-space nodes
- * are rewritten by whichever review the reconstruction is actually in, and holding TeamReview is no licence to rewrite
- * specimen data at peer review or atlas data at publish review.  An admin qualifies at any status in the map without
- * holding the bit.
+ * are rewritten by whichever review the annotation is actually in, and holding TeamReview is no licence to rewrite
+ * specimen data at peer review or atlas data at publish review.  An admin qualifies at every review status in the map
+ * without holding the bit, but not at an OwningAnnotator status, which is the annotator's alone while they are still
+ * working the reconstruction.
  *
- * Declared here rather than beside the other source-status lists in reconstruction.ts because the values are
- * UserPermissions bits: reconstruction.ts and user.ts form a require cycle, and dereferencing the enum at module scope
+ * Declared here rather than beside the other source-status lists in annotation.ts because the values are
+ * UserPermissions bits: annotation.ts and user.ts form a require cycle, and dereferencing the enum at module scope
  * from that side throws whenever user.js is the entry into it.
  */
-export const UploadSourceStatuses: ReadonlyMap<ReconstructionSpace, ReadonlyMap<ReconstructionStatus, UserPermissions>> = new Map([
-    [ReconstructionSpace.Specimen, new Map([
-        [ReconstructionStatus.PeerReview, UserPermissions.PeerReview],
-        [ReconstructionStatus.TeamReview, UserPermissions.TeamReview],
-        [ReconstructionStatus.PublishReview, UserPermissions.PublishReview]
+export const UploadSourceStatuses: ReadonlyMap<ReconstructionSpace, ReadonlyMap<AnnotationStatus, UploadAuthority>> = new Map([
+    [ReconstructionSpace.Specimen, new Map<AnnotationStatus, UploadAuthority>([
+        [AnnotationStatus.InProgress, OwningAnnotator],
+        [AnnotationStatus.Rejected, OwningAnnotator],
+        [AnnotationStatus.PeerReview, UserPermissions.PeerReview],
+        [AnnotationStatus.TeamReview, UserPermissions.TeamReview],
+        [AnnotationStatus.PublishReview, UserPermissions.PublishReview]
     ])],
-    [ReconstructionSpace.Atlas, new Map([
-        [ReconstructionStatus.TeamReview, UserPermissions.TeamReview],
-        [ReconstructionStatus.PublishReview, UserPermissions.PublishReview]
+    [ReconstructionSpace.Atlas, new Map<AnnotationStatus, UploadAuthority>([
+        [AnnotationStatus.TeamReview, UserPermissions.TeamReview],
+        [AnnotationStatus.PublishReview, UserPermissions.PublishReview]
     ])]
 ]);
+
+export function isAnnotatorUploadStatus(space: ReconstructionSpace, status: AnnotationStatus): boolean {
+    return UploadSourceStatuses.get(space)?.get(status) === OwningAnnotator;
+}
 
 // "019a7d99-202b-7000-8000-000000000000" is the earliest/lowest possible value that is a valid UUIDv7 value.  It can not be generated unless a system clock
 // were set and held to the Unix epoch.
@@ -434,12 +449,12 @@ export class User extends BaseModel {
         return (this.permissions & UserPermissions.AnnotateMany) != 0;
     }
 
-    public canModifyReconstruction(): boolean {
+    public canModifyAnnotation(): boolean {
         return (this.permissions & UserPermissions.PublishReview) != 0;
     }
 
     /**
-     * Admin or PublishReview, unlike canModifyReconstruction, which stays PublishReview-only and gates metadata edits.
+     * Admin or PublishReview, unlike canModifyAnnotation, which stays PublishReview-only and gates metadata edits.
      * Restarting a phase or replaying the pipeline is a supervisory action on a reconstruction that is stuck, so an
      * admin holding no review bit is still the right person to have it - and the replay must not be more available
      * than the single retry it subsumes.
@@ -448,11 +463,11 @@ export class User extends BaseModel {
         return this.isAdmin() || (this.permissions & UserPermissions.PublishReview) != 0;
     }
 
-    public canPauseReconstruction(annotatorId: string): boolean {
+    public canPauseAnnotation(annotatorId: string): boolean {
         return this.isAdmin() || annotatorId == this.id;
     }
 
-    public canResumeReconstruction(annotatorId: string): boolean {
+    public canResumeAnnotation(annotatorId: string): boolean {
         return this.isAdmin() || annotatorId == this.id;
     }
 
@@ -461,15 +476,15 @@ export class User extends BaseModel {
      * child has stopped at a failed phase, never while one is running.  The annotator is deliberately absent - a
      * reconstruction inside the pipeline is not theirs to abandon.
      */
-    private static isReviewerAbandonable(status: ReconstructionStatus, childStatus: AtlasReconstructionStatus): boolean {
-        if (status == ReconstructionStatus.ReadyToPublish) {
+    private static isReviewerAbandonable(status: AnnotationStatus, childStatus: AtlasReconstructionStatus): boolean {
+        if (status == AnnotationStatus.ReadyToPublish) {
             return true;
         }
 
-        return status == ReconstructionStatus.WaitingForAtlasReconstruction && AbandonableFailureStatuses.includes(childStatus);
+        return status == AnnotationStatus.WaitingForAtlasReconstruction && AbandonableFailureStatuses.includes(childStatus);
     }
 
-    public canDiscardReconstruction(annotatorId: string, status: ReconstructionStatus, childStatus: AtlasReconstructionStatus = null): boolean {
+    public canDiscardAnnotation(annotatorId: string, status: AnnotationStatus, childStatus: AtlasReconstructionStatus = null): boolean {
         if (DiscardableSourceStatuses.includes(status)) {
             return this.isAdmin() || annotatorId == this.id;
         }
@@ -490,33 +505,33 @@ export class User extends BaseModel {
      * reconstruction, and the annotator marks it untraceable from Rejected - team review is not a source for the
      * transition either, and from that stage on the atlas child may hold node data a teardown destroys permanently.
      */
-    public canMarkReconstructionUntraceable(annotatorId: string): boolean {
+    public canMarkAnnotationUntraceable(annotatorId: string): boolean {
         return this.isAdmin() || annotatorId == this.id || (this.permissions & (UserPermissions.PeerReview | UserPermissions.PublishReview)) != 0;
     }
 
-    public canReviseReconstruction(): boolean {
+    public canReviseAnnotation(): boolean {
         return this.canAnnotate();
     }
 
-    public canRejectReconstruction(status: ReconstructionStatus, childStatus: AtlasReconstructionStatus = null): boolean {
+    public canRejectAnnotation(status: AnnotationStatus, childStatus: AtlasReconstructionStatus = null): boolean {
         if (this.isAdmin()) {
             return true;
         }
 
-        if (status == ReconstructionStatus.PeerReview) {
+        if (status == AnnotationStatus.PeerReview) {
             return (this.permissions & UserPermissions.PeerReview) != 0;
         }
 
-        if (status == ReconstructionStatus.TeamReview) {
+        if (status == AnnotationStatus.TeamReview) {
             return (this.permissions & UserPermissions.TeamReview) != 0;
         }
 
         // The PublishFailed pair is spelled out here rather than folded into isReviewerAbandonable, which
-        // canDiscardReconstruction shares: a discard permission at PublishFailed would only be refused by
-        // Reconstruction.isDiscardable a moment later.
-        if (status == ReconstructionStatus.PublishReview
+        // canDiscardAnnotation shares: a discard permission at PublishFailed would only be refused by
+        // Annotation.isDiscardable a moment later.
+        if (status == AnnotationStatus.PublishReview
             || User.isReviewerAbandonable(status, childStatus)
-            || (status == ReconstructionStatus.PublishFailed && childStatus == AtlasReconstructionStatus.FailedSearchIndexing)) {
+            || (status == AnnotationStatus.PublishFailed && childStatus == AtlasReconstructionStatus.FailedSearchIndexing)) {
             return (this.permissions & UserPermissions.PublishReview) != 0;
         }
 
@@ -533,20 +548,20 @@ export class User extends BaseModel {
      * target alone no longer names a bit.  ApprovalSourceStatuses is what refuses an inadmissible pair; this answers
      * only who may act on an admissible one.
      */
-    public canApproveReconstruction(targetStatus: ReconstructionStatus, currentStatus: ReconstructionStatus): boolean {
+    public canApproveAnnotation(targetStatus: AnnotationStatus, currentStatus: AnnotationStatus): boolean {
         if (this.isAdmin()) {
             return true;
         }
 
-        if (currentStatus == ReconstructionStatus.PeerReview) {
+        if (currentStatus == AnnotationStatus.PeerReview) {
             return (this.permissions & UserPermissions.PeerReview) != 0;
         }
 
-        if (currentStatus == ReconstructionStatus.TeamReview) {
+        if (currentStatus == AnnotationStatus.TeamReview) {
             return (this.permissions & UserPermissions.TeamReview) != 0;
         }
 
-        if (targetStatus == ReconstructionStatus.Approved) {
+        if (targetStatus == AnnotationStatus.Approved) {
             return (this.permissions & UserPermissions.PublishReview) != 0;
         }
 
@@ -558,32 +573,43 @@ export class User extends BaseModel {
     }
 
     /**
-     * Admin, or the review bit UploadSourceStatuses pairs with the status the reconstruction is in, for both spaces.
-     * The same map decides the locked re-check in Reconstruction.fromParsedStructures, so the rule is stated once.
+     * Admin or the review bit UploadSourceStatuses pairs with the status the reconstruction is in, for both spaces, or
+     * the owning annotator at an OwningAnnotator status.  The same map decides the locked re-check in
+     * Annotation.fromParsedStructures, so the rule is stated once.
      */
-    public canUploadReconstructionData(space: ReconstructionSpace, currentStatus: ReconstructionStatus): boolean {
-        const requiredPermission = UploadSourceStatuses.get(space)?.get(currentStatus);
+    public canUploadReconstructionData(space: ReconstructionSpace, currentStatus: AnnotationStatus, annotatorId: string): boolean {
+        const authority = UploadSourceStatuses.get(space)?.get(currentStatus);
 
-        if (requiredPermission === undefined) {
+        if (authority === undefined) {
             return false;
         }
 
-        return this.isAdmin() || (this.permissions & requiredPermission) != 0;
+        return this.holdsUploadAuthority(authority, annotatorId);
     }
 
     /**
-     * Whether this user could upload in the space at some status, without regard to the one the reconstruction is in.
-     * It is what separates a caller who is refused for who they are from one refused only for where the reconstruction
-     * is, so that the status is disclosed to the second and not the first.
+     * Whether this user could upload this annotation in the space at some status, without regard to the one the
+     * reconstruction is in.  It is what separates a caller who is refused for who they are from one refused only for
+     * where the reconstruction is, so that the status is disclosed to the second and not the first.
      */
-    public canUploadReconstructionDataInSpace(space: ReconstructionSpace): boolean {
-        const permissions = UploadSourceStatuses.get(space);
+    public canUploadReconstructionDataInSpace(space: ReconstructionSpace, annotatorId: string): boolean {
+        const authorities = UploadSourceStatuses.get(space);
 
-        if (permissions === undefined) {
+        if (authorities === undefined) {
             return false;
         }
 
-        return this.isAdmin() || [...permissions.values()].some(permission => (this.permissions & permission) != 0);
+        return [...authorities.values()].some(authority => this.holdsUploadAuthority(authority, annotatorId));
+    }
+
+    private holdsUploadAuthority(authority: UploadAuthority, annotatorId: string): boolean {
+        if (authority === OwningAnnotator) {
+            // No admin bypass: before review the reconstruction is the annotator's work in progress.  The null guard
+            // keeps an id-less user from owning an annotation with no annotator.
+            return annotatorId != null && annotatorId == this.id;
+        }
+
+        return this.isAdmin() || (this.permissions & authority) != 0;
     }
 
     /**
@@ -762,9 +788,9 @@ export const modelInit = (sequelize: Sequelize) => {
 
 // noinspection JSUnusedGlobalSymbols
 export const modelAssociate = () => {
-    User.hasMany(Reconstruction, {foreignKey: "annotatorId", as: "Annotator"});
-    User.hasMany(Reconstruction, {foreignKey: "reviewerId", as: "PeerReviewer"});
-    User.hasMany(Reconstruction, {foreignKey: "teamReviewerId", as: "TeamReviewer"});
+    User.hasMany(Annotation, {foreignKey: "annotatorId", as: "Annotations"});
+    User.hasMany(Annotation, {foreignKey: "reviewerId", as: "PeerReviewedAnnotations"});
+    User.hasMany(Annotation, {foreignKey: "teamReviewerId", as: "TeamReviewedAnnotations"});
     User.hasMany(AtlasReconstruction, {foreignKey: "reviewerId", as: "Proofreader"});
     User.hasMany(ApiKey, {foreignKey: "userId"});
 };

@@ -126,7 +126,7 @@ export class Precomputed extends BaseModel {
             // Child first, per the one lock order stated on QualityControl.claim: requestPhaseRetry locks the child and
             // then writes this row, so taking them the other way round here is a deadlock between a regeneration
             // request and a generation result arriving for the same reconstruction.  reconstructionId is the
-            // AtlasReconstruction's id, not the parent Reconstruction's.
+            // AtlasReconstruction's id, not the parent Annotation's.
             await AtlasReconstruction.findByPk(precomputed.reconstructionId, {transaction: t, lock: Transaction.LOCK.UPDATE});
 
             const update = {

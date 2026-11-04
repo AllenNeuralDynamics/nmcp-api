@@ -14,7 +14,7 @@ import "fs";
 import * as _ from "lodash";
 import {validate} from "uuid";
 
-import {NeuronTableName, ReconstructionTableName} from "./tableNames";
+import {AnnotationTableName, NeuronTableName} from "./tableNames";
 import {BaseModel, EntityQueryInput, EntityQueryOutput} from "./baseModel";
 import {
     optionsWhereAtlasStructureIds,
@@ -36,13 +36,14 @@ import {UnauthorizedError} from "../graphql/secureResolvers";
 import {normalizeKeywords, substringMatchPatterns} from "../util/keywords";
 import {Genotype} from "./genotype";
 import {isNullOrEmpty, mergeJsonProperties} from "../util/objectUtil";
-import {CandidateBlockingStatuses, CandidateExcludedStatuses, PublishedCandidateBlockingStatuses, Reconstruction} from "./reconstruction";
+import {Annotation, CandidateBlockingStatuses, CandidateExcludedStatuses, PublishedCandidateBlockingStatuses} from "./annotation";
+import {SpecimenSpaceReconstruction} from "./specimenSpaceReconstruction";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {Collection} from "./collection";
 import {DataCiteService, DataCiteServiceStatus, DataCiteRelatedIdentifier} from "../data-access/doi/dataCiteService";
 import {CoreServiceOptions} from "../options/coreServicesOptions";
 import {Atlas} from "./atlas";
-import {ReconstructionStatus} from "./reconstructionStatus";
+import {AnnotationStatus} from "./annotationStatus";
 import {publishedCount} from "./systemSettings";
 import {PortalNeuron} from "../io/portalFormat";
 
@@ -161,7 +162,7 @@ export class Neuron extends BaseModel {
 
     public getSpecimen!: BelongsToGetAssociationMixin<Specimen>;
     public getAtlasStructure!: BelongsToGetAssociationMixin<AtlasStructure>;
-    public getSpecimenReconstruction!: HasManyGetAssociationsMixin<Reconstruction>;
+    public getAnnotations!: HasManyGetAssociationsMixin<Annotation>;
 
     public AtlasStructure: AtlasStructure;
     public Specimen?: Specimen;
@@ -178,7 +179,7 @@ export class Neuron extends BaseModel {
     }
 
     public static async publishedCount(): Promise<number> {
-        return await Reconstruction.count({where: {status: ReconstructionStatus.Published}, distinct: true, col: "neuronId"});
+        return await Annotation.count({where: {status: AnnotationStatus.Published}, distinct: true, col: "neuronId"});
     }
 
     /**
@@ -209,13 +210,13 @@ export class Neuron extends BaseModel {
         return include;
     }
 
-    private static candidateFindOptions(input: NeuronQueryInput, includeInProgress: boolean, excludedReconstructionStatuses: ReconstructionStatus[], specimenAttributes: string[] = null): FindOptions {
+    private static candidateFindOptions(input: NeuronQueryInput, includeInProgress: boolean, excludedAnnotationStatuses: AnnotationStatus[], specimenAttributes: string[] = null): FindOptions {
         const predicates = [literal(`NOT EXISTS (
             SELECT 1
-            FROM "${ReconstructionTableName}" AS blocking_reconstruction
-            WHERE blocking_reconstruction."neuronId" = "${NeuronTableName}"."id"
-              AND blocking_reconstruction."deletedAt" IS NULL
-              AND blocking_reconstruction."status" = ANY(ARRAY[:candidateBlockingStatuses])
+            FROM "${AnnotationTableName}" AS blocking_annotation
+            WHERE blocking_annotation."neuronId" = "${NeuronTableName}"."id"
+              AND blocking_annotation."deletedAt" IS NULL
+              AND blocking_annotation."status" = ANY(ARRAY[:candidateBlockingStatuses])
           )`)];
 
         // includeInProgress reads backwards: it means only a finished (or in-flight) publication holds the neuron back.
@@ -225,16 +226,16 @@ export class Neuron extends BaseModel {
         };
 
         // Guarded on length because ARRAY[] with an empty replacement is a Postgres type error.
-        if (excludedReconstructionStatuses.length > 0) {
+        if (excludedAnnotationStatuses.length > 0) {
             // No deletedAt test: marking a reconstruction untraceable soft-deletes it, and it must still exclude.
             predicates.push(literal(`NOT EXISTS (
             SELECT 1
-            FROM "${ReconstructionTableName}" AS excluded_reconstruction
-            WHERE excluded_reconstruction."neuronId" = "${NeuronTableName}"."id"
-              AND excluded_reconstruction."status" = ANY(ARRAY[:candidateExcludedStatuses])
+            FROM "${AnnotationTableName}" AS excluded_annotation
+            WHERE excluded_annotation."neuronId" = "${NeuronTableName}"."id"
+              AND excluded_annotation."status" = ANY(ARRAY[:candidateExcludedStatuses])
           )`));
 
-            replacements["candidateExcludedStatuses"] = excludedReconstructionStatuses;
+            replacements["candidateExcludedStatuses"] = excludedAnnotationStatuses;
         }
 
         if (input?.status == NeuronStatusFilter.Published || input?.status == NeuronStatusFilter.Unpublished) {
@@ -244,13 +245,13 @@ export class Neuron extends BaseModel {
 
             predicates.push(literal(`EXISTS (
             SELECT 1
-            FROM "${ReconstructionTableName}" AS status_reconstruction
-            WHERE status_reconstruction."neuronId" = "${NeuronTableName}"."id"
-              AND status_reconstruction."deletedAt" IS NULL
-              AND status_reconstruction."status" ${comparison} :candidatePublishedStatus
+            FROM "${AnnotationTableName}" AS status_annotation
+            WHERE status_annotation."neuronId" = "${NeuronTableName}"."id"
+              AND status_annotation."deletedAt" IS NULL
+              AND status_annotation."status" ${comparison} :candidatePublishedStatus
           )`));
 
-            replacements["candidatePublishedStatus"] = ReconstructionStatus.Published;
+            replacements["candidatePublishedStatus"] = AnnotationStatus.Published;
         }
 
         const options: FindOptions = {where: {[Op.and]: predicates}, include: []};
@@ -319,19 +320,19 @@ export class Neuron extends BaseModel {
 
             if (input.status == NeuronStatusFilter.Published) {
                 (options.include as Includeable[]).push({
-                    model: Reconstruction,
-                    as: "SpecimenReconstruction",
-                    where: {status: ReconstructionStatus.Published},
+                    model: Annotation,
+                    as: "Annotations",
+                    where: {status: AnnotationStatus.Published},
                     attributes: [],
                     required: true
                 });
             } else if (input.status == NeuronStatusFilter.Unpublished) {
                 (options.include as Includeable[]).push({
-                    model: Reconstruction,
-                    as: "SpecimenReconstruction",
+                    model: Annotation,
+                    as: "Annotations",
                     where: {
                         status: {
-                            [Op.ne]: ReconstructionStatus.Published
+                            [Op.ne]: AnnotationStatus.Published
                         }
                     },
                     attributes: [],
@@ -357,8 +358,8 @@ export class Neuron extends BaseModel {
         return {totalCount: count, items: neurons};
     }
 
-    public static async getCandidateNeurons(input: NeuronQueryInput, includeInProgress: boolean = false, excludedReconstructionStatuses: ReconstructionStatus[] = CandidateExcludedStatuses): Promise<EntityQueryOutput<Neuron>> {
-        const options = this.candidateFindOptions(input, includeInProgress, excludedReconstructionStatuses);
+    public static async getCandidateNeurons(input: NeuronQueryInput, includeInProgress: boolean = false, excludedAnnotationStatuses: AnnotationStatus[] = CandidateExcludedStatuses): Promise<EntityQueryOutput<Neuron>> {
+        const options = this.candidateFindOptions(input, includeInProgress, excludedAnnotationStatuses);
 
         const offset = Math.max(0, input?.offset ?? 0);
 
@@ -373,14 +374,14 @@ export class Neuron extends BaseModel {
         return {totalCount, offset, items};
     }
 
-    public static async getCandidateNeuronLocations(input: NeuronQueryInput, includeInProgress: boolean = false, excludedReconstructionStatuses: ReconstructionStatus[] = CandidateExcludedStatuses, after: string = null, chunkSize: number = null): Promise<CandidateNeuronLocations> {
+    public static async getCandidateNeuronLocations(input: NeuronQueryInput, includeInProgress: boolean = false, excludedAnnotationStatuses: AnnotationStatus[] = CandidateExcludedStatuses, after: string = null, chunkSize: number = null): Promise<CandidateNeuronLocations> {
         if (after && !validate(after)) {
             throw new Error("The cursor is not a valid neuron id.");
         }
 
         const size = chunkSize > 0 ? Math.min(chunkSize, CandidateLocationChunkSize) : CandidateLocationChunkSize;
 
-        const options = this.candidateFindOptions(input, includeInProgress, excludedReconstructionStatuses, []);
+        const options = this.candidateFindOptions(input, includeInProgress, excludedAnnotationStatuses, []);
 
         const chunkOptions: FindOptions = {
             ...options,
@@ -403,12 +404,12 @@ export class Neuron extends BaseModel {
         };
     }
 
-    public static async getCandidateNeuronOffset(id: string, input: NeuronQueryInput, includeInProgress: boolean = false, excludedReconstructionStatuses: ReconstructionStatus[] = CandidateExcludedStatuses): Promise<number | null> {
+    public static async getCandidateNeuronOffset(id: string, input: NeuronQueryInput, includeInProgress: boolean = false, excludedAnnotationStatuses: AnnotationStatus[] = CandidateExcludedStatuses): Promise<number | null> {
         if (!validate(id)) {
             throw new Error("The id is not a valid neuron id.");
         }
 
-        const options = this.candidateFindOptions(input, includeInProgress, excludedReconstructionStatuses, ["label"]);
+        const options = this.candidateFindOptions(input, includeInProgress, excludedAnnotationStatuses, ["label"]);
 
         const target: any = await Neuron.findOne({
             ...options,
@@ -644,14 +645,14 @@ export class Neuron extends BaseModel {
         });
     }
 
-    public static async startReconstruction(user: User, neuronId: string): Promise<Reconstruction> {
+    public static async startAnnotation(user: User, neuronId: string): Promise<Annotation> {
         if (!user?.canAnnotate()) {
             throw new UnauthorizedError();
         }
 
-        const [reconstruction, _] = await Reconstruction.openReconstruction(neuronId, user);
+        const [annotation, _] = await Annotation.openAnnotation(neuronId, user);
 
-        return reconstruction;
+        return annotation;
     }
 
     public static async findNextAvailableLabel(specimen: string): Promise<number> {
@@ -844,8 +845,8 @@ export class Neuron extends BaseModel {
         return this.applyBulkUpdate(neurons, shape, user);
     }
 
-    public static async reconstructionCounts(neuronIds: readonly string[]): Promise<number[]> {
-        const rows = await Reconstruction.count({where: {neuronId: {[Op.in]: [...neuronIds]}}, group: ["neuronId"]});
+    public static async annotationCounts(neuronIds: readonly string[]): Promise<number[]> {
+        const rows = await Annotation.count({where: {neuronId: {[Op.in]: [...neuronIds]}}, group: ["neuronId"]});
 
         // Postgres returns a grouped COUNT as a bigint string.
         const counts = new Map(rows.map(row => [row["neuronId"] as string, Number(row.count)]));
@@ -853,27 +854,27 @@ export class Neuron extends BaseModel {
         return neuronIds.map(neuronId => counts.get(neuronId) ?? 0);
     }
 
-    public static async reconstructionsByNeuron(neuronIds: readonly string[]): Promise<Reconstruction[][]> {
-        // hasMany, so every revision of the neuron: without the include, phaseFailure and atlasReconstruction
-        // would each fetch the child once per row.
-        const rows = await Reconstruction.findAll({where: {neuronId: {[Op.in]: [...neuronIds]}}, include: [{model: AtlasReconstruction}]});
+    public static async annotationsByNeuron(neuronIds: readonly string[]): Promise<Annotation[][]> {
+        // hasMany, so every revision of the neuron: without the includes, phaseFailure, atlasReconstruction and
+        // specimenSpaceReconstruction would each fetch a child once per row.
+        const rows = await Annotation.findAll({where: {neuronId: {[Op.in]: [...neuronIds]}}, include: [{model: AtlasReconstruction}, {model: SpecimenSpaceReconstruction}]});
 
         const byNeuron = _.groupBy(rows, row => row.neuronId);
 
         return neuronIds.map(neuronId => byNeuron[neuronId] ?? []);
     }
 
-    public static async publishedByNeuron(neuronIds: readonly string[]): Promise<AtlasReconstruction[]> {
-        const rows = await Reconstruction.findAll({
-            where: {neuronId: {[Op.in]: [...neuronIds]}, status: ReconstructionStatus.Published},
-            include: [{model: AtlasReconstruction}]
+    public static async publishedByNeuron(neuronIds: readonly string[]): Promise<Annotation[]> {
+        const rows = await Annotation.findAll({
+            where: {neuronId: {[Op.in]: [...neuronIds]}, status: AnnotationStatus.Published},
+            include: [{model: AtlasReconstruction}, {model: SpecimenSpaceReconstruction}]
         });
 
-        const byNeuron = new Map<string, AtlasReconstruction>();
+        const byNeuron = new Map<string, Annotation>();
 
         for (const row of rows) {
             if (!byNeuron.has(row.neuronId)) {
-                byNeuron.set(row.neuronId, row.AtlasReconstruction ?? null);
+                byNeuron.set(row.neuronId, row);
             }
         }
 
@@ -887,7 +888,7 @@ export class Neuron extends BaseModel {
      * status for the second half.
      */
     public static async untraceableByNeuron(neuronIds: readonly string[]): Promise<boolean[]> {
-        const rows = await Reconstruction.findAll({
+        const rows = await Annotation.findAll({
             where: {neuronId: {[Op.in]: [...neuronIds]}},
             attributes: ["neuronId", "status", "deletedAt"],
             paranoid: false
@@ -896,10 +897,10 @@ export class Neuron extends BaseModel {
         const byNeuron = _.groupBy(rows, row => row.neuronId);
 
         return neuronIds.map(neuronId => {
-            const reconstructions = byNeuron[neuronId] ?? [];
+            const annotations = byNeuron[neuronId] ?? [];
 
-            return reconstructions.some(reconstruction => reconstruction.status == ReconstructionStatus.Untraceable)
-                && reconstructions.every(reconstruction => reconstruction.deletedAt != null);
+            return annotations.some(annotation => annotation.status == AnnotationStatus.Untraceable)
+                && annotations.every(annotation => annotation.deletedAt != null);
         });
     }
 
@@ -1031,7 +1032,7 @@ export const modelInit = (sequelize: Sequelize) => {
 export const modelAssociate = () => {
     Neuron.belongsTo(Specimen, {foreignKey: "specimenId", as: "Specimen"});
     Neuron.belongsTo(AtlasStructure, {foreignKey: "atlasStructureId",});
-    Neuron.hasMany(Reconstruction, {foreignKey: "neuronId", as: "SpecimenReconstruction"});
+    Neuron.hasMany(Annotation, {foreignKey: "neuronId", as: "Annotations"});
 };
 
 const defaultCreateOrUpdateOptions: NeuronCreateOrUpdateOptions = {

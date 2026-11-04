@@ -12,12 +12,13 @@ import {Collection, CollectionShape} from "../models/collection";
 import {Issue, IssueReference, IssueResolutionKind, IssueStatus} from "../models/issue";
 import {
     ReconstructionUploadArgs,
-    ReconstructionQueryResponse,
-    ReconstructionsQueryArgs,
+    AnnotationQueryResponse,
+    AnnotationsQueryArgs,
     ReviewRequestArgs,
-    Reconstruction,
-    ReconstructionMetadataArgs, ReconstructionRevisionKind
-} from "../models/reconstruction";
+    Annotation,
+    AnnotationMetadataArgs, ReconstructionRevisionKind
+} from "../models/annotation";
+import {SpecimenSpaceReconstruction} from "../models/specimenSpaceReconstruction";
 import GraphQLUpload = require("graphql-upload/GraphQLUpload.js");
 import {QualityControl} from "../models/qualityControl";
 import {AtlasNode} from "../models/atlasNode";
@@ -53,7 +54,7 @@ export interface GqlFile {
 }
 
 /**
- * The Reconstruction.phaseFailure payload: the child's Failed... status, what it recorded, and when.  Derived from
+ * The Annotation.phaseFailure payload: the child's Failed... status, what it recorded, and when.  Derived from
  * the atlas reconstruction on every read rather than persisted on the parent, so there is no second copy to drift.
  */
 export interface PhaseFailureShape {
@@ -96,12 +97,12 @@ export const secureResolvers = {
             return Neuron.getAll(user, args.input);
         },
 
-        reconstructions(_: any, args: { queryArgs: ReconstructionsQueryArgs }, {user}: RequestContext): Promise<ReconstructionQueryResponse> {
+        annotations(_: any, args: { queryArgs: AnnotationsQueryArgs }, {user}: RequestContext): Promise<AnnotationQueryResponse> {
             const queryArgs = {...args.queryArgs, userId: user.id};
-            // The has-one include turns what would be two per-row fetches - atlasReconstruction and phaseFailure -
-            // into one join.  Passed here rather than added to getAll's default include, so getAllPublished's own
-            // AtlasReconstruction include is not duplicated into an EagerLoadingError.
-            return Reconstruction.getAll(user, queryArgs, [{model: AtlasReconstruction}]);
+            // The has-one includes turn what would be three per-row fetches - atlasReconstruction, phaseFailure and
+            // specimenSpaceReconstruction - into joins.  Passed here rather than added to getAll's default include, so
+            // getAllPublished's own AtlasReconstruction include is not duplicated into an EagerLoadingError.
+            return Annotation.getAll(user, queryArgs, [{model: AtlasReconstruction}, {model: SpecimenSpaceReconstruction}]);
         },
 
         async issueCount(_: any, __: any, {user}: RequestContext): Promise<number> {
@@ -202,98 +203,98 @@ export const secureResolvers = {
             return Specimen.receiveSomaPropertiesUpload(user, args.file, args.options);
         },
 
-        openReconstruction(_: any, args: { neuronId: string }, {user}: RequestContext): Promise<Reconstruction> {
-            return Neuron.startReconstruction(user, args.neuronId);
+        openAnnotation(_: any, args: { neuronId: string }, {user}: RequestContext): Promise<Annotation> {
+            return Neuron.startAnnotation(user, args.neuronId);
         },
 
-        pauseReconstruction(_: any, args: { reconstructionId: string }, {user}: RequestContext): Promise<Reconstruction> {
-            return Reconstruction.pauseReconstruction(args.reconstructionId, user);
+        pauseAnnotation(_: any, args: { annotationId: string }, {user}: RequestContext): Promise<Annotation> {
+            return Annotation.pauseAnnotation(args.annotationId, user);
         },
 
-        resumeReconstruction(_: any, args: { reconstructionId: string }, {user}: RequestContext): Promise<Reconstruction> {
-            return Reconstruction.resumeReconstruction(args.reconstructionId, user);
+        resumeAnnotation(_: any, args: { annotationId: string }, {user}: RequestContext): Promise<Annotation> {
+            return Annotation.resumeAnnotation(args.annotationId, user);
         },
 
-        markReconstructionIncomplete(_: any, args: { reconstructionId: string }, {user}: RequestContext): Promise<Reconstruction> {
-            return Reconstruction.markIncomplete(args.reconstructionId, user);
+        markAnnotationIncomplete(_: any, args: { annotationId: string }, {user}: RequestContext): Promise<Annotation> {
+            return Annotation.markIncomplete(args.annotationId, user);
         },
 
-        markReconstructionDuplicate(_: any, args: { reconstructionId: string }, {user}: RequestContext): Promise<Reconstruction> {
-            return Reconstruction.markDuplicate(args.reconstructionId, user);
+        markAnnotationDuplicate(_: any, args: { annotationId: string }, {user}: RequestContext): Promise<Annotation> {
+            return Annotation.markDuplicate(args.annotationId, user);
         },
 
-        requestReview(_: any, args: ReviewRequestArgs, {user}: RequestContext): Promise<Reconstruction> {
-            return Reconstruction.requestReview(args, user);
+        requestReview(_: any, args: ReviewRequestArgs, {user}: RequestContext): Promise<Annotation> {
+            return Annotation.requestReview(args, user);
         },
 
-        approveReconstruction(_: any, args: { reconstructionId: string, targetStatus: number }, {user}: RequestContext): Promise<Reconstruction> {
-            return Reconstruction.approveReconstruction(args.reconstructionId, args.targetStatus, user);
+        approveAnnotation(_: any, args: { annotationId: string, targetStatus: number }, {user}: RequestContext): Promise<Annotation> {
+            return Annotation.approveAnnotation(args.annotationId, args.targetStatus, user);
         },
 
-        publish(_: any, args: { reconstructionId: string, replaceExisting: boolean }, {user}: RequestContext): Promise<Reconstruction> {
-            return Reconstruction.publish(user, args.reconstructionId, args.replaceExisting);
+        publish(_: any, args: { annotationId: string, replaceExisting: boolean }, {user}: RequestContext): Promise<Annotation> {
+            return Annotation.publish(user, args.annotationId, args.replaceExisting);
         },
 
-        publishAll(_: any, args: { reconstructionIds: string[] }, {user}: RequestContext): Promise<Reconstruction[]> {
-            return Reconstruction.publishAll(user, args.reconstructionIds);
+        publishAll(_: any, args: { annotationIds: string[] }, {user}: RequestContext): Promise<Annotation[]> {
+            return Annotation.publishAll(user, args.annotationIds);
         },
 
-        rejectReconstruction(_: any, args: { reconstructionId: string }, {user}: RequestContext): Promise<Reconstruction> {
-            return Reconstruction.rejectReconstruction(args.reconstructionId, user);
+        rejectAnnotation(_: any, args: { annotationId: string }, {user}: RequestContext): Promise<Annotation> {
+            return Annotation.rejectAnnotation(args.annotationId, user);
         },
 
-        discardReconstruction(_: any, args: { reconstructionId: string }, {user}: RequestContext): Promise<Reconstruction> {
-            return Reconstruction.discardReconstruction(args.reconstructionId, user);
+        discardAnnotation(_: any, args: { annotationId: string }, {user}: RequestContext): Promise<Annotation> {
+            return Annotation.discardAnnotation(args.annotationId, user);
         },
 
-        markReconstructionUntraceable(_: any, args: { reconstructionId: string }, {user}: RequestContext): Promise<Reconstruction> {
-            return Reconstruction.markUntraceable(args.reconstructionId, user);
+        markAnnotationUntraceable(_: any, args: { annotationId: string }, {user}: RequestContext): Promise<Annotation> {
+            return Annotation.markUntraceable(args.annotationId, user);
         },
 
-        requestSpecimenSpaceRegeneration(_: any, args: { reconstructionId: string }, {user}: RequestContext): Promise<SpecimenSpacePrecomputed> {
-            return SpecimenSpacePrecomputed.requestRegenerationForReconstruction(user, args.reconstructionId);
+        requestSpecimenSpaceRegeneration(_: any, args: { specimenSpaceReconstructionId: string }, {user}: RequestContext): Promise<SpecimenSpacePrecomputed> {
+            return SpecimenSpacePrecomputed.requestRegenerationForReconstruction(user, args.specimenSpaceReconstructionId);
         },
 
-        requestQualityControlReassessment(_: any, args: { reconstructionId: string }, {user}: RequestContext): Promise<AtlasReconstruction> {
-            return AtlasReconstruction.requestQualityControlReassessment(user, args.reconstructionId);
+        requestQualityControlReassessment(_: any, args: { annotationId: string }, {user}: RequestContext): Promise<AtlasReconstruction> {
+            return AtlasReconstruction.requestQualityControlReassessment(user, args.annotationId);
         },
 
-        requestDoiAssignment(_: any, args: { reconstructionId: string }, {user}: RequestContext): Promise<AtlasReconstruction> {
-            return AtlasReconstruction.requestDoiAssignment(user, args.reconstructionId);
+        requestDoiAssignment(_: any, args: { annotationId: string }, {user}: RequestContext): Promise<AtlasReconstruction> {
+            return AtlasReconstruction.requestDoiAssignment(user, args.annotationId);
         },
 
-        requestStructureAssignment(_: any, args: { reconstructionId: string }, {user}: RequestContext): Promise<AtlasReconstruction> {
-            return AtlasReconstruction.requestStructureAssignment(user, args.reconstructionId);
+        requestStructureAssignment(_: any, args: { annotationId: string }, {user}: RequestContext): Promise<AtlasReconstruction> {
+            return AtlasReconstruction.requestStructureAssignment(user, args.annotationId);
         },
 
         // Returns the atlas reconstruction rather than the Precomputed row: the child status is what the caller
         // needs back, and it is what distinguishes this from requestSpecimenSpaceRegeneration above.
-        requestPrecomputedRegeneration(_: any, args: { reconstructionId: string }, {user}: RequestContext): Promise<AtlasReconstruction> {
-            return AtlasReconstruction.requestPrecomputedRegeneration(user, args.reconstructionId);
+        requestPrecomputedRegeneration(_: any, args: { annotationId: string }, {user}: RequestContext): Promise<AtlasReconstruction> {
+            return AtlasReconstruction.requestPrecomputedRegeneration(user, args.annotationId);
         },
 
-        requestSearchIndexing(_: any, args: { reconstructionId: string }, {user}: RequestContext): Promise<AtlasReconstruction> {
-            return AtlasReconstruction.requestSearchIndexing(user, args.reconstructionId);
+        requestSearchIndexing(_: any, args: { annotationId: string }, {user}: RequestContext): Promise<AtlasReconstruction> {
+            return AtlasReconstruction.requestSearchIndexing(user, args.annotationId);
         },
 
-        resetReconstructionPipeline(_: any, args: { reconstructionId: string }, {user}: RequestContext): Promise<AtlasReconstruction> {
-            return AtlasReconstruction.resetPipeline(user, args.reconstructionId);
+        resetReconstructionPipeline(_: any, args: { annotationId: string }, {user}: RequestContext): Promise<AtlasReconstruction> {
+            return AtlasReconstruction.resetPipeline(user, args.annotationId);
         },
 
-        updateReconstruction(_: any, args: ReconstructionMetadataArgs, {user}: RequestContext): Promise<Reconstruction> {
-            return Reconstruction.updateMetadata(user, args);
+        updateAnnotation(_: any, args: AnnotationMetadataArgs, {user}: RequestContext): Promise<Annotation> {
+            return Annotation.updateMetadata(user, args);
         },
 
-        openReconstructionRevision(_: any, args: { reconstructionId: string, revisionKind: ReconstructionRevisionKind }, {user}: RequestContext): Promise<Reconstruction> {
-            return Reconstruction.openReconstructionRevision(user, args.reconstructionId, args.revisionKind);
+        openAnnotationRevision(_: any, args: { annotationId: string, revisionKind: ReconstructionRevisionKind }, {user}: RequestContext): Promise<Annotation> {
+            return Annotation.openAnnotationRevision(user, args.annotationId, args.revisionKind);
         },
 
-        uploadSwcData(_: any, {uploadArgs}: { uploadArgs: ReconstructionUploadArgs }, {user}: RequestContext): Promise<Reconstruction> {
-            return Reconstruction.fromSwcUpload(user, uploadArgs);
+        uploadSwcData(_: any, {uploadArgs}: { uploadArgs: ReconstructionUploadArgs }, {user}: RequestContext): Promise<Annotation> {
+            return Annotation.fromSwcUpload(user, uploadArgs);
         },
 
-        uploadParquetData(_: any, {uploadArgs}: { uploadArgs: ReconstructionUploadArgs }, {user}: RequestContext): Promise<Reconstruction> {
-            return Reconstruction.fromParquetUpload(user, uploadArgs);
+        uploadParquetData(_: any, {uploadArgs}: { uploadArgs: ReconstructionUploadArgs }, {user}: RequestContext): Promise<Annotation> {
+            return Annotation.fromParquetUpload(user, uploadArgs);
         },
 
         createApiKey(_: any, args: { key: string, description: string, durationDays?: number, permissions?: number }, {user}: RequestContext): Promise<ApiKey> {
@@ -333,21 +334,26 @@ export const secureResolvers = {
             return collection.specimenCount();
         }
     } satisfies FieldResolvers,
-    Reconstruction: {
-        neuron(reconstruction: Reconstruction): Promise<Neuron> {
-            return reconstruction.getNeuron();
+    Annotation: {
+        neuron(annotation: Annotation): Promise<Neuron> {
+            return annotation.getNeuron();
         },
-        atlasReconstruction(reconstruction: Reconstruction): Promise<AtlasReconstruction> {
+        atlasReconstruction(annotation: Annotation): Promise<AtlasReconstruction> {
             // Prefer the eager-loaded child: the list queries include it, and without this the field fetches once
             // per row alongside phaseFailure doing the same.
-            return Promise.resolve(reconstruction.AtlasReconstruction ?? reconstruction.getAtlasReconstruction());
+            return Promise.resolve(annotation.AtlasReconstruction ?? annotation.getAtlasReconstruction());
+        },
+        specimenSpaceReconstruction(annotation: Annotation): Promise<SpecimenSpaceReconstruction> {
+            // Not paranoid: a discarded or untraceable annotation is returned soft-deleted, its specimen-space row with
+            // it, and the field is non-null.
+            return Promise.resolve(annotation.SpecimenSpaceReconstruction ?? annotation.getSpecimenSpaceReconstruction({paranoid: false}));
         },
         /**
          * Which phase is blocked and why, composed on the server so each client does not have to know which parent
          * statuses are worth pairing with which child status.  Null unless the child sits at a Failed... status.
          */
-        async phaseFailure(reconstruction: Reconstruction): Promise<PhaseFailureShape | null> {
-            const child = reconstruction.AtlasReconstruction ?? await reconstruction.getAtlasReconstruction();
+        async phaseFailure(annotation: Annotation): Promise<PhaseFailureShape | null> {
+            const child = annotation.AtlasReconstruction ?? await annotation.getAtlasReconstruction();
 
             if (!child || !PhaseFailureStatuses.includes(child.status)) {
                 return null;
@@ -355,22 +361,24 @@ export const secureResolvers = {
 
             return {phase: child.status, reason: child.failureReason ?? null, failedAt: child.failedAt ?? null};
         },
-        soma(reconstruction: Reconstruction): Promise<SpecimenNode> {
+        annotator(annotation: Annotation): Promise<User> {
+            return annotation.getAnnotator({attributes: ["id", "firstName", "lastName"]});
+        },
+        async reviewer(annotation: Annotation): Promise<User> {
+            const user = await annotation.getReviewer({attributes: ["id", "firstName", "lastName", "isSystemUser"]});
+            return user?.isSystemUser ? null : user;
+        },
+        async teamReviewer(annotation: Annotation): Promise<User> {
+            const user = await annotation.getTeamReviewer({attributes: ["id", "firstName", "lastName", "isSystemUser"]});
+            return user?.isSystemUser ? null : user;
+        },
+    } satisfies FieldResolvers,
+    SpecimenSpaceReconstruction: {
+        soma(reconstruction: SpecimenSpaceReconstruction): Promise<SpecimenNode> {
             return reconstruction.getSoma();
         },
-        precomputed(reconstruction: Reconstruction): Promise<SpecimenSpacePrecomputed> {
+        precomputed(reconstruction: SpecimenSpaceReconstruction): Promise<SpecimenSpacePrecomputed> {
             return reconstruction.getPrecomputed();
-        },
-        annotator(reconstruction: Reconstruction): Promise<User> {
-            return reconstruction.getAnnotator({attributes: ["id", "firstName", "lastName"]});
-        },
-        async reviewer(reconstruction: Reconstruction): Promise<User> {
-            const user = await reconstruction.getReviewer({attributes: ["id", "firstName", "lastName", "isSystemUser"]});
-            return user?.isSystemUser ? null : user;
-        },
-        async teamReviewer(reconstruction: Reconstruction): Promise<User> {
-            const user = await reconstruction.getTeamReviewer({attributes: ["id", "firstName", "lastName", "isSystemUser"]});
-            return user?.isSystemUser ? null : user;
         },
     } satisfies FieldResolvers,
     AtlasReconstruction: {

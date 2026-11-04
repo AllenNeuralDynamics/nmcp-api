@@ -19,8 +19,8 @@ import {Genotype} from "../models/genotype";
 import {Injection} from "../models/injection";
 import {InjectionVirus} from "../models/injectionVirus";
 import {Fluorophore} from "../models/fluorophore";
-import {Reconstruction, PublishedReconstructionQueryResponse} from "../models/reconstruction";
-import {ReconstructionStatus} from "../models/reconstructionStatus";
+import {Annotation, PublishedReconstructionQueryResponse} from "../models/annotation";
+import {AnnotationStatus} from "../models/annotationStatus";
 import {getSystemSettings, SystemSettings} from "../models/systemSettings";
 import {AccessRequest, AccessRequestShape, RequestAccessResponse} from "../models/accessRequest";
 import {getNeuronVersionHistory} from "../models/neuronVersionHistory";
@@ -101,17 +101,17 @@ export const openResolvers = {
             return Neuron.findByPk(args.id);
         },
 
-        candidateNeurons(_: any, args: { input: NeuronQueryInput, includeInProgress: boolean, excludedReconstructionStatuses?: ReconstructionStatus[] }): Promise<EntityQueryOutput<Neuron>> {
+        candidateNeurons(_: any, args: { input: NeuronQueryInput, includeInProgress: boolean, excludedAnnotationStatuses?: AnnotationStatus[] }): Promise<EntityQueryOutput<Neuron>> {
             // An explicit null from the client becomes undefined so the model's default applies.
-            return Neuron.getCandidateNeurons(args.input, args.includeInProgress, args.excludedReconstructionStatuses ?? undefined);
+            return Neuron.getCandidateNeurons(args.input, args.includeInProgress, args.excludedAnnotationStatuses ?? undefined);
         },
 
-        candidateNeuronLocations(_: any, args: { input: NeuronQueryInput, includeInProgress: boolean, excludedReconstructionStatuses?: ReconstructionStatus[], after?: string, chunkSize?: number }): Promise<CandidateNeuronLocations> {
-            return Neuron.getCandidateNeuronLocations(args.input, args.includeInProgress, args.excludedReconstructionStatuses ?? undefined, args.after ?? null, args.chunkSize ?? null);
+        candidateNeuronLocations(_: any, args: { input: NeuronQueryInput, includeInProgress: boolean, excludedAnnotationStatuses?: AnnotationStatus[], after?: string, chunkSize?: number }): Promise<CandidateNeuronLocations> {
+            return Neuron.getCandidateNeuronLocations(args.input, args.includeInProgress, args.excludedAnnotationStatuses ?? undefined, args.after ?? null, args.chunkSize ?? null);
         },
 
-        candidateNeuronOffset(_: any, args: { id: string, input: NeuronQueryInput, includeInProgress: boolean, excludedReconstructionStatuses?: ReconstructionStatus[] }): Promise<number | null> {
-            return Neuron.getCandidateNeuronOffset(args.id, args.input, args.includeInProgress, args.excludedReconstructionStatuses ?? undefined);
+        candidateNeuronOffset(_: any, args: { id: string, input: NeuronQueryInput, includeInProgress: boolean, excludedAnnotationStatuses?: AnnotationStatus[] }): Promise<number | null> {
+            return Neuron.getCandidateNeuronOffset(args.id, args.input, args.includeInProgress, args.excludedAnnotationStatuses ?? undefined);
         },
 
         nearestNode(_: any, args: { id: string, location: number[] }, __: RequestContext): Promise<NearestNodeOutput> {
@@ -123,7 +123,7 @@ export const openResolvers = {
         },
 
         publishedReconstructions(_: any, args: { offset: number, limit: number }, {user}: RequestContext): Promise<PublishedReconstructionQueryResponse> {
-            return Reconstruction.getAllPublished(user, args.offset, args.limit);
+            return Annotation.getAllPublished(user, args.offset, args.limit);
         },
 
         searchNeurons(_: any, args: { context: SearchContextInput }, __: RequestContext): Promise<SearchOutputPage> {
@@ -189,8 +189,8 @@ export const openResolvers = {
         }
     } satisfies FieldResolvers,
     Neuron: {
-        reconstructionCount(neuron: Neuron, _: any, {loaders}: RequestContext): Promise<number> {
-            return loaders.reconstructionCount.load(neuron.id);
+        annotationCount(neuron: Neuron, _: any, {loaders}: RequestContext): Promise<number> {
+            return loaders.annotationCount.load(neuron.id);
         },
         atlasStructure(neuron: Neuron, _: any, {loaders}: RequestContext): Promise<AtlasStructure> {
             return Promise.resolve(neuron.AtlasStructure ?? (neuron.atlasStructureId ? loaders.atlasStructure.load(neuron.atlasStructureId) : null));
@@ -200,10 +200,10 @@ export const openResolvers = {
             // partial include would hand the client nulls for the fields it left out.
             return Promise.resolve(neuron.Specimen ?? (neuron.specimenId ? loaders.specimen.load(neuron.specimenId) : null));
         },
-        reconstructions(neuron: Neuron, _: any, {loaders}: RequestContext): Promise<Reconstruction[]> {
-            return loaders.reconstructions.load(neuron.id);
+        annotations(neuron: Neuron, _: any, {loaders}: RequestContext): Promise<Annotation[]> {
+            return loaders.annotations.load(neuron.id);
         },
-        published(neuron: Neuron, _: any, {loaders}: RequestContext): Promise<AtlasReconstruction> {
+        published(neuron: Neuron, _: any, {loaders}: RequestContext): Promise<Annotation> {
             return loaders.published.load(neuron.id);
         },
         untraceable(neuron: Neuron, _: any, {loaders}: RequestContext): Promise<boolean> {
@@ -211,8 +211,11 @@ export const openResolvers = {
         }
     } satisfies FieldResolvers,
     AtlasReconstruction: {
+        annotation(reconstruction: AtlasReconstruction): Promise<Annotation> {
+            return Promise.resolve(reconstruction.Annotation ?? reconstruction.getAnnotation());
+        },
         async neuron(reconstruction: AtlasReconstruction): Promise<Neuron> {
-            const r = await Reconstruction.findByPk(reconstruction.reconstructionId);
+            const r = await Annotation.findByPk(reconstruction.annotationId);
 
             if (r) {
                 return await Neuron.findByPk(r.neuronId);

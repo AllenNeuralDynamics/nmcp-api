@@ -4,8 +4,8 @@ import {expect, test, vi, describe, afterEach} from "vitest";
 // different module instance than the CJS one the model methods call into, so the spies would not apply.
 const {Op, Transaction} = require("sequelize");
 const {User, UserPermissions} = require("../src/models/user");
-const {Reconstruction, PublishedCandidateBlockingStatuses} = require("../src/models/reconstruction");
-const {ReconstructionStatus} = require("../src/models/reconstructionStatus");
+const {Annotation, PublishedCandidateBlockingStatuses} = require("../src/models/annotation");
+const {AnnotationStatus} = require("../src/models/annotationStatus");
 const {Neuron} = require("../src/models/neuron");
 const {AtlasReconstruction} = require("../src/models/atlasReconstruction");
 const {SearchIndex} = require("../src/models/searchIndex");
@@ -28,7 +28,7 @@ function updateMock(instance: any) {
 }
 
 function siblingStub(status: number) {
-    const sibling = Object.create(Reconstruction.prototype);
+    const sibling = Object.create(Annotation.prototype);
     sibling.id = `sibling-${status}`;
     sibling.neuronId = "neuron-1";
     sibling.status = status;
@@ -40,26 +40,27 @@ function siblingStub(status: number) {
 function publishable(siblings: any[], canonicalDoi: string | null = "10.x/canonical", doi: string | null = "10.x/abc") {
     vi.spyOn(EventLogItem, "create").mockResolvedValue({id: "event-1"});
 
-    const findAll = vi.spyOn(Reconstruction, "findAll").mockResolvedValue(siblings);
+    const findAll = vi.spyOn(Annotation, "findAll").mockResolvedValue(siblings);
 
     // Publish asserts the DOIs the assignment phase registered, reading the canonical off the locked neuron row.
     const lockNeuron = vi.spyOn(Neuron, "findByPk").mockResolvedValue({id: "neuron-1", canonicalDoi: canonicalDoi} as any);
     const destroySearchIndex = vi.spyOn(SearchIndex, "destroy").mockResolvedValue(0);
 
-    const reconstruction = Object.create(Reconstruction.prototype);
-    reconstruction.id = "reconstruction-1";
+    const reconstruction = Object.create(Annotation.prototype);
+    reconstruction.id = "annotation-1";
     reconstruction.neuronId = "neuron-1";
-    reconstruction.status = ReconstructionStatus.ReadyToPublish;
+    reconstruction.status = AnnotationStatus.ReadyToPublish;
+    reconstruction.doi = doi;
     reconstruction.update = updateMock(reconstruction);
 
-    const atlasReconstruction = {nodeCounts: {}, doi: doi, tryStartPublishing: vi.fn().mockResolvedValue(true)};
+    const atlasReconstruction = {nodeCounts: {}, tryStartPublishing: vi.fn().mockResolvedValue(true)};
 
     reconstruction.AtlasReconstruction = atlasReconstruction;
 
     // Both rows are re-read under lock inside the transaction now: the instances publish was handed were loaded before
     // it opened, and a reset, reject or discard can have moved the pair since.
     const lockChild = vi.spyOn(AtlasReconstruction, "findOne").mockResolvedValue(atlasReconstruction as any);
-    const lockParent = vi.spyOn(Reconstruction, "findByPk").mockResolvedValue(reconstruction);
+    const lockParent = vi.spyOn(Annotation, "findByPk").mockResolvedValue(reconstruction);
 
     return {reconstruction, atlasReconstruction, findAll, lockNeuron, lockChild, lockParent, destroySearchIndex};
 }
@@ -74,16 +75,16 @@ describe("publishWithTransaction sibling guard", () => {
 
         const published = await stubs.reconstruction.publishWithTransaction(userWith(UserPermissions.Admin), false, transaction);
 
-        expect(published.status).toBe(ReconstructionStatus.Publishing);
+        expect(published.status).toBe(AnnotationStatus.Publishing);
     });
 
     // PublishFailed is the same case stalled: the sibling's predecessor is already archived and de-indexed, and only
     // requestSearchIndexing finishes it, so a second publish may not displace it either.
     test.each([
-        [ReconstructionStatus.Publishing, false],
-        [ReconstructionStatus.Publishing, true],
-        [ReconstructionStatus.PublishFailed, false],
-        [ReconstructionStatus.PublishFailed, true]
+        [AnnotationStatus.Publishing, false],
+        [AnnotationStatus.Publishing, true],
+        [AnnotationStatus.PublishFailed, false],
+        [AnnotationStatus.PublishFailed, true]
     ])("refuses with code 1003 when a sibling is at %s (replaceExisting: %s)", async (siblingStatus: number, replaceExisting: boolean) => {
         const stubs = publishable([siblingStub(siblingStatus)]);
 
@@ -91,11 +92,11 @@ describe("publishWithTransaction sibling guard", () => {
             .rejects.toMatchObject({extensions: {code: 1003}});
 
         expect(stubs.destroySearchIndex).not.toHaveBeenCalled();
-        expect(stubs.reconstruction.status).toBe(ReconstructionStatus.ReadyToPublish);
+        expect(stubs.reconstruction.status).toBe(AnnotationStatus.ReadyToPublish);
     });
 
     test("refuses with code 1001 when a published sibling exists and replaceExisting is not set", async () => {
-        const stubs = publishable([siblingStub(ReconstructionStatus.Published)]);
+        const stubs = publishable([siblingStub(AnnotationStatus.Published)]);
 
         await expect(stubs.reconstruction.publishWithTransaction(userWith(UserPermissions.Admin), false, transaction))
             .rejects.toMatchObject({extensions: {code: 1001}});
@@ -104,25 +105,25 @@ describe("publishWithTransaction sibling guard", () => {
     });
 
     test("archives the published sibling when replaceExisting is set", async () => {
-        const existingPublished = siblingStub(ReconstructionStatus.Published);
+        const existingPublished = siblingStub(AnnotationStatus.Published);
         const stubs = publishable([existingPublished]);
 
         const published = await stubs.reconstruction.publishWithTransaction(userWith(UserPermissions.Admin), true, transaction);
 
-        expect(existingPublished.status).toBe(ReconstructionStatus.Archived);
+        expect(existingPublished.status).toBe(AnnotationStatus.Archived);
         expect(stubs.destroySearchIndex).toHaveBeenCalledTimes(1);
-        expect(published.status).toBe(ReconstructionStatus.Publishing);
+        expect(published.status).toBe(AnnotationStatus.Publishing);
     });
 
     // A neuron can hold both, and the in-progress publish is the one that may not be displaced.
     test("with both siblings, 1003 wins and nothing is archived", async () => {
-        const existingPublished = siblingStub(ReconstructionStatus.Published);
-        const stubs = publishable([existingPublished, siblingStub(ReconstructionStatus.Publishing)]);
+        const existingPublished = siblingStub(AnnotationStatus.Published);
+        const stubs = publishable([existingPublished, siblingStub(AnnotationStatus.Publishing)]);
 
         await expect(stubs.reconstruction.publishWithTransaction(userWith(UserPermissions.Admin), true, transaction))
             .rejects.toMatchObject({extensions: {code: 1003}});
 
-        expect(existingPublished.status).toBe(ReconstructionStatus.Published);
+        expect(existingPublished.status).toBe(AnnotationStatus.Published);
         expect(stubs.destroySearchIndex).not.toHaveBeenCalled();
     });
 });
@@ -130,14 +131,27 @@ describe("publishWithTransaction sibling guard", () => {
 // Publish makes no DataCite call now, so a reconstruction that never went through the DOI assignment phase has to be
 // refused rather than published without an identifier.
 describe("publishWithTransaction DOI assertion", () => {
-    test("refuses a reconstruction whose child has no DOI", async () => {
+    test("refuses an annotation with no DOI", async () => {
         const stubs = publishable([], "10.x/canonical", null);
 
         await expect(stubs.reconstruction.publishWithTransaction(userWith(UserPermissions.Admin), false, transaction))
             .rejects.toThrow("The reconstruction has no DOI assigned");
 
         expect(stubs.findAll).not.toHaveBeenCalled();
-        expect(stubs.reconstruction.status).toBe(ReconstructionStatus.ReadyToPublish);
+        expect(stubs.reconstruction.status).toBe(AnnotationStatus.ReadyToPublish);
+    });
+
+    test("reads the DOI off the locked annotation row", async () => {
+        const stubs = publishable([]);
+
+        const locked = Object.create(Annotation.prototype);
+        Object.assign(locked, {id: "annotation-1", neuronId: "neuron-1", status: AnnotationStatus.ReadyToPublish, doi: null});
+        stubs.lockParent.mockResolvedValue(locked);
+
+        await expect(stubs.reconstruction.publishWithTransaction(userWith(UserPermissions.Admin), false, transaction))
+            .rejects.toThrow("The reconstruction has no DOI assigned");
+
+        expect(stubs.findAll).not.toHaveBeenCalled();
     });
 
     test("refuses a reconstruction whose neuron has no canonical DOI", async () => {
@@ -147,7 +161,7 @@ describe("publishWithTransaction DOI assertion", () => {
             .rejects.toThrow("The reconstruction has no DOI assigned");
 
         expect(stubs.findAll).not.toHaveBeenCalled();
-        expect(stubs.reconstruction.status).toBe(ReconstructionStatus.ReadyToPublish);
+        expect(stubs.reconstruction.status).toBe(AnnotationStatus.ReadyToPublish);
     });
 });
 
@@ -185,12 +199,12 @@ describe("publishWithTransaction neuron lock", () => {
         await stubs.reconstruction.publishWithTransaction(userWith(UserPermissions.Admin), false, transaction);
 
         expect(stubs.lockChild).toHaveBeenCalledWith({
-            where: {reconstructionId: "reconstruction-1"},
+            where: {annotationId: "annotation-1"},
             lock: Transaction.LOCK.UPDATE,
             transaction: transaction
         });
 
-        expect(stubs.lockParent).toHaveBeenCalledWith("reconstruction-1", {transaction: transaction, lock: Transaction.LOCK.UPDATE});
+        expect(stubs.lockParent).toHaveBeenCalledWith("annotation-1", {transaction: transaction, lock: Transaction.LOCK.UPDATE});
 
         expect(stubs.lockNeuron.mock.invocationCallOrder[0]).toBeLessThan(stubs.lockChild.mock.invocationCallOrder[0]);
         expect(stubs.lockChild.mock.invocationCallOrder[0]).toBeLessThan(stubs.lockParent.mock.invocationCallOrder[0]);
@@ -206,8 +220,8 @@ describe("publishWithTransaction against a committed reset", () => {
     test("refuses when the locked parent has left ReadyToPublish", async () => {
         const stubs = publishable([]);
 
-        const locked = Object.assign(Object.create(Reconstruction.prototype), stubs.reconstruction, {
-            status: ReconstructionStatus.WaitingForAtlasReconstruction
+        const locked = Object.assign(Object.create(Annotation.prototype), stubs.reconstruction, {
+            status: AnnotationStatus.WaitingForAtlasReconstruction
         });
         locked.update = updateMock(locked);
 
@@ -231,6 +245,6 @@ describe("publishWithTransaction against a committed reset", () => {
         await expect(stubs.reconstruction.publishWithTransaction(userWith(UserPermissions.Admin), false, transaction))
             .rejects.toThrow("The associated atlas reconstruction is not in a publishable state");
 
-        expect(stubs.reconstruction.status).toBe(ReconstructionStatus.ReadyToPublish);
+        expect(stubs.reconstruction.status).toBe(AnnotationStatus.ReadyToPublish);
     });
 });

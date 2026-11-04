@@ -4,14 +4,15 @@ import {expect, test, vi, describe, afterEach} from "vitest";
 // different module instance than the CJS one the model methods call into, so the spies would not apply.
 const {Transaction} = require("sequelize");
 const {User, UserPermissions} = require("../src/models/user");
-const {Reconstruction} = require("../src/models/reconstruction");
-const {ReconstructionStatus} = require("../src/models/reconstructionStatus");
+const {Annotation} = require("../src/models/annotation");
+const {AnnotationStatus} = require("../src/models/annotationStatus");
 const {ReconstructionSpace} = require("../src/models/reconstructionSpace");
 const {AtlasReconstruction} = require("../src/models/atlasReconstruction");
 const {Neuron} = require("../src/models/neuron");
 const {Specimen} = require("../src/models/specimen");
 const {Atlas} = require("../src/models/atlas");
 const {SpecimenSpacePrecomputed} = require("../src/models/specimenSpacePrecomputed");
+const {SpecimenSpaceReconstruction} = require("../src/models/specimenSpaceReconstruction");
 const {QualityControl} = require("../src/models/qualityControl");
 const {Precomputed} = require("../src/models/precomputed");
 const {EventLogItem, EventLogItemKind} = require("../src/models/eventLogItem");
@@ -59,14 +60,15 @@ function defineSequelize(model: any) {
  * The instance the upload was loaded on and the instance it re-reads under the lock are the same object here: the
  * interleavings where they differ are transition-serialization.test.ts.
  */
-function reconstructionStub(status: number) {
-    const reconstruction = Object.create(Reconstruction.prototype);
-    reconstruction.id = "reconstruction-1";
+function reconstructionStub(status: number, annotatorId: string = "annotator-1") {
+    const reconstruction = Object.create(Annotation.prototype);
+    reconstruction.id = "annotation-1";
     reconstruction.neuronId = "neuron-1";
+    reconstruction.annotatorId = annotatorId;
     reconstruction.status = status;
     reconstruction.update = updateMock(reconstruction);
 
-    vi.spyOn(Reconstruction, "findByPk").mockResolvedValue(reconstruction);
+    vi.spyOn(Annotation, "findByPk").mockResolvedValue(reconstruction);
 
     return reconstruction;
 }
@@ -81,40 +83,59 @@ function atlasStub() {
     };
 }
 
-const allStatuses = Object.keys(ReconstructionStatus)
+const allStatuses = Object.keys(AnnotationStatus)
     .filter(key => isNaN(Number(key)))
-    .map(key => ReconstructionStatus[key] as number);
+    .map(key => AnnotationStatus[key] as number);
 
 afterEach(() => {
     vi.restoreAllMocks();
-    delete (Reconstruction as any).sequelize;
+    delete (Annotation as any).sequelize;
 });
 
 describe("fromParsedStructures in specimen space", () => {
     function specimenStubs(status: number) {
         vi.spyOn(EventLogItem, "create").mockResolvedValue({id: "event-1"});
-        defineSequelize(Reconstruction);
+        defineSequelize(Annotation);
 
-        vi.spyOn(Reconstruction.prototype as any, "replaceNodeData").mockResolvedValue(undefined);
-        vi.spyOn(SpecimenSpacePrecomputed, "findOne")
+        const specimenSpace = Object.create(SpecimenSpaceReconstruction.prototype);
+        specimenSpace.id = "specimen-space-1";
+        specimenSpace.annotationId = "annotation-1";
+        specimenSpace.replaceNodeData = vi.fn().mockResolvedValue(undefined);
+
+        const findSpecimenSpace = vi.spyOn(SpecimenSpaceReconstruction, "findOne").mockResolvedValue(specimenSpace);
+        const findPrecomputed = vi.spyOn(SpecimenSpacePrecomputed, "findOne")
             .mockResolvedValue({requestGeneration: vi.fn().mockResolvedValue(undefined)} as any);
 
         const neuron = vi.spyOn(Neuron, "findByPk").mockResolvedValue({atlasSoma: {x: 1, y: 2, z: 3}} as any);
 
-        return {reconstruction: reconstructionStub(status), neuron: neuron};
+        return {
+            reconstruction: reconstructionStub(status),
+            neuron: neuron,
+            specimenSpace: specimenSpace,
+            findSpecimenSpace: findSpecimenSpace,
+            findPrecomputed: findPrecomputed
+        };
     }
 
-    test.each([ReconstructionStatus.PeerReview, ReconstructionStatus.TeamReview, ReconstructionStatus.PublishReview])("accepts %s", async (status: number) => {
+    test.each([AnnotationStatus.PeerReview, AnnotationStatus.TeamReview, AnnotationStatus.PublishReview])("accepts %s", async (status: number) => {
         const stubs = specimenStubs(status);
 
         await stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.ReviewAll), ReconstructionSpace.Specimen, reconstructionData());
 
-        expect((Reconstruction.prototype as any).replaceNodeData).toHaveBeenCalledTimes(1);
+        expect(stubs.specimenSpace.replaceNodeData).toHaveBeenCalledTimes(1);
+    });
+
+    test.each([AnnotationStatus.InProgress, AnnotationStatus.Rejected])("accepts the owning annotator at %s", async (status: number) => {
+        const stubs = specimenStubs(status);
+
+        await stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.AnnotateOne, "annotator-1"), ReconstructionSpace.Specimen, reconstructionData());
+
+        expect(stubs.specimenSpace.replaceNodeData).toHaveBeenCalledTimes(1);
     });
 
     // The admin bypass does not reach these: a status absent from UploadSourceStatuses is not an upload source at all,
     // for anyone, and this is the locked check rather than the permission in any case.
-    test.each(allStatuses.filter(status => status !== ReconstructionStatus.PeerReview && status !== ReconstructionStatus.TeamReview && status !== ReconstructionStatus.PublishReview))(
+    test.each(allStatuses.filter(status => ![AnnotationStatus.InProgress, AnnotationStatus.Rejected, AnnotationStatus.PeerReview, AnnotationStatus.TeamReview, AnnotationStatus.PublishReview].includes(status)))(
         "refuses %s even for an admin",
         async (status: number) => {
             const stubs = specimenStubs(status);
@@ -122,18 +143,18 @@ describe("fromParsedStructures in specimen space", () => {
             await expect(stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.Admin), ReconstructionSpace.Specimen, reconstructionData()))
                 .rejects.toMatchObject({message: expect.stringMatching(/^Uploading the specimen-space reconstruction is not allowed while in /), extensions: {code: 1009}});
 
-            expect((Reconstruction.prototype as any).replaceNodeData).not.toHaveBeenCalled();
+            expect(stubs.specimenSpace.replaceNodeData).not.toHaveBeenCalled();
         });
 
-    // This branch writes no neuron, so it stays out of the Neuron -> AtlasReconstruction -> Reconstruction order and
+    // This branch writes no neuron, so it stays out of the Neuron -> AtlasReconstruction -> Annotation order and
     // takes the parent alone.
     test("locks the parent and neither the child nor the neuron", async () => {
-        const stubs = specimenStubs(ReconstructionStatus.PublishReview);
+        const stubs = specimenStubs(AnnotationStatus.PublishReview);
         const findAtlas = vi.spyOn(AtlasReconstruction, "findOne");
 
         await stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.PublishReview), ReconstructionSpace.Specimen, reconstructionData());
 
-        expect(Reconstruction.findByPk).toHaveBeenCalledWith("reconstruction-1", {transaction: transaction, lock: Transaction.LOCK.UPDATE});
+        expect(Annotation.findByPk).toHaveBeenCalledWith("annotation-1", {transaction: transaction, lock: Transaction.LOCK.UPDATE});
         expect(findAtlas).not.toHaveBeenCalled();
         expect(stubs.neuron).not.toHaveBeenCalled();
     });
@@ -141,52 +162,123 @@ describe("fromParsedStructures in specimen space", () => {
     // The permission is re-evaluated against the locked status, so the reviewer who may write depends on where the
     // reconstruction actually is, not on where it was when the file started parsing.
     test.each([
-        [UserPermissions.PeerReview, ReconstructionStatus.PublishReview],
-        [UserPermissions.PeerReview, ReconstructionStatus.TeamReview],
-        [UserPermissions.TeamReview, ReconstructionStatus.PeerReview],
-        [UserPermissions.TeamReview, ReconstructionStatus.PublishReview]
+        [UserPermissions.PeerReview, AnnotationStatus.PublishReview],
+        [UserPermissions.PeerReview, AnnotationStatus.TeamReview],
+        [UserPermissions.TeamReview, AnnotationStatus.PeerReview],
+        [UserPermissions.TeamReview, AnnotationStatus.PublishReview]
     ])("refuses permission %i at status %i", async (permissions: number, status: number) => {
         const stubs = specimenStubs(status);
 
         await expect(stubs.reconstruction.fromParsedStructures(userWith(permissions), ReconstructionSpace.Specimen, reconstructionData()))
             .rejects.toBeInstanceOf(UnauthorizedError);
 
-        expect((Reconstruction.prototype as any).replaceNodeData).not.toHaveBeenCalled();
+        expect(stubs.specimenSpace.replaceNodeData).not.toHaveBeenCalled();
+    });
+
+    // The annotator's statuses carry no admin bypass, so an admin is refused there as for any status not theirs.
+    test.each([
+        [UserPermissions.Admin, AnnotationStatus.InProgress],
+        [UserPermissions.Admin, AnnotationStatus.Rejected],
+        [UserPermissions.ReviewAll, AnnotationStatus.InProgress],
+        [UserPermissions.ReviewAll, AnnotationStatus.Rejected]
+    ])("refuses permission %i who is not the annotator at status %i as unauthorized", async (permissions: number, status: number) => {
+        const stubs = specimenStubs(status);
+
+        await expect(stubs.reconstruction.fromParsedStructures(userWith(permissions), ReconstructionSpace.Specimen, reconstructionData()))
+            .rejects.toBeInstanceOf(UnauthorizedError);
+
+        expect(stubs.specimenSpace.replaceNodeData).not.toHaveBeenCalled();
+    });
+
+    test("names the status to the owning annotator", async () => {
+        const stubs = specimenStubs(AnnotationStatus.OnHold);
+
+        await expect(stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.AnnotateOne, "annotator-1"), ReconstructionSpace.Specimen, reconstructionData()))
+            .rejects.toMatchObject({message: "Uploading the specimen-space reconstruction is not allowed while in OnHold.", extensions: {code: 1009}});
+    });
+
+    test("refuses the owning annotator at a review status as unauthorized", async () => {
+        const stubs = specimenStubs(AnnotationStatus.PeerReview);
+
+        await expect(stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.AnnotateOne, "annotator-1"), ReconstructionSpace.Specimen, reconstructionData()))
+            .rejects.toBeInstanceOf(UnauthorizedError);
+
+        expect(stubs.specimenSpace.replaceNodeData).not.toHaveBeenCalled();
+    });
+
+    test("refuses another annotator at InProgress as unauthorized", async () => {
+        const stubs = specimenStubs(AnnotationStatus.InProgress);
+
+        await expect(stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.AnnotateOne, "annotator-2"), ReconstructionSpace.Specimen, reconstructionData()))
+            .rejects.toBeInstanceOf(UnauthorizedError);
+
+        expect(stubs.specimenSpace.replaceNodeData).not.toHaveBeenCalled();
+    });
+
+    test.each([AnnotationStatus.InProgress, AnnotationStatus.Rejected])("disregardAuth admits %s", async (status: number) => {
+        const stubs = specimenStubs(status);
+
+        await stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.None), ReconstructionSpace.Specimen, reconstructionData(), null, true);
+
+        expect(stubs.specimenSpace.replaceNodeData).toHaveBeenCalledTimes(1);
     });
 
     test("names the status to a reviewer at a status that is not an upload source", async () => {
-        const stubs = specimenStubs(ReconstructionStatus.Approved);
+        const stubs = specimenStubs(AnnotationStatus.Approved);
 
         await expect(stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.PeerReview), ReconstructionSpace.Specimen, reconstructionData()))
             .rejects.toMatchObject({message: "Uploading the specimen-space reconstruction is not allowed while in Approved.", extensions: {code: 1009}});
     });
 
     // Refused before the status is looked at, so the refusal does not disclose it.
-    test("refuses a caller who cannot upload in specimen space at any status as unauthorized", async () => {
-        const stubs = specimenStubs(ReconstructionStatus.Approved);
+    test("refuses a caller who is not the annotator and cannot upload in specimen space at any status as unauthorized", async () => {
+        const stubs = specimenStubs(AnnotationStatus.Approved);
 
         await expect(stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.AnnotateOne), ReconstructionSpace.Specimen, reconstructionData()))
             .rejects.toBeInstanceOf(UnauthorizedError);
     });
 
     test("disregardAuth skips the permission but not the status", async () => {
-        const accepted = specimenStubs(ReconstructionStatus.PublishReview);
+        const accepted = specimenStubs(AnnotationStatus.PublishReview);
 
         await accepted.reconstruction.fromParsedStructures(userWith(UserPermissions.None), ReconstructionSpace.Specimen, reconstructionData(), null, true);
 
-        expect((Reconstruction.prototype as any).replaceNodeData).toHaveBeenCalledTimes(1);
+        expect(accepted.specimenSpace.replaceNodeData).toHaveBeenCalledTimes(1);
 
-        const refused = specimenStubs(ReconstructionStatus.Approved);
+        const refused = specimenStubs(AnnotationStatus.Approved);
 
         await expect(refused.reconstruction.fromParsedStructures(userWith(UserPermissions.None), ReconstructionSpace.Specimen, reconstructionData(), null, true))
             .rejects.toMatchObject({message: expect.stringMatching(/^Uploading the specimen-space reconstruction is not allowed while in /), extensions: {code: 1009}});
+    });
+
+    test("writes the nodes to the annotation's specimen-space row and keys its precomputed row on that row", async () => {
+        const stubs = specimenStubs(AnnotationStatus.PublishReview);
+        const user = userWith(UserPermissions.PublishReview);
+        const data = reconstructionData();
+
+        await stubs.reconstruction.fromParsedStructures(user, ReconstructionSpace.Specimen, data);
+
+        expect(stubs.findSpecimenSpace).toHaveBeenCalledWith({where: {annotationId: "annotation-1"}, transaction: transaction});
+        expect(stubs.specimenSpace.replaceNodeData).toHaveBeenCalledWith(user, data, transaction);
+        expect(stubs.findPrecomputed).toHaveBeenCalledWith({where: {reconstructionId: "specimen-space-1"}, transaction: transaction});
+    });
+
+    test("refuses an annotation with no specimen-space row", async () => {
+        const stubs = specimenStubs(AnnotationStatus.PublishReview);
+
+        stubs.findSpecimenSpace.mockResolvedValue(null);
+
+        await expect(stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.PublishReview), ReconstructionSpace.Specimen, reconstructionData()))
+            .rejects.toThrow("Specimen-space reconstruction for annotation-1 not found.");
+
+        expect(stubs.findPrecomputed).not.toHaveBeenCalled();
     });
 });
 
 describe("fromParsedStructures in atlas space", () => {
     function atlasStubs(status: number, options: {atlasSoma?: object} = {}) {
         vi.spyOn(EventLogItem, "create").mockResolvedValue({id: "event-1"});
-        defineSequelize(Reconstruction);
+        defineSequelize(Annotation);
 
         const atlasReconstruction = atlasStub();
 
@@ -211,7 +303,7 @@ describe("fromParsedStructures in atlas space", () => {
     }
 
     test("accepts PublishReview", async () => {
-        const stubs = atlasStubs(ReconstructionStatus.PublishReview);
+        const stubs = atlasStubs(AnnotationStatus.PublishReview);
 
         await stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.PublishReview), ReconstructionSpace.Atlas, reconstructionData());
 
@@ -221,7 +313,7 @@ describe("fromParsedStructures in atlas space", () => {
     // Atlas space is no longer publish review's alone: a team reviewer uploads in both spaces, so a reconstruction can
     // arrive at publish review with its atlas data already in place.
     test("accepts TeamReview", async () => {
-        const stubs = atlasStubs(ReconstructionStatus.TeamReview);
+        const stubs = atlasStubs(AnnotationStatus.TeamReview);
 
         await stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.TeamReview), ReconstructionSpace.Atlas, reconstructionData());
 
@@ -229,7 +321,7 @@ describe("fromParsedStructures in atlas space", () => {
     });
 
     test("backs the atlas soma onto the neuron from a TeamReview upload", async () => {
-        const stubs = atlasStubs(ReconstructionStatus.TeamReview, {atlasSoma: {x: 0, y: 0, z: 0}});
+        const stubs = atlasStubs(AnnotationStatus.TeamReview, {atlasSoma: {x: 0, y: 0, z: 0}});
 
         await stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.TeamReview), ReconstructionSpace.Atlas, reconstructionData());
 
@@ -238,7 +330,7 @@ describe("fromParsedStructures in atlas space", () => {
 
     // Approved is gone as a source with the deferred upload: an approval now requires the data, so an upload arriving
     // after one has committed is a lost race rather than a deferred step.
-    test.each(allStatuses.filter(status => status !== ReconstructionStatus.TeamReview && status !== ReconstructionStatus.PublishReview))(
+    test.each(allStatuses.filter(status => status !== AnnotationStatus.TeamReview && status !== AnnotationStatus.PublishReview))(
         "refuses %s",
         async (status: number) => {
             const stubs = atlasStubs(status);
@@ -250,17 +342,17 @@ describe("fromParsedStructures in atlas space", () => {
         });
 
     test("never finalizes or advances the parent", async () => {
-        const stubs = atlasStubs(ReconstructionStatus.PublishReview);
+        const stubs = atlasStubs(AnnotationStatus.PublishReview);
 
         await stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.PublishReview), ReconstructionSpace.Atlas, reconstructionData());
 
         expect(stubs.atlasReconstruction.prepareToFinalize).not.toHaveBeenCalled();
         expect(stubs.atlasReconstruction.approve).not.toHaveBeenCalled();
-        expect(stubs.reconstruction.status).toBe(ReconstructionStatus.PublishReview);
+        expect(stubs.reconstruction.status).toBe(AnnotationStatus.PublishReview);
     });
 
     test("passes the specimen's atlas to replaceNodeData", async () => {
-        const stubs = atlasStubs(ReconstructionStatus.PublishReview);
+        const stubs = atlasStubs(AnnotationStatus.PublishReview);
         const data = reconstructionData();
         const user = userWith(UserPermissions.PublishReview);
 
@@ -271,7 +363,7 @@ describe("fromParsedStructures in atlas space", () => {
     });
 
     test("refuses the upload when the specimen's atlas is not loaded", async () => {
-        const stubs = atlasStubs(ReconstructionStatus.PublishReview);
+        const stubs = atlasStubs(AnnotationStatus.PublishReview);
         stubs.getAtlas.mockReturnValue(undefined);
 
         await expect(stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.PublishReview), ReconstructionSpace.Atlas, reconstructionData()))
@@ -281,11 +373,11 @@ describe("fromParsedStructures in atlas space", () => {
     });
 
     test("throws when the reconstruction has no atlas child", async () => {
-        const stubs = atlasStubs(ReconstructionStatus.PublishReview);
+        const stubs = atlasStubs(AnnotationStatus.PublishReview);
         stubs.findAtlas.mockResolvedValue(null);
 
         await expect(stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.PublishReview), ReconstructionSpace.Atlas, reconstructionData()))
-            .rejects.toThrow(/Atlas reconstruction for reconstruction-1 not found/);
+            .rejects.toThrow(/Atlas reconstruction for annotation-1 not found/);
     });
 
     /**
@@ -294,25 +386,25 @@ describe("fromParsedStructures in atlas space", () => {
      * deadlock against an upload holding the child and waiting on the neuron.
      */
     test("locks Neuron, then the child, then the parent", async () => {
-        const stubs = atlasStubs(ReconstructionStatus.PublishReview);
+        const stubs = atlasStubs(AnnotationStatus.PublishReview);
 
         await stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.PublishReview), ReconstructionSpace.Atlas, reconstructionData());
 
         expect(stubs.findNeuron).toHaveBeenCalledWith("neuron-1", {transaction: transaction, lock: Transaction.LOCK.UPDATE});
         expect(stubs.findAtlas).toHaveBeenCalledWith({
-            where: {reconstructionId: "reconstruction-1"},
+            where: {annotationId: "annotation-1"},
             lock: Transaction.LOCK.UPDATE,
             transaction: transaction
         });
-        expect(Reconstruction.findByPk).toHaveBeenCalledWith("reconstruction-1", {transaction: transaction, lock: Transaction.LOCK.UPDATE});
+        expect(Annotation.findByPk).toHaveBeenCalledWith("annotation-1", {transaction: transaction, lock: Transaction.LOCK.UPDATE});
 
         expect(stubs.findNeuron.mock.invocationCallOrder[0]).toBeLessThan(stubs.findAtlas.mock.invocationCallOrder[0]);
-        expect(stubs.findAtlas.mock.invocationCallOrder[0]).toBeLessThan((Reconstruction.findByPk as any).mock.invocationCallOrder[0]);
+        expect(stubs.findAtlas.mock.invocationCallOrder[0]).toBeLessThan((Annotation.findByPk as any).mock.invocationCallOrder[0]);
     });
 
     // atlasSoma defaults to the origin, so this is the common path rather than a corner of one.
     test("back-fills the atlas soma onto the locked neuron when it is unset", async () => {
-        const stubs = atlasStubs(ReconstructionStatus.PublishReview, {atlasSoma: {x: 0, y: 0, z: 0}});
+        const stubs = atlasStubs(AnnotationStatus.PublishReview, {atlasSoma: {x: 0, y: 0, z: 0}});
 
         await stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.PublishReview), ReconstructionSpace.Atlas, reconstructionData());
 
@@ -320,7 +412,7 @@ describe("fromParsedStructures in atlas space", () => {
     });
 
     test("leaves a populated atlas soma alone", async () => {
-        const stubs = atlasStubs(ReconstructionStatus.PublishReview);
+        const stubs = atlasStubs(AnnotationStatus.PublishReview);
 
         await stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.PublishReview), ReconstructionSpace.Atlas, reconstructionData());
 
@@ -329,9 +421,9 @@ describe("fromParsedStructures in atlas space", () => {
 
     // The bit tracks the status, not the space: holding TeamReview is no licence to write atlas data at publish review.
     test.each([
-        [UserPermissions.PeerReview, ReconstructionStatus.PublishReview],
-        [UserPermissions.PeerReview, ReconstructionStatus.TeamReview],
-        [UserPermissions.TeamReview, ReconstructionStatus.PublishReview]
+        [UserPermissions.PeerReview, AnnotationStatus.PublishReview],
+        [UserPermissions.PeerReview, AnnotationStatus.TeamReview],
+        [UserPermissions.TeamReview, AnnotationStatus.PublishReview]
     ])("refuses permission %i at status %i", async (permissions: number, status: number) => {
         const stubs = atlasStubs(status);
 
@@ -342,7 +434,7 @@ describe("fromParsedStructures in atlas space", () => {
     });
 
     test("names the status to an admin and publish reviewer at peer review", async () => {
-        const stubs = atlasStubs(ReconstructionStatus.PeerReview);
+        const stubs = atlasStubs(AnnotationStatus.PeerReview);
         const user = userWith(UserPermissions.Admin | UserPermissions.PublishReview | UserPermissions.PeerReview);
 
         await expect(stubs.reconstruction.fromParsedStructures(user, ReconstructionSpace.Atlas, reconstructionData()))
@@ -350,15 +442,24 @@ describe("fromParsedStructures in atlas space", () => {
     });
 
     // PeerReview is a specimen-space upload bit only, so its holder is refused before the status is looked at.
+    test.each([AnnotationStatus.InProgress, AnnotationStatus.PublishReview])("refuses the owning annotator at %s as unauthorized", async (status: number) => {
+        const stubs = atlasStubs(status);
+
+        await expect(stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.AnnotateOne, "annotator-1"), ReconstructionSpace.Atlas, reconstructionData()))
+            .rejects.toBeInstanceOf(UnauthorizedError);
+
+        expect(stubs.atlasReconstruction.replaceNodeData).not.toHaveBeenCalled();
+    });
+
     test("refuses a peer reviewer at peer review as unauthorized", async () => {
-        const stubs = atlasStubs(ReconstructionStatus.PeerReview);
+        const stubs = atlasStubs(AnnotationStatus.PeerReview);
 
         await expect(stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.PeerReview), ReconstructionSpace.Atlas, reconstructionData()))
             .rejects.toBeInstanceOf(UnauthorizedError);
     });
 
     test("admits a TeamReview-only holder at TeamReview", async () => {
-        const stubs = atlasStubs(ReconstructionStatus.TeamReview);
+        const stubs = atlasStubs(AnnotationStatus.TeamReview);
 
         await stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.TeamReview), ReconstructionSpace.Atlas, reconstructionData());
 
@@ -368,13 +469,13 @@ describe("fromParsedStructures in atlas space", () => {
     // What fromSwcFile and fromParquetFile pass: an imported proofreader holds no portal review permissions, and the
     // status rule still applies to them.
     test("disregardAuth skips the permission but not the status", async () => {
-        const accepted = atlasStubs(ReconstructionStatus.PublishReview);
+        const accepted = atlasStubs(AnnotationStatus.PublishReview);
 
         await accepted.reconstruction.fromParsedStructures(userWith(UserPermissions.None), ReconstructionSpace.Atlas, reconstructionData(), null, true);
 
         expect(accepted.atlasReconstruction.replaceNodeData).toHaveBeenCalledTimes(1);
 
-        const refused = atlasStubs(ReconstructionStatus.WaitingForAtlasReconstruction);
+        const refused = atlasStubs(AnnotationStatus.WaitingForAtlasReconstruction);
 
         await expect(refused.reconstruction.fromParsedStructures(userWith(UserPermissions.None), ReconstructionSpace.Atlas, reconstructionData(), null, true))
             .rejects.toMatchObject({message: expect.stringMatching(/^Uploading the atlas-space reconstruction is not allowed while in /), extensions: {code: 1009}});
@@ -389,23 +490,37 @@ describe.each([
     ["fromParquetUpload", "fromParquetUpload"]
 ])("%s", (_label: string, method: string) => {
     function uploadArgs(space: number) {
-        return {reconstructionId: "reconstruction-1", reconstructionSpace: space, file: Promise.resolve({})};
+        return {annotationId: "annotation-1", reconstructionSpace: space, file: Promise.resolve({})};
     }
 
     test.each([
-        [ReconstructionSpace.Specimen, "specimen-space", ReconstructionStatus.Approved, "Approved"],
-        [ReconstructionSpace.Atlas, "atlas-space", ReconstructionStatus.PeerReview, "PeerReview"]
+        [ReconstructionSpace.Specimen, "specimen-space", AnnotationStatus.Approved, "Approved"],
+        [ReconstructionSpace.Atlas, "atlas-space", AnnotationStatus.PeerReview, "PeerReview"]
     ])("names the status to an admin uploading in space %i", async (space: number, spaceName: string, status: number, statusName: string) => {
         reconstructionStub(status);
 
-        await expect(Reconstruction[method](userWith(UserPermissions.Admin), uploadArgs(space)))
+        await expect(Annotation[method](userWith(UserPermissions.Admin), uploadArgs(space)))
             .rejects.toMatchObject({message: `Uploading the ${spaceName} reconstruction is not allowed while in ${statusName}.`, extensions: {code: 1009}});
     });
 
-    test("refuses a caller with no upload permission in the space as unauthorized, whatever the status", async () => {
-        reconstructionStub(ReconstructionStatus.PeerReview);
+    test("names the status to the owning annotator in specimen space", async () => {
+        reconstructionStub(AnnotationStatus.OnHold);
 
-        await expect(Reconstruction[method](userWith(UserPermissions.PeerReview), uploadArgs(ReconstructionSpace.Atlas)))
+        await expect(Annotation[method](userWith(UserPermissions.AnnotateOne, "annotator-1"), uploadArgs(ReconstructionSpace.Specimen)))
+            .rejects.toMatchObject({message: "Uploading the specimen-space reconstruction is not allowed while in OnHold.", extensions: {code: 1009}});
+    });
+
+    test("refuses another annotator at InProgress as unauthorized", async () => {
+        reconstructionStub(AnnotationStatus.InProgress);
+
+        await expect(Annotation[method](userWith(UserPermissions.AnnotateOne, "annotator-2"), uploadArgs(ReconstructionSpace.Specimen)))
+            .rejects.toBeInstanceOf(UnauthorizedError);
+    });
+
+    test("refuses a caller with no upload permission in the space as unauthorized, whatever the status", async () => {
+        reconstructionStub(AnnotationStatus.PeerReview);
+
+        await expect(Annotation[method](userWith(UserPermissions.PeerReview), uploadArgs(ReconstructionSpace.Atlas)))
             .rejects.toBeInstanceOf(UnauthorizedError);
     });
 });
@@ -421,7 +536,7 @@ describe("AtlasReconstruction.approve", () => {
 
         const atlasReconstruction = Object.create(AtlasReconstruction.prototype);
         atlasReconstruction.id = "atlas-1";
-        atlasReconstruction.reconstructionId = "reconstruction-1";
+        atlasReconstruction.annotationId = "annotation-1";
         atlasReconstruction.nodeCounts = {};
         atlasReconstruction.update = updateMock(atlasReconstruction);
 

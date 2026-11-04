@@ -4,8 +4,8 @@ import {expect, test, vi, describe, afterEach} from "vitest";
 // different module instance than the CJS one the model methods call into, so the spies would not apply.
 const {Transaction} = require("sequelize");
 const {User, UserPermissions} = require("../src/models/user");
-const {Reconstruction} = require("../src/models/reconstruction");
-const {ReconstructionStatus} = require("../src/models/reconstructionStatus");
+const {Annotation} = require("../src/models/annotation");
+const {AnnotationStatus} = require("../src/models/annotationStatus");
 const {AtlasReconstruction} = require("../src/models/atlasReconstruction");
 const {AtlasReconstructionStatus, AbandonableFailureStatuses} = require("../src/models/atlasReconstructionStatus");
 const {QualityControl} = require("../src/models/qualityControl");
@@ -33,7 +33,7 @@ function updateMock(instance: any) {
     });
 }
 
-function stub(childStatus: number | null, parentStatus: number = ReconstructionStatus.WaitingForAtlasReconstruction) {
+function stub(childStatus: number | null, parentStatus: number = AnnotationStatus.WaitingForAtlasReconstruction) {
     const transactionFn = vi.fn().mockImplementation(async (callback: any) => await callback(transaction));
 
     Object.defineProperty(AtlasReconstruction, "sequelize", {value: {transaction: transactionFn}, configurable: true, writable: true});
@@ -53,9 +53,8 @@ function stub(childStatus: number | null, parentStatus: number = ReconstructionS
 
         Object.assign(instance, {
             id: "atlas-1",
-            reconstructionId: "reconstruction-1",
+            annotationId: "annotation-1",
             status: childStatus,
-            doi: "10.60533/nmcp-1",
             nodeCounts: {axon: {}, dendrite: {}},
             failureReason: "unexpected TypeError during structure assignment",
             failedAt: new Date("2026-03-01"),
@@ -67,9 +66,9 @@ function stub(childStatus: number | null, parentStatus: number = ReconstructionS
         return instance;
     })();
 
-    const parent = Object.create(Reconstruction.prototype);
+    const parent = Object.create(Annotation.prototype);
 
-    Object.assign(parent, {id: "reconstruction-1", neuronId: "neuron-1", status: parentStatus});
+    Object.assign(parent, {id: "annotation-1", neuronId: "neuron-1", status: parentStatus, doi: "10.60533/nmcp-1"});
 
     parent.update = updateMock(parent);
 
@@ -81,7 +80,7 @@ function stub(childStatus: number | null, parentStatus: number = ReconstructionS
         create: create,
         createPrecomputed: createPrecomputed,
         findChild: vi.spyOn(AtlasReconstruction, "findOne").mockResolvedValue(child),
-        findParent: vi.spyOn(Reconstruction, "findByPk").mockResolvedValue(parent)
+        findParent: vi.spyOn(Annotation, "findByPk").mockResolvedValue(parent)
     };
 }
 
@@ -98,7 +97,7 @@ describe("resetPipeline authorization", () => {
     ])("refuses %s, before any query", async (_label: string, permissions: number) => {
         const stubs = stub(AtlasReconstructionStatus.FailedQualityControl);
 
-        await expect(AtlasReconstruction.resetPipeline(userWith(permissions), "reconstruction-1"))
+        await expect(AtlasReconstruction.resetPipeline(userWith(permissions), "annotation-1"))
             .rejects.toBeInstanceOf(UnauthorizedError);
 
         expect(stubs.findChild).not.toHaveBeenCalled();
@@ -112,7 +111,7 @@ describe("resetPipeline authorization", () => {
     ])("allows %s", async (_label: string, permissions: number) => {
         const stubs = stub(AtlasReconstructionStatus.FailedPrecomputed);
 
-        const child = await AtlasReconstruction.resetPipeline(userWith(permissions), "reconstruction-1");
+        const child = await AtlasReconstruction.resetPipeline(userWith(permissions), "annotation-1");
 
         expect(child.status).toBe(AtlasReconstructionStatus.PendingQualityControl);
         expect(stubs.findChild).toHaveBeenCalled();
@@ -123,7 +122,7 @@ describe("resetPipeline admissible statuses", () => {
     test.each(resettable)("accepts a child at %s", async (status: number) => {
         const stubs = stub(status);
 
-        await AtlasReconstruction.resetPipeline(userWith(UserPermissions.PublishReview), "reconstruction-1");
+        await AtlasReconstruction.resetPipeline(userWith(UserPermissions.PublishReview), "annotation-1");
 
         expect(stubs.child.status).toBe(AtlasReconstructionStatus.PendingQualityControl);
     });
@@ -138,7 +137,7 @@ describe("resetPipeline admissible statuses", () => {
         async (status: number) => {
             const stubs = stub(status);
 
-            await expect(AtlasReconstruction.resetPipeline(userWith(UserPermissions.PublishReview), "reconstruction-1"))
+            await expect(AtlasReconstruction.resetPipeline(userWith(UserPermissions.PublishReview), "annotation-1"))
                 .rejects.toMatchObject({
                     message: `The automatic phases cannot be replayed for a reconstruction at ${AtlasReconstructionStatus[status]}; they are only replayable from a failed phase or from ReadyToPublish.`,
                     extensions: {code: 1004}
@@ -152,7 +151,7 @@ describe("resetPipeline admissible statuses", () => {
     test("throws when the reconstruction has no atlas child", async () => {
         stub(null);
 
-        await expect(AtlasReconstruction.resetPipeline(userWith(UserPermissions.PublishReview), "reconstruction-1"))
+        await expect(AtlasReconstruction.resetPipeline(userWith(UserPermissions.PublishReview), "annotation-1"))
             .rejects.toThrow("No atlas reconstruction found for this reconstruction");
     });
 });
@@ -161,7 +160,7 @@ describe("resetPipeline effect", () => {
     test("re-enters the pipeline with the failure metadata and the structure assignment stamp cleared", async () => {
         const stubs = stub(AtlasReconstructionStatus.FailedDoiAssignment);
 
-        await AtlasReconstruction.resetPipeline(userWith(UserPermissions.PublishReview), "reconstruction-1");
+        await AtlasReconstruction.resetPipeline(userWith(UserPermissions.PublishReview), "annotation-1");
 
         expect(stubs.child.status).toBe(AtlasReconstructionStatus.PendingQualityControl);
         expect(stubs.child.failureReason).toBeNull();
@@ -172,7 +171,7 @@ describe("resetPipeline effect", () => {
     test("puts the quality control row back to Pending, which is what the worker selects on", async () => {
         const stubs = stub(AtlasReconstructionStatus.ReadyToPublish);
 
-        await AtlasReconstruction.resetPipeline(userWith(UserPermissions.PublishReview), "reconstruction-1");
+        await AtlasReconstruction.resetPipeline(userWith(UserPermissions.PublishReview), "annotation-1");
 
         expect(stubs.qualityControl.makePending).toHaveBeenCalledWith(expect.anything(), transaction);
     });
@@ -182,9 +181,13 @@ describe("resetPipeline effect", () => {
     test("keeps the DOI", async () => {
         const stubs = stub(AtlasReconstructionStatus.FailedDoiAssignment);
 
-        await AtlasReconstruction.resetPipeline(userWith(UserPermissions.PublishReview), "reconstruction-1");
+        await AtlasReconstruction.resetPipeline(userWith(UserPermissions.PublishReview), "annotation-1");
 
-        expect(stubs.child.doi).toBe("10.60533/nmcp-1");
+        expect(stubs.parent.doi).toBe("10.60533/nmcp-1");
+
+        for (const call of stubs.parent.update.mock.calls) {
+            expect(call[0]).not.toHaveProperty("doi");
+        }
     });
 
     // prepareToFinalize deliberately leaves the Precomputed row alone - structure assignment is what puts it back to
@@ -192,7 +195,7 @@ describe("resetPipeline effect", () => {
     test("leaves an existing precomputed row untouched", async () => {
         const stubs = stub(AtlasReconstructionStatus.ReadyToPublish);
 
-        await AtlasReconstruction.resetPipeline(userWith(UserPermissions.PublishReview), "reconstruction-1");
+        await AtlasReconstruction.resetPipeline(userWith(UserPermissions.PublishReview), "annotation-1");
 
         expect(stubs.precomputed.status).toBe("untouched");
         expect(stubs.createPrecomputed).not.toHaveBeenCalled();
@@ -201,7 +204,7 @@ describe("resetPipeline effect", () => {
     test("records the replay under its own event kind", async () => {
         const stubs = stub(AtlasReconstructionStatus.FailedStructureAssignment);
 
-        await AtlasReconstruction.resetPipeline(userWith(UserPermissions.PublishReview), "reconstruction-1");
+        await AtlasReconstruction.resetPipeline(userWith(UserPermissions.PublishReview), "annotation-1");
 
         const kinds = stubs.create.mock.calls.map((call: any) => call[0].kind);
 
@@ -213,17 +216,17 @@ describe("resetPipeline and the parent", () => {
     // From ReadyToPublish the reconstruction leaves the publisher's queue rather than sitting there advertising a
     // pipeline that is running.
     test("returns a ReadyToPublish parent to WaitingForAtlasReconstruction", async () => {
-        const stubs = stub(AtlasReconstructionStatus.ReadyToPublish, ReconstructionStatus.ReadyToPublish);
+        const stubs = stub(AtlasReconstructionStatus.ReadyToPublish, AnnotationStatus.ReadyToPublish);
 
-        await AtlasReconstruction.resetPipeline(userWith(UserPermissions.PublishReview), "reconstruction-1");
+        await AtlasReconstruction.resetPipeline(userWith(UserPermissions.PublishReview), "annotation-1");
 
-        expect(stubs.parent.status).toBe(ReconstructionStatus.WaitingForAtlasReconstruction);
+        expect(stubs.parent.status).toBe(AnnotationStatus.WaitingForAtlasReconstruction);
     });
 
     test.each(AbandonableFailureStatuses as number[])("leaves the parent alone for a child at %s", async (status: number) => {
-        const stubs = stub(status, ReconstructionStatus.WaitingForAtlasReconstruction);
+        const stubs = stub(status, AnnotationStatus.WaitingForAtlasReconstruction);
 
-        await AtlasReconstruction.resetPipeline(userWith(UserPermissions.PublishReview), "reconstruction-1");
+        await AtlasReconstruction.resetPipeline(userWith(UserPermissions.PublishReview), "annotation-1");
 
         expect(stubs.parent.update).not.toHaveBeenCalled();
     });
@@ -233,15 +236,15 @@ describe("resetPipeline serialization", () => {
     test("locks the child, then the parent, inside the one transaction", async () => {
         const stubs = stub(AtlasReconstructionStatus.FailedQualityControl);
 
-        await AtlasReconstruction.resetPipeline(userWith(UserPermissions.PublishReview), "reconstruction-1");
+        await AtlasReconstruction.resetPipeline(userWith(UserPermissions.PublishReview), "annotation-1");
 
         expect(stubs.findChild).toHaveBeenCalledWith({
-            where: {reconstructionId: "reconstruction-1"},
+            where: {annotationId: "annotation-1"},
             lock: Transaction.LOCK.UPDATE,
             transaction: transaction
         });
 
-        expect(stubs.findParent).toHaveBeenCalledWith("reconstruction-1", {transaction: transaction, lock: Transaction.LOCK.UPDATE});
+        expect(stubs.findParent).toHaveBeenCalledWith("annotation-1", {transaction: transaction, lock: Transaction.LOCK.UPDATE});
 
         expect(stubs.findChild.mock.invocationCallOrder[0]).toBeLessThan(stubs.findParent.mock.invocationCallOrder[0]);
     });

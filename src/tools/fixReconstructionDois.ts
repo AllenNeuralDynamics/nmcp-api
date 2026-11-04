@@ -13,7 +13,7 @@ import {Op, Options, QueryTypes, Sequelize} from "sequelize";
 import {DataCiteRelatedIdentifier, DataCiteService, DataCiteServiceStatus} from "../data-access/doi/dataCiteService";
 import {CoreServiceOptions, SequelizeOptions} from "../options/coreServicesOptions";
 import {AtlasReconstruction} from "../models/atlasReconstruction";
-import {Reconstruction} from "../models/reconstruction";
+import {Annotation} from "../models/annotation";
 import {CanonicalDoiResult, Neuron} from "../models/neuron";
 import {SearchIndex} from "../models/searchIndex";
 import {User} from "../models/user";
@@ -35,7 +35,7 @@ type ToolArguments = {
 }
 
 type ScannedRow = {
-    atlasReconstructionId: string;
+    atlasReconstructionId: string | null;
     reconstructionId: string;
     doi: string;
     deleted: boolean;
@@ -416,15 +416,13 @@ function printBanner(args: ToolArguments): void {
 }
 
 async function loadGroups(): Promise<{ groups: Map<string, NeuronGroup>, occurrences: DoiOccurrence[] }> {
-    const scanned = await AtlasReconstruction.findAll({
+    const scanned = await Annotation.findAll({
         where: {doi: {[Op.and]: [{[Op.not]: null}, {[Op.ne]: ""}]}},
-        attributes: ["id", "doi", "reconstructionId", "createdAt", "deletedAt"],
-        include: [{
-            model: Reconstruction,
-            attributes: ["id", "neuronId", "deletedAt"],
-            paranoid: false,
-            include: [{model: Neuron, as: "Neuron", attributes: ["id", "label", "canonicalDoi", "deletedAt"], paranoid: false}]
-        }],
+        attributes: ["id", "doi", "neuronId", "createdAt", "deletedAt"],
+        include: [
+            {model: Neuron, as: "Neuron", attributes: ["id", "label", "canonicalDoi", "deletedAt"], paranoid: false},
+            {model: AtlasReconstruction, attributes: ["id", "deletedAt"], paranoid: false}
+        ],
         paranoid: false,
         order: [["createdAt", "ASC"]]
     });
@@ -432,23 +430,23 @@ async function loadGroups(): Promise<{ groups: Map<string, NeuronGroup>, occurre
     const groups = new Map<string, NeuronGroup>();
     const occurrences: DoiOccurrence[] = [];
 
-    for (const child of scanned) {
-        const doi = child.doi.trim();
-        const reconstruction = child.Reconstruction;
-        const neuron = reconstruction?.Neuron;
+    for (const annotation of scanned) {
+        const doi = annotation.doi.trim();
+        const neuron = annotation.Neuron;
+        const atlasReconstruction = annotation.AtlasReconstruction;
 
         if (inPrefix(doi)) {
             occurrences.push({
                 role: "reconstruction",
                 doi,
-                neuronId: reconstruction?.neuronId ?? null,
-                atlasReconstructionId: child.id,
+                neuronId: annotation.neuronId,
+                atlasReconstructionId: atlasReconstruction?.id ?? null,
                 orphaned: !neuron
             });
         }
 
         if (!neuron) {
-            console.log(`orphaned: atlas reconstruction ${child.id} (doi ${doi}) has no ${reconstruction ? "neuron" : "reconstruction"}; skipped`);
+            console.log(`orphaned: annotation ${annotation.id} (doi ${doi}) has no neuron; skipped`);
             counts.rowsOrphaned++;
             continue;
         }
@@ -463,10 +461,10 @@ async function loadGroups(): Promise<{ groups: Map<string, NeuronGroup>, occurre
         }
 
         group.rows.push({
-            atlasReconstructionId: child.id,
-            reconstructionId: child.reconstructionId,
+            atlasReconstructionId: atlasReconstruction?.id ?? null,
+            reconstructionId: annotation.id,
             doi,
-            deleted: child.isSoftDeleted() || reconstruction.isSoftDeleted()
+            deleted: annotation.isSoftDeleted() || (atlasReconstruction?.isSoftDeleted() ?? false)
         });
     }
 

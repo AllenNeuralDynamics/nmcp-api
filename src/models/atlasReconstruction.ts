@@ -22,8 +22,8 @@ import {InjectionVirus} from "./injectionVirus";
 import {Injection} from "./injection";
 import {Genotype} from "./genotype";
 import {Collection} from "./collection";
-import {Reconstruction} from "./reconstruction";
-import {ReconstructionStatus} from "./reconstructionStatus";
+import {Annotation} from "./annotation";
+import {AnnotationStatus} from "./annotationStatus";
 import {GraphQLError} from "graphql/error";
 import {AtlasReconstructionTableName} from "./tableNames";
 import {QualityControl} from "./qualityControl";
@@ -62,13 +62,12 @@ export type NearestNodeOutput = {
 export type AtlasReconstructionShape = {
     id?: string;
     status?: AtlasReconstructionStatus;
-    doi?: string;
     lengthMillimeters?: number;
     nodeStructureAssignmentAt?: Date;
     searchIndexedAt?: Date;
     failureReason?: string;
     failedAt?: Date;
-    reconstructionId?: string;
+    annotationId?: string;
     reviewerId?: string;
 }
 
@@ -76,7 +75,6 @@ export class AtlasReconstruction extends BaseModel {
     public sourceUrl: string;
     public sourceComments: string;
     public status: AtlasReconstructionStatus;
-    public doi: string;
     public lengthMillimeters: number;
     public nodeCounts: NodeCounts;
     public nodeStructureAssignmentAt: Date;
@@ -84,17 +82,17 @@ export class AtlasReconstruction extends BaseModel {
     public failureReason: string;
     public failedAt: Date;
     public reviewerId: string;
-    public reconstructionId: string;
+    public annotationId: string;
 
     public getReviewer!: BelongsToGetAssociationMixin<User>;
     public getPrecomputed!: BelongsToGetAssociationMixin<Precomputed>;
-    public getReconstruction!: BelongsToGetAssociationMixin<Reconstruction>;
+    public getAnnotation!: BelongsToGetAssociationMixin<Annotation>;
     public getQualityControl!: BelongsToGetAssociationMixin<QualityControl>;
     public getSoma!: BelongsToGetAssociationMixin<AtlasNode>;
     public getAtlasNodes!: HasManyGetAssociationsMixin<AtlasNode>;
 
     public readonly Precomputed: Precomputed;
-    public readonly Reconstruction: Reconstruction;
+    public readonly Annotation: Annotation;
     public readonly QualityControl: QualityControl;
     public readonly Reviewer: User;
 
@@ -104,7 +102,7 @@ export class AtlasReconstruction extends BaseModel {
         await recordEvent({
             kind: kind,
             targetId: this.id,
-            parentId: this.reconstructionId,
+            parentId: this.annotationId,
             details: details,
             userId: user.id,
             substituteUserId: substituteUser?.id
@@ -184,7 +182,7 @@ export class AtlasReconstruction extends BaseModel {
     }
 
     // Eager-loads everything the DOI payloads read, so a batch does not repeat the same lazy loads per item.  The
-    // Reconstruction include carries no alias because the association declares none.
+    // Annotation include carries no alias because the association declares none.
     public static async getPendingDoiAssignment(limit: number = 10): Promise<AtlasReconstruction[]> {
         return await this.findAll({
             where: {
@@ -194,7 +192,7 @@ export class AtlasReconstruction extends BaseModel {
                 model: User,
                 as: "Reviewer"
             }, {
-                model: Reconstruction,
+                model: Annotation,
                 include: [{
                     model: Neuron,
                     as: "Neuron",
@@ -280,8 +278,7 @@ export class AtlasReconstruction extends BaseModel {
 
     /**
      * A reject past approval is treated as a full reset: the child returns to the state a pre-approval reject would
-     * have left it in, so a revised reconstruction re-enters the pipeline rather than resuming mid-way.  The DOI is the
-     * exception - it is an external resource and is never unwound.
+     * have left it in, so a revised reconstruction re-enters the pipeline rather than resuming mid-way.
      *
      * The status is left alone for a child that never received atlas data, which would otherwise be claimed to hold
      * node counts it does not have.
@@ -305,39 +302,27 @@ export class AtlasReconstruction extends BaseModel {
         return rejected;
     }
 
-    public static async discardForReconstruction(user: User, reconstructionId: string, t: Transaction): Promise<void> {
-        // reconstructionId is the parent Reconstruction, not an AtlasReconstruction
-        const reconstructions = await this.findAll({
+    public static async discardForAnnotation(user: User, annotationId: string, t: Transaction): Promise<void> {
+        // annotationId is selected because recordEvent parents the discard event on it.
+        const reconstruction = await this.findOne({
             where: {
-                reconstructionId: reconstructionId
+                annotationId: annotationId
             },
-            attributes: ["id"],
+            attributes: ["id", "annotationId"],
             transaction: t
         });
 
-        if (reconstructions.length > 0) {
-            for (const reconstruction of reconstructions) {
-                await reconstruction.recordEvent(EventLogItemKind.AtlasReconstructionDiscard, null, user, t);
-
-                await QualityControl.destroy({where: {reconstructionId: reconstruction.id}, transaction: t});
-            }
-
-            const ids = reconstructions.map(t => t.id);
-
-            await AtlasNode.destroy({
-                where: {
-                    reconstructionId: {
-                        [Op.in]: ids
-                    }
-                }, transaction: t
-            });
-
-            await this.destroy({
-                where: {
-                    id: {[Op.in]: ids}
-                }, transaction: t
-            });
+        if (!reconstruction) {
+            return;
         }
+
+        await reconstruction.recordEvent(EventLogItemKind.AtlasReconstructionDiscard, null, user, t);
+
+        await QualityControl.destroy({where: {reconstructionId: reconstruction.id}, transaction: t});
+
+        await AtlasNode.destroy({where: {reconstructionId: reconstruction.id}, transaction: t});
+
+        await this.destroy({where: {id: reconstruction.id}, transaction: t});
     }
 
     public async replaceNodeData(user: User, reconstructionData: SimpleReconstruction, atlas: Atlas, t: Transaction): Promise<AtlasReconstruction> {
@@ -413,7 +398,7 @@ export class AtlasReconstruction extends BaseModel {
 
     public async calculateStructureAssignments(user: User): Promise<PhaseOutcome> {
         try {
-            const data = await this.getReconstruction({
+            const data = await this.getAnnotation({
                 include: [{
                     model: Neuron,
                     as: "Neuron",
@@ -549,7 +534,7 @@ export class AtlasReconstruction extends BaseModel {
     }
 
     /**
-     * Registers the neuron's canonical DOI and this reconstruction's DOI with DataCite, then advances to
+     * Registers the neuron's canonical DOI and the annotation's reconstruction DOI with DataCite, then advances to
      * ReadyToPublish.  ServiceUnavailable means the claim was handed back for the next pass and the caller backs
      * off; Released the same for a database transient; Handled that the item was dealt with, whether it advanced
      * or was recorded as failed.
@@ -589,13 +574,13 @@ export class AtlasReconstruction extends BaseModel {
 
         const options = CoreServiceOptions.rest.doiGeneration;
 
-        const reconstruction = this.Reconstruction ?? await this.getReconstruction();
-        const neuron = reconstruction.Neuron ?? await reconstruction.getNeuron({include: [{model: Specimen, as: "Specimen", include: [{model: Collection}]}]});
+        const annotation = this.Annotation ?? await this.getAnnotation();
+        const neuron = annotation.Neuron ?? await annotation.getNeuron({include: [{model: Specimen, as: "Specimen", include: [{model: Collection}]}]});
         const specimen = neuron.Specimen ?? await neuron.getSpecimen({include: [{model: Collection}]});
         const collection = specimen.Collection ?? await specimen.getCollection();
-        const annotator = reconstruction.Annotator ?? await reconstruction.getAnnotator();
-        const peerReviewer = reconstruction.reviewerId ? (reconstruction.Reviewer ?? await reconstruction.getReviewer()) : null;
-        const teamReviewer = reconstruction.teamReviewerId ? (reconstruction.TeamReviewer ?? await reconstruction.getTeamReviewer()) : null;
+        const annotator = annotation.Annotator ?? await annotation.getAnnotator();
+        const peerReviewer = annotation.reviewerId ? (annotation.Reviewer ?? await annotation.getReviewer()) : null;
+        const teamReviewer = annotation.teamReviewerId ? (annotation.TeamReviewer ?? await annotation.getTeamReviewer()) : null;
         const reviewer = this.reviewerId ? (this.Reviewer ?? await this.getReviewer()) : null;
 
         const publicationYear = await this.publicationYear();
@@ -604,7 +589,7 @@ export class AtlasReconstruction extends BaseModel {
         // reconstructions of one neuron cannot both read it as unset and both mint.  Committed before the
         // reconstruction create begins - nothing later in the phase may be able to roll this write back.
         const canonical = await this.sequelize.transaction(async (t) => {
-            const locked = await Neuron.findByPk(reconstruction.neuronId, {transaction: t, lock: Transaction.LOCK.UPDATE});
+            const locked = await Neuron.findByPk(annotation.neuronId, {transaction: t, lock: Transaction.LOCK.UPDATE});
 
             return await locked.assignCanonicalDoi(user, publicationYear, [], t);
         });
@@ -615,7 +600,7 @@ export class AtlasReconstruction extends BaseModel {
 
         const canonicalDoi = canonical.doi;
 
-        if (!this.doi) {
+        if (!annotation.doi) {
             const contributors = [];
 
             for (const contributor of [reviewer, peerReviewer, teamReviewer]) {
@@ -637,7 +622,7 @@ export class AtlasReconstruction extends BaseModel {
                         publisher: "Neuron Morphology Community Portal",
                         publicationYear: publicationYear,
                         types: {resourceTypeGeneral: "Dataset"},
-                        url: `${options.url}neuron/${neuron.id}/${reconstruction.id}`,
+                        url: `${options.url}neuron/${neuron.id}/${annotation.id}`,
                         subjects: [{subject: "Neuron reconstruction"}],
                         contributors,
                         alternateIdentifiers: [{alternateIdentifier: neuron.label, alternateIdentifierType: "Neuron Label"}],
@@ -658,21 +643,21 @@ export class AtlasReconstruction extends BaseModel {
 
             // T2.
             await this.sequelize.transaction(async (t) => {
-                await this.update({doi: created.doi}, {transaction: t});
+                await annotation.update({doi: created.doi}, {transaction: t});
 
-                // Recorded against the parent reconstruction, matching where ReconstructionAssignDoi has always been
-                // written; Reconstruction.recordEvent is private, hence the direct call.
+                // Recorded against the parent annotation, matching where AnnotationAssignDoi has always been
+                // written; Annotation.recordEvent is private, hence the direct call.
                 await recordEvent({
-                    kind: EventLogItemKind.ReconstructionAssignDoi,
-                    targetId: reconstruction.id,
-                    parentId: reconstruction.neuronId,
+                    kind: EventLogItemKind.AnnotationAssignDoi,
+                    targetId: annotation.id,
+                    parentId: annotation.neuronId,
                     details: {doi: created.doi},
                     userId: user.id
                 }, t);
             });
         }
 
-        const crossReference = await this.crossReferenceCanonical(reconstruction.neuronId, canonicalDoi);
+        const crossReference = await this.crossReferenceCanonical(annotation.neuronId, canonicalDoi, annotation.doi);
 
         if (crossReference.serviceStatus !== DataCiteServiceStatus.Success) {
             return await this.recordDoiOutcome(user, crossReference, "canonical cross-reference");
@@ -680,7 +665,7 @@ export class AtlasReconstruction extends BaseModel {
 
         // T4.
         await this.sequelize.transaction(async (t) => {
-            await this.recordEvent(EventLogItemKind.AtlasReconstructionDoiAssignmentComplete, {doi: this.doi, canonicalDoi: canonicalDoi}, user, t);
+            await this.recordEvent(EventLogItemKind.AtlasReconstructionDoiAssignmentComplete, {doi: annotation.doi, canonicalDoi: canonicalDoi}, user, t);
 
             const update = {status: AtlasReconstructionStatus.ReadyToPublish, failureReason: null, failedAt: null};
 
@@ -688,7 +673,7 @@ export class AtlasReconstruction extends BaseModel {
 
             await this.recordEvent(EventLogItemKind.AtlasReconstructionUpdate, update, user, t);
 
-            const parent = await this.getReconstruction({transaction: t});
+            const parent = await this.getAnnotation({transaction: t});
 
             await parent.onAtlasReconstructionStatusChanged(user, update.status, t);
         });
@@ -702,7 +687,7 @@ export class AtlasReconstruction extends BaseModel {
      * replaces the whole array, so two siblings that each read the same list and append their own entry would
      * otherwise leave only the later one's.  No local writes, so a rollback here discards nothing.
      */
-    private async crossReferenceCanonical(neuronId: string, canonicalDoi: string): Promise<DataCiteOutcome> {
+    private async crossReferenceCanonical(neuronId: string, canonicalDoi: string, reconstructionDoi: string): Promise<DataCiteOutcome> {
         return await this.sequelize.transaction(async (t) => {
             await Neuron.findByPk(neuronId, {transaction: t, lock: Transaction.LOCK.UPDATE});
 
@@ -712,12 +697,12 @@ export class AtlasReconstruction extends BaseModel {
                 return existing;
             }
 
-            const merged = hasRelatedIdentifier(existing.relatedIdentifiers, "HasVersion", this.doi)
+            const merged = hasRelatedIdentifier(existing.relatedIdentifiers, "HasVersion", reconstructionDoi)
                 ? existing.relatedIdentifiers
                 : [...existing.relatedIdentifiers, {
                     relatedIdentifierType: "DOI" as const,
                     relationType: "HasVersion" as const,
-                    relatedIdentifier: this.doi,
+                    relatedIdentifier: reconstructionDoi,
                     resourceTypeGeneral: "Dataset"
                 }];
 
@@ -776,7 +761,7 @@ export class AtlasReconstruction extends BaseModel {
      */
     private static async requestPhaseRetry(
         user: User,
-        reconstructionId: string,
+        annotationId: string,
         phase: string,
         failed: AtlasReconstructionStatus,
         pending: AtlasReconstructionStatus,
@@ -789,7 +774,7 @@ export class AtlasReconstruction extends BaseModel {
 
         return await this.sequelize.transaction(async (t) => {
             const atlasReconstruction = await this.findOne({
-                where: {reconstructionId: reconstructionId},
+                where: {annotationId: annotationId},
                 lock: Transaction.LOCK.UPDATE,
                 transaction: t
             });
@@ -816,10 +801,10 @@ export class AtlasReconstruction extends BaseModel {
         });
     }
 
-    public static async requestDoiAssignment(user: User, reconstructionId: string): Promise<AtlasReconstruction> {
+    public static async requestDoiAssignment(user: User, annotationId: string): Promise<AtlasReconstruction> {
         return await this.requestPhaseRetry(
             user,
-            reconstructionId,
+            annotationId,
             "DOI assignment",
             AtlasReconstructionStatus.FailedDoiAssignment,
             AtlasReconstructionStatus.PendingDoiAssignment,
@@ -827,10 +812,10 @@ export class AtlasReconstruction extends BaseModel {
         );
     }
 
-    public static async requestStructureAssignment(user: User, reconstructionId: string): Promise<AtlasReconstruction> {
+    public static async requestStructureAssignment(user: User, annotationId: string): Promise<AtlasReconstruction> {
         return await this.requestPhaseRetry(
             user,
-            reconstructionId,
+            annotationId,
             "structure assignment",
             AtlasReconstructionStatus.FailedStructureAssignment,
             AtlasReconstructionStatus.PendingStructureAssignment,
@@ -843,10 +828,10 @@ export class AtlasReconstruction extends BaseModel {
      * updateGeneration left at FailedToLoad or FailedToGenerate.  This is the step requestSpecimenSpaceRegeneration
      * performs and the child reset it omits.
      */
-    public static async requestPrecomputedRegeneration(user: User, reconstructionId: string): Promise<AtlasReconstruction> {
+    public static async requestPrecomputedRegeneration(user: User, annotationId: string): Promise<AtlasReconstruction> {
         return await this.requestPhaseRetry(
             user,
-            reconstructionId,
+            annotationId,
             "precomputed regeneration",
             AtlasReconstructionStatus.FailedPrecomputed,
             AtlasReconstructionStatus.PendingPrecomputed,
@@ -867,10 +852,10 @@ export class AtlasReconstruction extends BaseModel {
      * The child reset alone would be inert here too: the worker's QualityControl.getPending selects on that row, not on
      * the child, and assess left it at its failed result.
      */
-    public static async requestQualityControlReassessment(user: User, reconstructionId: string): Promise<AtlasReconstruction> {
+    public static async requestQualityControlReassessment(user: User, annotationId: string): Promise<AtlasReconstruction> {
         return await this.requestPhaseRetry(
             user,
-            reconstructionId,
+            annotationId,
             "quality control reassessment",
             AtlasReconstructionStatus.FailedQualityControl,
             AtlasReconstructionStatus.PendingQualityControl,
@@ -892,22 +877,22 @@ export class AtlasReconstruction extends BaseModel {
      * only moves a parent it finds at Publishing, and the failure left this one at PublishFailed - so a retry that
      * reset only the child would index successfully and end with a Published child under a PublishFailed parent.
      */
-    public static async requestSearchIndexing(user: User, reconstructionId: string): Promise<AtlasReconstruction> {
+    public static async requestSearchIndexing(user: User, annotationId: string): Promise<AtlasReconstruction> {
         return await this.requestPhaseRetry(
             user,
-            reconstructionId,
+            annotationId,
             "search indexing",
             AtlasReconstructionStatus.FailedSearchIndexing,
             AtlasReconstructionStatus.PendingSearchIndexing,
             EventLogItemKind.AtlasReconstructionIndexingRequest,
             async (atlasReconstruction, t) => {
-                const reconstruction = await Reconstruction.findByPk(atlasReconstruction.reconstructionId, {transaction: t, lock: Transaction.LOCK.UPDATE});
+                const annotation = await Annotation.findByPk(atlasReconstruction.annotationId, {transaction: t, lock: Transaction.LOCK.UPDATE});
 
-                if (!reconstruction) {
+                if (!annotation) {
                     throw new Error("No reconstruction found for this atlas reconstruction");
                 }
 
-                await reconstruction.resumePublishing(user, t);
+                await annotation.resumePublishing(user, t);
             }
         );
     }
@@ -915,20 +900,20 @@ export class AtlasReconstruction extends BaseModel {
     /**
      * Replays every automatic phase.  Admissible only from a failed phase or ReadyToPublish - the statuses a worker
      * never holds a claim on - and decided against the locked rows, because publish and the retries can all move them.
-     * prepareToFinalize does the rewind; the DOI is deliberately not part of it, and assignDois recognises an
-     * identifier it has already registered.
+     * prepareToFinalize does the rewind; the DOI is on the annotation, which the rewind never touches, and assignDois
+     * recognises an identifier it has already registered.
      *
      * No permission re-check inside the transaction: canOperateReconstructionPipeline does not depend on either
      * status, unlike the reject, discard and upload predicates.
      */
-    public static async resetPipeline(user: User, reconstructionId: string): Promise<AtlasReconstruction> {
+    public static async resetPipeline(user: User, annotationId: string): Promise<AtlasReconstruction> {
         if (!user?.canOperateReconstructionPipeline()) {
             throw new UnauthorizedError();
         }
 
         return await this.sequelize.transaction(async (t) => {
             const atlasReconstruction = await this.findOne({
-                where: {reconstructionId: reconstructionId},
+                where: {annotationId: annotationId},
                 lock: Transaction.LOCK.UPDATE,
                 transaction: t
             });
@@ -937,7 +922,7 @@ export class AtlasReconstruction extends BaseModel {
                 throw new Error("No atlas reconstruction found for this reconstruction");
             }
 
-            const reconstruction = await Reconstruction.findByPk(reconstructionId, {transaction: t, lock: Transaction.LOCK.UPDATE});
+            const annotation = await Annotation.findByPk(annotationId, {transaction: t, lock: Transaction.LOCK.UPDATE});
 
             const resettable = AbandonableFailureStatuses.includes(atlasReconstruction.status)
                 || atlasReconstruction.status === AtlasReconstructionStatus.ReadyToPublish;
@@ -957,8 +942,8 @@ export class AtlasReconstruction extends BaseModel {
 
             await atlasReconstruction.recordEvent(EventLogItemKind.AtlasReconstructionPipelineReset, {status: AtlasReconstructionStatus.PendingQualityControl}, user, t);
 
-            if (reconstruction.status !== ReconstructionStatus.WaitingForAtlasReconstruction) {
-                await reconstruction.resetToWaiting(user, t);
+            if (annotation.status !== AnnotationStatus.WaitingForAtlasReconstruction) {
+                await annotation.resetToWaiting(user, t);
             }
 
             return atlasReconstruction;
@@ -1030,9 +1015,9 @@ export class AtlasReconstruction extends BaseModel {
 
                 await this.recordEvent(EventLogItemKind.AtlasReconstructionIndexingComplete, update, user, t);
 
-                const reconstruction = await this.getReconstruction({transaction: t});
+                const annotation = await this.getAnnotation({transaction: t});
 
-                await reconstruction.onAtlasReconstructionStatusChanged(user, update.status, t);
+                await annotation.onAtlasReconstructionStatusChanged(user, update.status, t);
             });
 
             return PhaseOutcome.Handled;
@@ -1045,12 +1030,12 @@ export class AtlasReconstruction extends BaseModel {
                 return PhaseOutcome.Released;
             }
 
-            // Loaded under the failure transaction and locked, not the instance getReconstruction would hand back:
+            // Loaded under the failure transaction and locked, not the instance getAnnotation would hand back:
             // both rows move together or neither does.  Child first, then parent - the same order resetPipeline uses.
             await this.recordPhaseFailure(user, AtlasReconstructionStatus.FailedSearchIndexing, phaseFailureMessage("search indexing", error), async (t) => {
-                const reconstruction = await Reconstruction.findByPk(this.reconstructionId, {transaction: t, lock: Transaction.LOCK.UPDATE});
+                const annotation = await Annotation.findByPk(this.annotationId, {transaction: t, lock: Transaction.LOCK.UPDATE});
 
-                await reconstruction?.onSearchIndexFailed(user, t);
+                await annotation?.onSearchIndexFailed(user, t);
 
                 // States the invariant rather than fixing a leak: the rebuild above shares one transaction with the
                 // status write, so a failure has already rolled its index rows back.  Saying it here is what lets every
@@ -1123,11 +1108,11 @@ export class AtlasReconstruction extends BaseModel {
         return output;
     }
 
-    public static async toPortalFormat(user: User, atlasOrReconstructionId: string): Promise<PortalReconstruction> {
+    public static async toPortalFormat(user: User, atlasOrAnnotationId: string): Promise<PortalReconstruction> {
         if (!user?.canRequestReconstructionData()) {
             throw new UnauthorizedError();
         }
-        debug(`searching for atlas reconstruction ${atlasOrReconstructionId}`);
+        debug(`searching for atlas reconstruction ${atlasOrAnnotationId}`);
 
         const includes: any[] = [{
             model: User,
@@ -1135,7 +1120,7 @@ export class AtlasReconstruction extends BaseModel {
         }];
 
         includes.push({
-            model: Reconstruction,
+            model: Annotation,
             include: [{
                 model: User,
                 as: "Annotator"
@@ -1167,34 +1152,34 @@ export class AtlasReconstruction extends BaseModel {
             }]
         });
 
-        let reconstruction = await AtlasReconstruction.findByPk(atlasOrReconstructionId, {
+        let reconstruction = await AtlasReconstruction.findByPk(atlasOrAnnotationId, {
             include: includes.length > 0 ? includes : undefined
         });
 
         if (!reconstruction) {
             // Some context, such as the current Export service, only have access to the associated Atlas reconstruction id.  Allow it to be a fallback.
-            debug(`toPortalFormat looking for specimen reconstruction ${atlasOrReconstructionId}`);
-            const specimen = await Reconstruction.findByPk(atlasOrReconstructionId);
+            debug(`toPortalFormat looking for annotation ${atlasOrAnnotationId}`);
+            const annotation = await Annotation.findByPk(atlasOrAnnotationId);
 
-            if (!specimen) {
+            if (!annotation) {
                 debug(`not found`);
                 return null;
             }
 
-            debug(`toPortalFormat found specimen reconstruction ${atlasOrReconstructionId} as possible parent reconstruction`);
+            debug(`toPortalFormat found annotation ${atlasOrAnnotationId} as possible parent`);
 
             reconstruction = await this.findOne({
                 where: {
-                    reconstructionId: specimen.id
+                    annotationId: annotation.id
                 },
                 include: includes.length > 0 ? includes : undefined
             });
         } else {
-            debug(`toPortalFormat found atlas reconstruction ${atlasOrReconstructionId}`);
+            debug(`toPortalFormat found atlas reconstruction ${atlasOrAnnotationId}`);
         }
 
         if (!reconstruction) {
-            debug(`failed to find atlas reconstruction ${atlasOrReconstructionId}`);
+            debug(`failed to find atlas reconstruction ${atlasOrAnnotationId}`);
             return null;
         }
 
@@ -1203,14 +1188,14 @@ export class AtlasReconstruction extends BaseModel {
         return {
             id: reconstruction.id,
             annotationSpace: PortalAnnotationSpace.Atlas,
-            doi: reconstruction.doi,
+            doi: reconstruction.Annotation.doi || null,
             // The parent's publish date: the atlas row's own publishedAt is when the search index was updated.
-            publishedAt: reconstruction.Reconstruction.publishedAt ?? null,
-            neuron: reconstruction.Reconstruction.Neuron.toPortalFormat(),
-            annotator: reconstruction.Reconstruction.Annotator?.toPortalFormat() ?? null,
+            publishedAt: reconstruction.Annotation.publishedAt ?? null,
+            neuron: reconstruction.Annotation.Neuron.toPortalFormat(),
+            annotator: reconstruction.Annotation.Annotator?.toPortalFormat() ?? null,
             proofreader: reconstruction.Reviewer?.toPortalFormat() ?? null,
-            peerReviewer: reconstruction.Reconstruction.Reviewer?.toPortalFormat() ?? null,
-            teamReviewer: reconstruction.Reconstruction.TeamReviewer?.toPortalFormat() ?? null,
+            peerReviewer: reconstruction.Annotation.Reviewer?.toPortalFormat() ?? null,
+            teamReviewer: reconstruction.Annotation.TeamReviewer?.toPortalFormat() ?? null,
             nodes: nodes
         }
     }
@@ -1271,10 +1256,6 @@ export const modelInit = (sequelize: Sequelize) => {
             type: DataTypes.DOUBLE,
             defaultValue: null
         },
-        doi: {
-            type: DataTypes.TEXT,
-            defaultValue: ""
-        },
         nodeCounts: {
             type: DataTypes.JSONB,
             defaultValue: null
@@ -1298,7 +1279,9 @@ export const modelInit = (sequelize: Sequelize) => {
 // noinspection JSUnusedGlobalSymbols
 export const modelAssociate = () => {
     AtlasReconstruction.belongsTo(User, {foreignKey: "reviewerId", as: "Reviewer"});
-    AtlasReconstruction.belongsTo(Reconstruction, {foreignKey: "reconstructionId"});
+    // One-to-one with Annotation.  ForeignKeyOptions has no unique, and the app never syncs, so the unique index that
+    // enforces it is in 20261104000000-annotation-doi alongside the NOT NULL.
+    AtlasReconstruction.belongsTo(Annotation, {foreignKey: {name: "annotationId", allowNull: false}});
     AtlasReconstruction.belongsTo(AtlasNode, {foreignKey: "somaNodeId", as: "Soma"});
     AtlasReconstruction.hasOne(QualityControl, {foreignKey: "reconstructionId"});
     AtlasReconstruction.hasOne(Precomputed, {foreignKey: "reconstructionId"});

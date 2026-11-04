@@ -1,6 +1,7 @@
 import {SearchIndexCounts} from "./searchIndexCounts";
 import {SearchIndex, SearchIndexShape} from "../models/searchIndex";
 import {AtlasReconstruction} from "../models/atlasReconstruction";
+import {Annotation} from "../models/annotation";
 import {AtlasNode} from "../models/atlasNode";
 import {Neuron} from "../models/neuron";
 import {NeuronStructure} from "../models/neuronStructure";
@@ -15,6 +16,8 @@ export type StatisticsMap = Map<string, SearchIndexCounts>;
 
 export class SearchIndexOperation {
     private readonly _reconstruction: AtlasReconstruction;
+
+    private _annotation: Annotation;
 
     private _neuron: Neuron;
 
@@ -32,9 +35,9 @@ export class SearchIndexOperation {
             return;
         }
 
-        const reconstruction = await this._reconstruction.getReconstruction({transaction: t});
+        this._annotation = await this._reconstruction.getAnnotation({transaction: t});
 
-        this._neuron = await reconstruction.getNeuron({
+        this._neuron = await this._annotation.getNeuron({
             include: [{
                 model: Specimen,
                 as: "Specimen"
@@ -147,7 +150,7 @@ export class SearchIndexOperation {
                 totalLengthMicrometer: value.axonLengthMicrometers + value.dendriteLengthMicrometers,
                 axonLengthMicrometer: value.axonLengthMicrometers,
                 dendriteLengthMicrometer: value.dendriteLengthMicrometers,
-                doi: this._reconstruction.doi,
+                doi: this._annotation.doi,
                 canonicalDoi: this._neuron.canonicalDoi ?? "",
                 atlasKindId: this._neuron.Specimen.getAtlas().atlasKindId,
                 atlasId: this._neuron.Specimen.atlasId,

@@ -4,15 +4,16 @@ import {expect, test, vi, describe, afterEach} from "vitest";
 // different module instance than the CJS one the model methods call into, so the spies would not apply.
 const {Transaction} = require("sequelize");
 const {User, UserPermissions} = require("../src/models/user");
-const {Reconstruction} = require("../src/models/reconstruction");
+const {Annotation} = require("../src/models/annotation");
 const {Neuron} = require("../src/models/neuron");
-const {ReconstructionStatus} = require("../src/models/reconstructionStatus");
+const {AnnotationStatus} = require("../src/models/annotationStatus");
 const {ReconstructionSpace} = require("../src/models/reconstructionSpace");
 const {AtlasReconstruction} = require("../src/models/atlasReconstruction");
 const {AtlasReconstructionStatus} = require("../src/models/atlasReconstructionStatus");
 const {QualityControl} = require("../src/models/qualityControl");
 const {Precomputed, PrecomputedStatus} = require("../src/models/precomputed");
 const {SpecimenSpacePrecomputed} = require("../src/models/specimenSpacePrecomputed");
+const {SpecimenSpaceReconstruction} = require("../src/models/specimenSpaceReconstruction");
 const {SpecimenNode} = require("../src/models/specimenNode");
 const {AtlasNode} = require("../src/models/atlasNode");
 const {SearchIndex} = require("../src/models/searchIndex");
@@ -84,37 +85,37 @@ function reconstructionData() {
 
 afterEach(() => {
     vi.restoreAllMocks();
-    delete (Reconstruction as any).sequelize;
+    delete (Annotation as any).sequelize;
     delete (AtlasReconstruction as any).sequelize;
     delete (QualityControl as any).sequelize;
 });
 
-describe("approveReconstruction", () => {
+describe("approveAnnotation", () => {
     test("locks the atlas reconstruction through the transaction", async () => {
         stubEvents();
-        defineSequelize(Reconstruction);
+        defineSequelize(Annotation);
 
         const atlasReconstruction = {nodeCounts: {}, approve: vi.fn().mockResolvedValue(undefined)};
 
-        const reconstruction = prototypeStub(Reconstruction, {
+        const reconstruction = prototypeStub(Annotation, {
             neuronId: "neuron-1",
-            status: ReconstructionStatus.PublishReview
+            status: AnnotationStatus.PublishReview
         });
 
         const findAtlas = vi.spyOn(AtlasReconstruction, "findOne").mockResolvedValue(atlasReconstruction as any);
 
-        vi.spyOn(Reconstruction, "findByPk").mockResolvedValue(reconstruction);
+        vi.spyOn(Annotation, "findByPk").mockResolvedValue(reconstruction);
         vi.spyOn(User, "findUserOrId").mockResolvedValue(userWith(UserPermissions.Admin));
 
-        await Reconstruction.approveReconstruction("r1", ReconstructionStatus.Approved, "u1");
+        await Annotation.approveAnnotation("r1", AnnotationStatus.Approved, "u1");
 
         expect(findAtlas).toHaveBeenCalledWith({
-            where: {reconstructionId: "instance-1"},
+            where: {annotationId: "instance-1"},
             lock: Transaction.LOCK.UPDATE,
             transaction: transaction
         });
 
-        expect((Reconstruction.findByPk as any)).toHaveBeenCalledWith("instance-1", {transaction: transaction, lock: Transaction.LOCK.UPDATE});
+        expect((Annotation.findByPk as any)).toHaveBeenCalledWith("instance-1", {transaction: transaction, lock: Transaction.LOCK.UPDATE});
     });
 });
 
@@ -123,22 +124,23 @@ describe("publishWithTransaction", () => {
         stubEvents();
 
         // The sibling read is a findAll over the blocking statuses, and the neuron row is locked before it.
-        const findAll = vi.spyOn(Reconstruction, "findAll").mockResolvedValue(existingPublished ? [existingPublished] : []);
+        const findAll = vi.spyOn(Annotation, "findAll").mockResolvedValue(existingPublished ? [existingPublished] : []);
 
         // Publish asserts both DOIs rather than assigning them, and reads the canonical off the locked neuron row.
         vi.spyOn(Neuron, "findByPk").mockResolvedValue({id: "neuron-1", canonicalDoi: "10.x/canonical"} as any);
 
-        const atlasReconstruction = {nodeCounts: {}, doi: "10.x/abc", tryStartPublishing: vi.fn().mockResolvedValue(true)};
+        const atlasReconstruction = {nodeCounts: {}, tryStartPublishing: vi.fn().mockResolvedValue(true)};
 
-        const reconstruction = prototypeStub(Reconstruction, {
+        const reconstruction = prototypeStub(Annotation, {
             neuronId: "neuron-1",
-            status: ReconstructionStatus.ReadyToPublish,
+            status: AnnotationStatus.ReadyToPublish,
+            doi: "10.x/abc",
             AtlasReconstruction: atlasReconstruction
         });
 
         // Both rows are re-read under lock inside the transaction and it is those instances the decision is made on.
         vi.spyOn(AtlasReconstruction, "findOne").mockResolvedValue(atlasReconstruction as any);
-        vi.spyOn(Reconstruction, "findByPk").mockResolvedValue(reconstruction);
+        vi.spyOn(Annotation, "findByPk").mockResolvedValue(reconstruction);
 
         return {reconstruction: reconstruction, findAll: findAll};
     }
@@ -154,10 +156,10 @@ describe("publishWithTransaction", () => {
     test("archivePublished reads and deletes through the transaction", async () => {
         const atlasReconstruction = {id: "atlas-old"};
 
-        const existingPublished = prototypeStub(Reconstruction, {
-            id: "reconstruction-old",
+        const existingPublished = prototypeStub(Annotation, {
+            id: "annotation-old",
             neuronId: "neuron-1",
-            status: ReconstructionStatus.Published,
+            status: AnnotationStatus.Published,
             getAtlasReconstruction: vi.fn().mockResolvedValue(atlasReconstruction)
         });
 
@@ -183,7 +185,7 @@ describe("prepareToFinalize", () => {
         const findPrecomputed = vi.spyOn(Precomputed, "findOne").mockResolvedValue({id: "precomputed-1"} as any);
 
         const atlasReconstruction = prototypeStub(AtlasReconstruction, {
-            reconstructionId: "reconstruction-1",
+            annotationId: "annotation-1",
             nodeCounts: {}
         });
 
@@ -207,9 +209,9 @@ describe("calculateStructureAssignments", () => {
         const precomputed = {requestGeneration: vi.fn().mockResolvedValue(undefined)};
 
         const atlasReconstruction = prototypeStub(AtlasReconstruction, {
-            reconstructionId: "reconstruction-1",
+            annotationId: "annotation-1",
             status: AtlasReconstructionStatus.PendingStructureAssignment,
-            getReconstruction: vi.fn().mockResolvedValue({Neuron: {Specimen: {atlasId: "atlas-1"}}}),
+            getAnnotation: vi.fn().mockResolvedValue({Neuron: {Specimen: {atlasId: "atlas-1"}}}),
             getPrecomputed: vi.fn().mockResolvedValue(precomputed)
         });
 
@@ -246,9 +248,9 @@ describe("AtlasReconstruction.precomputedChanged", () => {
         stubEvents();
 
         const atlasReconstruction = prototypeStub(AtlasReconstruction, {
-            reconstructionId: "reconstruction-1",
+            annotationId: "annotation-1",
             status: AtlasReconstructionStatus.PendingPrecomputed,
-            getReconstruction: vi.fn().mockResolvedValue({onAtlasReconstructionStatusChanged: vi.fn().mockResolvedValue(undefined)})
+            getAnnotation: vi.fn().mockResolvedValue({onAtlasReconstructionStatusChanged: vi.fn().mockResolvedValue(undefined)})
         });
 
         await atlasReconstruction.precomputedChanged(userWith(UserPermissions.Admin), PrecomputedStatus.Complete, transaction);
@@ -258,12 +260,12 @@ describe("AtlasReconstruction.precomputedChanged", () => {
             {transaction: transaction}
         );
 
-        expect(atlasReconstruction.getReconstruction).not.toHaveBeenCalled();
+        expect(atlasReconstruction.getAnnotation).not.toHaveBeenCalled();
     });
 });
 
 describe("QualityControl.assess", () => {
-    // Through a locked findByPk rather than getReconstruction: the child lock has to be taken before this row is
+    // Through a locked findByPk rather than getAnnotation: the child lock has to be taken before this row is
     // written, so that a claim and a reassessment cannot deadlock against each other.
     test("locks the atlas reconstruction through its own transaction", async () => {
         stubEvents();
@@ -298,53 +300,56 @@ describe("Precomputed.precomputedChanged", () => {
     });
 });
 
-describe("discardForReconstruction", () => {
-    test("selects the child rows through the transaction", async () => {
-        const findAll = vi.spyOn(AtlasReconstruction, "findAll").mockResolvedValue([] as any);
+describe("discardForAnnotation", () => {
+    test("selects the child row through the transaction", async () => {
+        const findOne = vi.spyOn(AtlasReconstruction, "findOne").mockResolvedValue(null);
 
-        await AtlasReconstruction.discardForReconstruction(userWith(UserPermissions.Admin), "r1", transaction);
+        await AtlasReconstruction.discardForAnnotation(userWith(UserPermissions.Admin), "r1", transaction);
 
-        expect(findAll).toHaveBeenCalledWith(carriesTransaction);
+        expect(findOne).toHaveBeenCalledWith(carriesTransaction);
     });
 });
 
 describe("fromParsedStructures", () => {
     test("the specimen branch reads the precomputed row through the transaction", async () => {
         stubEvents();
-        defineSequelize(Reconstruction);
+        defineSequelize(Annotation);
 
-        vi.spyOn(Reconstruction.prototype as any, "replaceNodeData").mockResolvedValue(undefined);
+        const specimenSpaceReconstruction = prototypeStub(SpecimenSpaceReconstruction, {id: "specimen-space-1", annotationId: "instance-1"});
+        specimenSpaceReconstruction.replaceNodeData = vi.fn().mockResolvedValue(undefined);
+        const findSpecimenSpace = vi.spyOn(SpecimenSpaceReconstruction, "findOne").mockResolvedValue(specimenSpaceReconstruction);
 
         const findOne = vi.spyOn(SpecimenSpacePrecomputed, "findOne")
             .mockResolvedValue({requestGeneration: vi.fn().mockResolvedValue(undefined)} as any);
 
-        const reconstruction = prototypeStub(Reconstruction, {
+        const reconstruction = prototypeStub(Annotation, {
             neuronId: "neuron-1",
-            status: ReconstructionStatus.PublishReview
+            status: AnnotationStatus.PublishReview
         });
 
-        vi.spyOn(Reconstruction, "findByPk").mockResolvedValue(reconstruction);
+        vi.spyOn(Annotation, "findByPk").mockResolvedValue(reconstruction);
 
         await reconstruction.fromParsedStructures(userWith(UserPermissions.PublishReview), ReconstructionSpace.Specimen, reconstructionData());
 
+        expect(findSpecimenSpace).toHaveBeenCalledWith(carriesTransaction);
         expect(findOne).toHaveBeenCalledWith(carriesTransaction);
     });
 
     test("the atlas branch locks the neuron, the child and the parent through the transaction", async () => {
         stubEvents();
-        defineSequelize(Reconstruction);
+        defineSequelize(Annotation);
 
         const atlasReconstruction = {replaceNodeData: vi.fn().mockResolvedValue(undefined)};
 
-        const reconstruction = prototypeStub(Reconstruction, {
+        const reconstruction = prototypeStub(Annotation, {
             neuronId: "neuron-1",
-            status: ReconstructionStatus.PublishReview
+            status: AnnotationStatus.PublishReview
         });
 
         const findAtlas = vi.spyOn(AtlasReconstruction, "findOne").mockResolvedValue(atlasReconstruction as any);
         // atlasSoma is already populated, so the soma back-fill branch is skipped.
         const findNeuron = vi.spyOn(Neuron, "findByPk").mockResolvedValue({specimenId: "specimen-1", atlasSoma: {x: 1, y: 2, z: 3}} as any);
-        const findParent = vi.spyOn(Reconstruction, "findByPk").mockResolvedValue(reconstruction);
+        const findParent = vi.spyOn(Annotation, "findByPk").mockResolvedValue(reconstruction);
         const findSpecimenAtlas = vi.spyOn(Specimen, "findAtlasId").mockResolvedValue("atlas-1");
         vi.spyOn(Atlas, "getAtlas").mockReturnValue({id: "atlas-1"} as any);
 
@@ -358,18 +363,18 @@ describe("fromParsedStructures", () => {
 });
 
 describe("replaceNodeData", () => {
-    test("Reconstruction clears the soma reference inside the transaction", async () => {
+    test("SpecimenSpaceReconstruction clears the soma reference inside the transaction", async () => {
         stubEvents();
 
         vi.spyOn(SpecimenNode, "destroy").mockResolvedValue(0);
         vi.spyOn(SpecimenNode, "bulkCreate").mockResolvedValue([] as any);
         vi.spyOn(SpecimenNode, "create").mockResolvedValue({id: "soma-1"} as any);
 
-        const reconstruction = prototypeStub(Reconstruction, {neuronId: "neuron-1"});
+        const specimenSpaceReconstruction = prototypeStub(SpecimenSpaceReconstruction, {annotationId: "annotation-1"});
 
-        await reconstruction.replaceNodeData(userWith(UserPermissions.Admin), reconstructionData(), transaction);
+        await specimenSpaceReconstruction.replaceNodeData(userWith(UserPermissions.Admin), reconstructionData(), transaction);
 
-        expect(reconstruction.update.mock.calls[0]).toEqual([{specimenSomaNodeId: null}, {transaction: transaction}]);
+        expect(specimenSpaceReconstruction.update.mock.calls[0]).toEqual([{somaNodeId: null}, {transaction: transaction}]);
     });
 
     test("AtlasReconstruction clears the soma reference inside the transaction", async () => {
@@ -379,7 +384,7 @@ describe("replaceNodeData", () => {
         vi.spyOn(AtlasNode, "bulkCreate").mockResolvedValue([] as any);
         vi.spyOn(AtlasNode, "create").mockResolvedValue({id: "soma-1"} as any);
 
-        const atlasReconstruction = prototypeStub(AtlasReconstruction, {reconstructionId: "reconstruction-1"});
+        const atlasReconstruction = prototypeStub(AtlasReconstruction, {annotationId: "annotation-1"});
 
         await atlasReconstruction.replaceNodeData(userWith(UserPermissions.Admin), reconstructionData(), {getFromStructureId: () => null}, transaction);
 

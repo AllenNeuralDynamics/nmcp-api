@@ -4,8 +4,8 @@ import {expect, test, vi, describe, afterEach} from "vitest";
 // different module instance than the CJS one the model methods call into, so the spies would not apply.
 const {Op} = require("sequelize");
 const {Neuron, NeuronStatusFilter} = require("../src/models/neuron");
-const {CandidateBlockingStatuses, PublishedCandidateBlockingStatuses, CandidateExcludedStatuses} = require("../src/models/reconstruction");
-const {ReconstructionStatus} = require("../src/models/reconstructionStatus");
+const {CandidateBlockingStatuses, PublishedCandidateBlockingStatuses, CandidateExcludedStatuses} = require("../src/models/annotation");
+const {AnnotationStatus} = require("../src/models/annotationStatus");
 const {Atlas} = require("../src/models/atlas");
 
 // The candidate query runs no SQL here, so these assert on the options it builds: the correlated predicates, the
@@ -57,7 +57,7 @@ describe("getCandidateNeurons blocking statuses", () => {
 describe("candidate status lists", () => {
     const blockingLists = [CandidateBlockingStatuses, PublishedCandidateBlockingStatuses];
 
-    test.each([ReconstructionStatus.OnHold, ReconstructionStatus.Archived])("a %s row neither blocks nor excludes", (status: number) => {
+    test.each([AnnotationStatus.OnHold, AnnotationStatus.Archived])("a %s row neither blocks nor excludes", (status: number) => {
         for (const list of blockingLists) {
             expect(list).not.toContain(status);
         }
@@ -65,7 +65,7 @@ describe("candidate status lists", () => {
         expect(CandidateExcludedStatuses).not.toContain(status);
     });
 
-    test.each([ReconstructionStatus.Incomplete, ReconstructionStatus.Duplicate])("a %s row is excluded by default but never blocks", (status: number) => {
+    test.each([AnnotationStatus.Incomplete, AnnotationStatus.Duplicate])("a %s row is excluded by default but never blocks", (status: number) => {
         for (const list of blockingLists) {
             expect(list).not.toContain(status);
         }
@@ -73,23 +73,23 @@ describe("candidate status lists", () => {
         expect(CandidateExcludedStatuses).toContain(status);
     });
 
-    test.each([ReconstructionStatus.Rejected, ReconstructionStatus.Publishing])("a %s row blocks by default", (status: number) => {
+    test.each([AnnotationStatus.Rejected, AnnotationStatus.Publishing])("a %s row blocks by default", (status: number) => {
         expect(CandidateBlockingStatuses).toContain(status);
     });
 
     test("only a publication blocks once includeInProgress is set", () => {
-        expect(PublishedCandidateBlockingStatuses).not.toContain(ReconstructionStatus.Rejected);
+        expect(PublishedCandidateBlockingStatuses).not.toContain(AnnotationStatus.Rejected);
 
-        for (const status of [ReconstructionStatus.Publishing, ReconstructionStatus.PublishFailed, ReconstructionStatus.Published]) {
+        for (const status of [AnnotationStatus.Publishing, AnnotationStatus.PublishFailed, AnnotationStatus.Published]) {
             expect(PublishedCandidateBlockingStatuses).toContain(status);
         }
     });
 
     test("the default exclusions are Untraceable, Duplicate and Incomplete", () => {
         expect([...CandidateExcludedStatuses].sort()).toEqual([
-            ReconstructionStatus.Untraceable,
-            ReconstructionStatus.Duplicate,
-            ReconstructionStatus.Incomplete
+            AnnotationStatus.Untraceable,
+            AnnotationStatus.Duplicate,
+            AnnotationStatus.Incomplete
         ].sort());
     });
 });
@@ -112,9 +112,9 @@ describe("getCandidateNeurons excluded reconstruction statuses", () => {
     test("an explicit list replaces the default", async () => {
         const {findAll} = stubQueries();
 
-        await Neuron.getCandidateNeurons({}, false, [ReconstructionStatus.OnHold]);
+        await Neuron.getCandidateNeurons({}, false, [AnnotationStatus.OnHold]);
 
-        expect(pageOptions(findAll).replacements.candidateExcludedStatuses).toEqual([ReconstructionStatus.OnHold]);
+        expect(pageOptions(findAll).replacements.candidateExcludedStatuses).toEqual([AnnotationStatus.OnHold]);
     });
 
     test("an empty list excludes nothing, and blocking still applies", async () => {
@@ -158,7 +158,7 @@ describe("getCandidateNeurons status filter", () => {
         expect(filter).toMatch(/^EXISTS/);
         expect(filter).toContain(comparison);
         expect(filter).toContain("\"deletedAt\" IS NULL");
-        expect(options.replacements.candidatePublishedStatus).toBe(ReconstructionStatus.Published);
+        expect(options.replacements.candidatePublishedStatus).toBe(AnnotationStatus.Published);
         expect(options.include.some((include: any) => include.as === "SpecimenReconstruction")).toBe(false);
     });
 });

@@ -64,25 +64,25 @@ export const typeDefinitions = gql`
         """Returns details for a single a neuron."""
         neuron(id: String!): Neuron
 
-        """Returns a filtered list of candidate neurons.  A neuron with a reconstruction, by any annotator, at any of
-        excludedReconstructionStatuses is left out.  Omitted or null, that list is Untraceable, Duplicate and
+        """Returns a filtered list of candidate neurons.  A neuron with an annotation, by any annotator, at any of
+        excludedAnnotationStatuses is left out.  Omitted or null, that list is Untraceable, Duplicate and
         Incomplete; an empty list excludes nothing.  It applies in addition to includeInProgress.  Results are ordered by
         specimen label, neuron label, then id.  offset is honored exactly; an offset at or past totalCount returns no
         items."""
-        candidateNeurons(input: NeuronQueryInput, includeInProgress: Boolean, excludedReconstructionStatuses: [Int!]): QueryNeurons
+        candidateNeurons(input: NeuronQueryInput, includeInProgress: Boolean, excludedAnnotationStatuses: [Int!]): QueryNeurons
 
         """Returns the atlas soma locations of the candidate neurons candidateNeurons would return for the same
         arguments, one chunk at a time in neuron id order.  Pass the previous chunk's nextCursor as after to continue.
         chunkSize defaults to, and is capped at, 2000.  input.offset and input.limit are ignored.  A walk never returns an
         id twice, and a neuron that stays a candidate throughout is returned exactly once; one whose status changes
         during the walk is reported as of when the walk reaches it, so the ids returned can differ from totalCount."""
-        candidateNeuronLocations(input: NeuronQueryInput, includeInProgress: Boolean, excludedReconstructionStatuses: [Int!], after: String, chunkSize: Int): CandidateNeuronLocations!
+        candidateNeuronLocations(input: NeuronQueryInput, includeInProgress: Boolean, excludedAnnotationStatuses: [Int!], after: String, chunkSize: Int): CandidateNeuronLocations!
 
         """Returns a candidate neuron's zero-based row index in candidateNeurons order (specimen label, neuron label, then
         id) for the same arguments, to pass as input.offset so the returned window starts at that neuron.  Returns null
         when id names no neuron, or one that is not a candidate under these arguments.  input.offset and input.limit are
         ignored."""
-        candidateNeuronOffset(id: String!, input: NeuronQueryInput, includeInProgress: Boolean, excludedReconstructionStatuses: [Int!]): Int
+        candidateNeuronOffset(id: String!, input: NeuronQueryInput, includeInProgress: Boolean, excludedAnnotationStatuses: [Int!]): Int
 
         """Returns a set of reconstructions based on the provided search criteria."""
         searchNeurons(context: SearchContext): SearchOutput
@@ -115,7 +115,7 @@ export const typeDefinitions = gql`
 
         neurons(input: NeuronQueryInput): QueryNeurons
 
-        reconstructions(queryArgs: ReconstructionQueryArgs!): ReconstructionsResponse
+        annotations(queryArgs: AnnotationQueryArgs!): AnnotationsResponse
 
         """Returns a specific quality control instance."""
         qualityControl(id: String!): QualityControl
@@ -183,20 +183,20 @@ the same transaction."""
 
         importSomas(file: Upload!, options: ImportSomasOptions!): Int!
 
-        """Opens a new reconstruction for the neuron.  Errors with code 1002 if the user is limited to a single open annotation and already has one."""
-        openReconstruction(neuronId: String!): Reconstruction
-        pauseReconstruction(reconstructionId: String!): Reconstruction
-        """Returns a reconstruction at OnHold, Incomplete or Duplicate to InProgress."""
-        resumeReconstruction(reconstructionId: String!): Reconstruction
-        """Holds the reconstruction as Incomplete.  Admissible from InProgress or Rejected; left only by resumeReconstruction."""
-        markReconstructionIncomplete(reconstructionId: String!): Reconstruction
-        """Holds the reconstruction as Duplicate.  Admissible from InProgress or Rejected; left only by resumeReconstruction."""
-        markReconstructionDuplicate(reconstructionId: String!): Reconstruction
-        requestReview(reconstructionId: String!, targetStatus: Int!, duration: Float, notes: String): Reconstruction
+        """Opens a new annotation for the neuron.  Errors with code 1002 if the user is limited to a single open annotation and already has one."""
+        openAnnotation(neuronId: String!): Annotation
+        pauseAnnotation(annotationId: String!): Annotation
+        """Returns an annotation at OnHold, Incomplete or Duplicate to InProgress."""
+        resumeAnnotation(annotationId: String!): Annotation
+        """Holds the annotation as Incomplete.  Admissible from InProgress or Rejected; left only by resumeAnnotation."""
+        markAnnotationIncomplete(annotationId: String!): Annotation
+        """Holds the annotation as Duplicate.  Admissible from InProgress or Rejected; left only by resumeAnnotation."""
+        markAnnotationDuplicate(annotationId: String!): Annotation
+        requestReview(annotationId: String!, targetStatus: Int!, duration: Float, notes: String): Annotation
         """Errors with code 1005 when approving publish review before the atlas reconstruction data has been uploaded."""
-        approveReconstruction(reconstructionId: String!, targetStatus: Int!): Reconstruction
-        """Opens a revision of the reconstruction.  Errors with code 1002 if the user is limited to a single open annotation and already has one."""
-        openReconstructionRevision(reconstructionId: String!, revisionKind: Int!): Reconstruction
+        approveAnnotation(annotationId: String!, targetStatus: Int!): Annotation
+        """Opens a revision of the annotation.  Errors with code 1002 if the user is limited to a single open annotation and already has one."""
+        openAnnotationRevision(annotationId: String!, revisionKind: Int!): Annotation
 
         """Requests the reconstruction be queued for publishing.  May not be immediately available as published.  Errors with
 code 1001 if the neuron has a published reconstruction and replaceExisting is not set, or 1003 if a publish is already
@@ -214,26 +214,26 @@ Error codes in use across these mutations: 1001 an existing published reconstruc
 limit, 1003 a publish already in progress, 1004 the request does not apply at the reconstruction's current phase, 1005
 approval requires the atlas data, 1006 a permissions value outside the normal-user set, 1007 more than 50
 reconstructions in one publish call, 1008 the reconstruction's state no longer admits a publish."""
-        publish(reconstructionId: String!, replaceExisting: Boolean): Reconstruction
-        publishAll(reconstructionIds: [String!]!): [Reconstruction!]!
-        rejectReconstruction(reconstructionId: String!): Reconstruction
-        discardReconstruction(reconstructionId: String!): Reconstruction
-        markReconstructionUntraceable(reconstructionId: String!): Reconstruction
-        requestSpecimenSpaceRegeneration(reconstructionId: String!): Precomputed
+        publish(annotationId: String!, replaceExisting: Boolean): Annotation
+        publishAll(annotationIds: [String!]!): [Annotation!]!
+        rejectAnnotation(annotationId: String!): Annotation
+        discardAnnotation(annotationId: String!): Annotation
+        markAnnotationUntraceable(annotationId: String!): Annotation
+        requestSpecimenSpaceRegeneration(specimenSpaceReconstructionId: String!): Precomputed
         """Restarts one automatic phase.  Admissible only from that phase's own failed status.  Errors with code 1004
 from any other, which for a script caller is the benign case of the phase having completed underneath the request."""
-        requestQualityControlReassessment(reconstructionId: String!): AtlasReconstruction
-        requestDoiAssignment(reconstructionId: String!): AtlasReconstruction
-        requestStructureAssignment(reconstructionId: String!): AtlasReconstruction
-        requestPrecomputedRegeneration(reconstructionId: String!): AtlasReconstruction
-        requestSearchIndexing(reconstructionId: String!): AtlasReconstruction
+        requestQualityControlReassessment(annotationId: String!): AtlasReconstruction
+        requestDoiAssignment(annotationId: String!): AtlasReconstruction
+        requestStructureAssignment(annotationId: String!): AtlasReconstruction
+        requestPrecomputedRegeneration(annotationId: String!): AtlasReconstruction
+        requestSearchIndexing(annotationId: String!): AtlasReconstruction
         """Replays every automatic phase from the beginning.  Admissible from a failed automatic phase or from
 ReadyToPublish.  Registered DOIs are kept.  Errors with code 1004 from any other state."""
-        resetReconstructionPipeline(reconstructionId: String!): AtlasReconstruction
+        resetReconstructionPipeline(annotationId: String!): AtlasReconstruction
 
-        updateReconstruction(reconstructionId: String!, duration: Float, notes: String, started: Date, completed: Date): Reconstruction
-        uploadSwcData(uploadArgs: ReconstructionUploadArgs!): Reconstruction
-        uploadParquetData(uploadArgs: ReconstructionUploadArgs!): Reconstruction
+        updateAnnotation(annotationId: String!, duration: Float, notes: String, started: Date, completed: Date): Annotation
+        uploadSwcData(uploadArgs: ReconstructionUploadArgs!): Annotation
+        uploadParquetData(uploadArgs: ReconstructionUploadArgs!): Annotation
 
         createApiKey(key: String!, description: String, durationDays: Int, permissions: Int): ApiKey!
         deleteApiKey(id: String!): Boolean!

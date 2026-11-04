@@ -39,7 +39,29 @@ export function isTransientDatabaseError(error: unknown): boolean {
  * Full detail, stack included.  For debug() only - never for a value that is stored or returned by the API.
  */
 export function failureText(error: unknown): string {
-    return error instanceof Error ? error.stack ?? error.message : String(error);
+    if (!(error instanceof Error)) {
+        return String(error);
+    }
+
+    if (!error.stack) {
+        return `${error.name}: ${error.message}`;
+    }
+
+    // Sequelize replaces a database error's stack with one from a bare `new Error()` made before the query ran, so
+    // its first line is just "Error" and the Postgres message and the statement appear nowhere in it.
+    const lines = error.stack.split("\n");
+
+    if (!lines[0].includes(error.message)) {
+        lines[0] = `${error.name}: ${error.message}`;
+    }
+
+    const sql = (error as any).sql;
+
+    if (sql) {
+        lines.splice(1, 0, `    sql: ${sql}`);
+    }
+
+    return lines.join("\n");
 }
 
 /**

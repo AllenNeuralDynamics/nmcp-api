@@ -4,8 +4,8 @@ import {expect, test, vi, describe, afterEach} from "vitest";
 // different module instance than the CJS one the model methods call into, so the spies would not apply.
 const {Op} = require("sequelize");
 const {Neuron} = require("../src/models/neuron");
-const {Reconstruction} = require("../src/models/reconstruction");
-const {ReconstructionStatus} = require("../src/models/reconstructionStatus");
+const {Annotation} = require("../src/models/annotation");
+const {AnnotationStatus} = require("../src/models/annotationStatus");
 
 afterEach(() => {
     vi.restoreAllMocks();
@@ -18,36 +18,36 @@ const live = (status: number, neuronId: string = "neuron-1") => ({neuronId, stat
 describe("Neuron.untraceableByNeuron", () => {
     test.each([
         {label: "no reconstructions", rows: [], expected: false},
-        {label: "one untraceable", rows: [deleted(ReconstructionStatus.Untraceable)], expected: true},
+        {label: "one untraceable", rows: [deleted(AnnotationStatus.Untraceable)], expected: true},
         {
             label: "two untraceable",
-            rows: [deleted(ReconstructionStatus.Untraceable), deleted(ReconstructionStatus.Untraceable)],
+            rows: [deleted(AnnotationStatus.Untraceable), deleted(AnnotationStatus.Untraceable)],
             expected: true
         },
         {
             label: "untraceable plus a discarded row",
-            rows: [deleted(ReconstructionStatus.Untraceable), deleted(ReconstructionStatus.Discarded)],
+            rows: [deleted(AnnotationStatus.Untraceable), deleted(AnnotationStatus.Discarded)],
             expected: true
         },
         {
             label: "untraceable plus a live replacement",
-            rows: [deleted(ReconstructionStatus.Untraceable), live(ReconstructionStatus.InProgress)],
+            rows: [deleted(AnnotationStatus.Untraceable), live(AnnotationStatus.InProgress)],
             expected: false
         },
         {
             label: "untraceable plus a published row",
-            rows: [deleted(ReconstructionStatus.Untraceable), live(ReconstructionStatus.Published)],
+            rows: [deleted(AnnotationStatus.Untraceable), live(AnnotationStatus.Published)],
             expected: false
         },
-        {label: "only a live row", rows: [live(ReconstructionStatus.InProgress)], expected: false}
+        {label: "only a live row", rows: [live(AnnotationStatus.InProgress)], expected: false}
     ])("$label -> $expected", async ({rows, expected}) => {
-        vi.spyOn(Reconstruction, "findAll").mockResolvedValue(rows);
+        vi.spyOn(Annotation, "findAll").mockResolvedValue(rows);
 
         expect(await Neuron.untraceableByNeuron(["neuron-1"])).toEqual([expected]);
     });
 
     test("looks past the soft delete, for the requested neurons only", async () => {
-        const findAll = vi.spyOn(Reconstruction, "findAll").mockResolvedValue([]);
+        const findAll = vi.spyOn(Annotation, "findAll").mockResolvedValue([]);
 
         await Neuron.untraceableByNeuron(["neuron-1"]);
 
@@ -63,9 +63,9 @@ describe("Neuron.untraceableByNeuron", () => {
     });
 
     test("answers each neuron from its own rows, in the order asked", async () => {
-        vi.spyOn(Reconstruction, "findAll").mockResolvedValue([
-            deleted(ReconstructionStatus.Untraceable, "neuron-2"),
-            live(ReconstructionStatus.InProgress, "neuron-1")
+        vi.spyOn(Annotation, "findAll").mockResolvedValue([
+            deleted(AnnotationStatus.Untraceable, "neuron-2"),
+            live(AnnotationStatus.InProgress, "neuron-1")
         ]);
 
         expect(await Neuron.untraceableByNeuron(["neuron-1", "neuron-2", "neuron-3"])).toEqual([false, true, false]);

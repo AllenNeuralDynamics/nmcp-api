@@ -4,7 +4,7 @@ import {expect, test, vi, describe, afterEach} from "vitest";
 // different module instance than the CJS one the model methods call into, so the spies would not apply.
 const {Op} = require("sequelize");
 const {Neuron} = require("../src/models/neuron");
-const {PublishedCandidateBlockingStatuses} = require("../src/models/reconstruction");
+const {PublishedCandidateBlockingStatuses} = require("../src/models/annotation");
 const {openResolvers} = require("../src/graphql/openResolvers");
 
 // Valid version 4 UUIDs whose string order is their numeric order, as Postgres orders them.
@@ -165,7 +165,7 @@ describe("candidateNeuronOffset resolver", () => {
     test("passes the arguments through, turning a null excluded list into the default", async () => {
         const offset = vi.spyOn(Neuron, "getCandidateNeuronOffset").mockResolvedValue(3);
 
-        const result = await openResolvers.Query.candidateNeuronOffset(null, {id: neuronId(5), input: {}, includeInProgress: true, excludedReconstructionStatuses: null});
+        const result = await openResolvers.Query.candidateNeuronOffset(null, {id: neuronId(5), input: {}, includeInProgress: true, excludedAnnotationStatuses: null});
 
         expect(result).toBe(3);
         expect(offset).toHaveBeenCalledWith(neuronId(5), {}, true, undefined);

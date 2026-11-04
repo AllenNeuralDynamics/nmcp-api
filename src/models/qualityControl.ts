@@ -120,7 +120,7 @@ export class QualityControl extends BaseModel {
      */
     public async claim(): Promise<boolean> {
         return await this.sequelize.transaction(async (t) => {
-            // reconstructionId on this model is the AtlasReconstruction's id, not the parent Reconstruction's.
+            // reconstructionId on this model is the AtlasReconstruction's id, not the parent Annotation's.
             await AtlasReconstruction.findByPk(this.reconstructionId, {transaction: t, lock: Transaction.LOCK.UPDATE});
 
             const [affected] = await QualityControl.update(

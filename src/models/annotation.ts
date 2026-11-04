@@ -4,7 +4,6 @@ import {
     BelongsToGetAssociationMixin,
     DataTypes,
     FindOptions,
-    HasManyGetAssociationsMixin,
     HasOneGetAssociationMixin,
     Includeable,
     literal,
@@ -18,60 +17,53 @@ import {
 import {BaseModel} from "./baseModel";
 
 import {SpecimenSpacePrecomputed} from "./specimenSpacePrecomputed";
-import {mapToSpecimenNodeShape, SpecimenNode, SpecimenNodeShape} from "./specimenNode";
+import {SpecimenSpaceReconstruction} from "./specimenSpaceReconstruction";
+import {SpecimenSpaceReconstructionStatus} from "./specimenSpaceReconstructionStatus";
 import {Neuron} from "./neuron";
 import {UploadSourceStatuses, User} from "./user";
 import {GqlFile, UnauthorizedError} from "../graphql/secureResolvers";
-import {AtlasReconstructionTableName, NeuronTableName, ReconstructionTableName} from "./tableNames";
+import {AnnotationTableName, AtlasReconstructionTableName, NeuronTableName} from "./tableNames";
 import {ReconstructionSpace} from "./reconstructionSpace";
 import {Specimen} from "./specimen";
 import {substringMatchPatterns} from "../util/keywords";
-import {ReconstructionStatus} from "./reconstructionStatus";
+import {AnnotationStatus} from "./annotationStatus";
 import {AtlasReconstruction, AtlasReconstructionShape} from "./atlasReconstruction";
 import {AbandonableFailureStatuses, AtlasReconstructionStatus} from "./atlasReconstructionStatus";
 import {EventLogItemKind, recordEvent, ReviewRequestEventKinds} from "./eventLogItem";
 import {isNotNullOrUndefined} from "../util/objectUtil";
-import {NodeCounts, parseSwcFile, SimpleReconstruction} from "../io/simpleReconstruction";
+import {parseSwcFile, SimpleReconstruction} from "../io/simpleReconstruction";
 import {parseParquetFile, parseParquetUpload} from "../io/parquetParser";
-import {NeuronStructure} from "./neuronStructure";
-import {Injection} from "./injection";
-import {InjectionVirus} from "./injectionVirus";
-import {Fluorophore} from "./fluorophore";
-import {Genotype} from "./genotype";
-import {Collection} from "./collection"
-import {NodeStructure} from "./nodeStructure";
 import {GraphQLError} from "graphql/error";
 import {SearchIndex} from "./searchIndex";
 import {Precomputed} from "./precomputed";
-import {PortalAnnotationSpace, PortalNode, PortalReconstruction} from "../io/portalFormat";
 import {Atlas} from "./atlas";
 
 const debug = require("debug")("nmcp:nmcp-api:reconstruction");
 
 /**
- * Statuses at which a reconstruction is closed: findOrOpenReconstruction prefers any row outside them as the
+ * Statuses at which a reconstruction is closed: findOrOpenAnnotation prefers any row outside them as the
  * annotator's open attempt, and they are the base of AnnotationLimitExemptStatuses.
  */
-export const ClosedReconstructionStatuses: ReconstructionStatus[] = [
-    ReconstructionStatus.Rejected,
-    ReconstructionStatus.Published,
-    ReconstructionStatus.Archived,
-    ReconstructionStatus.Untraceable,
-    ReconstructionStatus.Discarded
+export const ClosedAnnotationStatuses: AnnotationStatus[] = [
+    AnnotationStatus.Rejected,
+    AnnotationStatus.Published,
+    AnnotationStatus.Archived,
+    AnnotationStatus.Untraceable,
+    AnnotationStatus.Discarded
 ];
 
 /**
  * Statuses that do not count as an open annotation when enforcing the single-annotation limit.  Anything not listed
  * here holds the annotator's one slot.  The holds are work set aside, so they free the slot without closing the
- * reconstruction - findOrOpenReconstruction still treats them as open, and resumeReconstruction must find the slot
- * free before taking it back.  Revise this list, not ClosedReconstructionStatuses, if other statuses should stop
+ * reconstruction - findOrOpenAnnotation still treats them as open, and resumeAnnotation must find the slot
+ * free before taking it back.  Revise this list, not ClosedAnnotationStatuses, if other statuses should stop
  * counting.
  */
-export const AnnotationLimitExemptStatuses: ReconstructionStatus[] = [
-    ...ClosedReconstructionStatuses,
-    ReconstructionStatus.OnHold,
-    ReconstructionStatus.Incomplete,
-    ReconstructionStatus.Duplicate
+export const AnnotationLimitExemptStatuses: AnnotationStatus[] = [
+    ...ClosedAnnotationStatuses,
+    AnnotationStatus.OnHold,
+    AnnotationStatus.Incomplete,
+    AnnotationStatus.Duplicate
 ];
 
 // The most reconstructions one publishAll call will attempt.  ALL takes the oldest 50 and the caller repeats; an
@@ -95,12 +87,12 @@ export class PublishRefusalError extends GraphQLError {
  * still the annotator's to abandon: from peer review onwards the atlas child, its quality control row and any
  * in-flight worker batch are live state this transition destroys.
  */
-export const UntraceableSourceStatuses: ReconstructionStatus[] = [
-    ReconstructionStatus.InProgress,
-    ReconstructionStatus.OnHold,
-    ReconstructionStatus.Incomplete,
-    ReconstructionStatus.Duplicate,
-    ReconstructionStatus.Rejected
+export const UntraceableSourceStatuses: AnnotationStatus[] = [
+    AnnotationStatus.InProgress,
+    AnnotationStatus.OnHold,
+    AnnotationStatus.Incomplete,
+    AnnotationStatus.Duplicate,
+    AnnotationStatus.Rejected
 ];
 
 /**
@@ -108,9 +100,9 @@ export const UntraceableSourceStatuses: ReconstructionStatus[] = [
  * having been asked for and carries the same rights.  No hold status - OnHold, Incomplete or Duplicate - is a source:
  * a held reconstruction resumes first.  Once in the review pipeline a reconstruction advances by approval, so no review status is a source.
  */
-export const ReviewRequestSourceStatuses: ReconstructionStatus[] = [
-    ReconstructionStatus.InProgress,
-    ReconstructionStatus.Rejected
+export const ReviewRequestSourceStatuses: AnnotationStatus[] = [
+    AnnotationStatus.InProgress,
+    AnnotationStatus.Rejected
 ];
 
 /**
@@ -119,52 +111,52 @@ export const ReviewRequestSourceStatuses: ReconstructionStatus[] = [
  * Membership is the same as ReviewRequestSourceStatuses today, but the two are separate rules: a change to one is not
  * a change to the other.
  */
-export const PausableSourceStatuses: ReconstructionStatus[] = [
-    ReconstructionStatus.InProgress,
-    ReconstructionStatus.Rejected
+export const PausableSourceStatuses: AnnotationStatus[] = [
+    AnnotationStatus.InProgress,
+    AnnotationStatus.Rejected
 ];
 
 /**
- * Source statuses resumeReconstruction returns to InProgress: every hold.  A hold is left only this way - there is no
+ * Source statuses resumeAnnotation returns to InProgress: every hold.  A hold is left only this way - there is no
  * move from one hold to another - and the import tools rely on that: importMayTransition treats a reconstruction at
  * any of these as out of the import's reach, and applies one only to a reconstruction the run created.
  */
-export const ResumableSourceStatuses: ReconstructionStatus[] = [
-    ReconstructionStatus.OnHold,
-    ReconstructionStatus.Incomplete,
-    ReconstructionStatus.Duplicate
+export const ResumableSourceStatuses: AnnotationStatus[] = [
+    AnnotationStatus.OnHold,
+    AnnotationStatus.Incomplete,
+    AnnotationStatus.Duplicate
 ];
 
 /**
  * Source statuses an annotator (or an admin) may discard from.
  */
-export const DiscardableSourceStatuses: ReconstructionStatus[] = [
-    ReconstructionStatus.InProgress,
-    ReconstructionStatus.OnHold,
-    ReconstructionStatus.Incomplete,
-    ReconstructionStatus.Duplicate,
-    ReconstructionStatus.Rejected
+export const DiscardableSourceStatuses: AnnotationStatus[] = [
+    AnnotationStatus.InProgress,
+    AnnotationStatus.OnHold,
+    AnnotationStatus.Incomplete,
+    AnnotationStatus.Duplicate,
+    AnnotationStatus.Rejected
 ];
 
 /**
  * Source statuses only an admin may discard from.  From Approved onwards - through every automatic phase, Publishing
  * and the terminal statuses - no one may discard, so those appear in neither list.
  */
-export const AdminDiscardableSourceStatuses: ReconstructionStatus[] = [
-    ReconstructionStatus.PeerReview,
-    ReconstructionStatus.TeamReview,
-    ReconstructionStatus.PublishReview
+export const AdminDiscardableSourceStatuses: AnnotationStatus[] = [
+    AnnotationStatus.PeerReview,
+    AnnotationStatus.TeamReview,
+    AnnotationStatus.PublishReview
 ];
 
 /**
  * Source statuses a reconstruction may be rejected from regardless of the child.  WaitingForAtlasReconstruction is
  * absent because it depends on the child having stopped at a failed phase - see AbandonableFailureStatuses.
  */
-export const RejectableSourceStatuses: ReconstructionStatus[] = [
-    ReconstructionStatus.PeerReview,
-    ReconstructionStatus.TeamReview,
-    ReconstructionStatus.PublishReview,
-    ReconstructionStatus.ReadyToPublish
+export const RejectableSourceStatuses: AnnotationStatus[] = [
+    AnnotationStatus.PeerReview,
+    AnnotationStatus.TeamReview,
+    AnnotationStatus.PublishReview,
+    AnnotationStatus.ReadyToPublish
 ];
 
 /**
@@ -173,60 +165,60 @@ export const RejectableSourceStatuses: ReconstructionStatus[] = [
  * target absent from this map is not an approval target at all.  A target may have more than one source: team review
  * is optional, so PublishReview is reached by a sign-off from either of the two stages before it.
  */
-export const ApprovalSourceStatuses: ReadonlyMap<ReconstructionStatus, ReconstructionStatus[]> = new Map([
-    [ReconstructionStatus.TeamReview, [ReconstructionStatus.PeerReview]],
-    [ReconstructionStatus.PublishReview, [ReconstructionStatus.PeerReview, ReconstructionStatus.TeamReview]],
-    [ReconstructionStatus.Approved, [ReconstructionStatus.PublishReview]]
+export const ApprovalSourceStatuses: ReadonlyMap<AnnotationStatus, AnnotationStatus[]> = new Map([
+    [AnnotationStatus.TeamReview, [AnnotationStatus.PeerReview]],
+    [AnnotationStatus.PublishReview, [AnnotationStatus.PeerReview, AnnotationStatus.TeamReview]],
+    [AnnotationStatus.Approved, [AnnotationStatus.PublishReview]]
 ]);
 
 /**
- * Reconstruction statuses that hold a neuron out of the candidate pool when only a finished publication counts
+ * Annotation statuses that hold a neuron out of the candidate pool when only a finished publication counts
  * (getCandidateNeurons with includeInProgress).  Publishing is included: the reconstruction is mid-publish and in
  * transition to published.  PublishFailed likewise - a half-published reconstruction whose predecessor is already
  * archived and de-indexed is not a candidate either, and its retry is the only thing that finishes it.
  */
-export const PublishedCandidateBlockingStatuses: ReconstructionStatus[] = [
-    ReconstructionStatus.Publishing,
-    ReconstructionStatus.PublishFailed,
-    ReconstructionStatus.Published
+export const PublishedCandidateBlockingStatuses: AnnotationStatus[] = [
+    AnnotationStatus.Publishing,
+    AnnotationStatus.PublishFailed,
+    AnnotationStatus.Published
 ];
 
 /**
- * Reconstruction statuses that hold a neuron out of the candidate pool when live work counts as well (the default).
+ * Annotation statuses that hold a neuron out of the candidate pool when live work counts as well (the default).
  * OnHold, Incomplete, Duplicate and Archived are absent deliberately: a held reconstruction releases its neuron - a hold
  * is the annotator's notation, not a verdict on the neuron - and an archived one is not a live published version.  Untraceable and Discarded are absent because those rows are soft-deleted and never
  * reach the query; Neuron.untraceableByNeuron is what surfaces them.
  */
-export const CandidateBlockingStatuses: ReconstructionStatus[] = [
-    ReconstructionStatus.InProgress,
-    ReconstructionStatus.PeerReview,
-    ReconstructionStatus.TeamReview,
-    ReconstructionStatus.PublishReview,
-    ReconstructionStatus.Approved,
-    ReconstructionStatus.WaitingForAtlasReconstruction,
-    ReconstructionStatus.ReadyToPublish,
-    ReconstructionStatus.Rejected,
+export const CandidateBlockingStatuses: AnnotationStatus[] = [
+    AnnotationStatus.InProgress,
+    AnnotationStatus.PeerReview,
+    AnnotationStatus.TeamReview,
+    AnnotationStatus.PublishReview,
+    AnnotationStatus.Approved,
+    AnnotationStatus.WaitingForAtlasReconstruction,
+    AnnotationStatus.ReadyToPublish,
+    AnnotationStatus.Rejected,
     ...PublishedCandidateBlockingStatuses
 ];
 
 /**
- * The default for getCandidateNeurons' excludedReconstructionStatuses: a neuron with a reconstruction at any of these,
+ * The default for getCandidateNeurons' excludedAnnotationStatuses: a neuron with an annotation at any of these,
  * by any annotator, is left out of the candidate list.  Independent of the blocking lists above, which still apply.
  */
-export const CandidateExcludedStatuses: ReconstructionStatus[] = [
-    ReconstructionStatus.Untraceable,
-    ReconstructionStatus.Duplicate,
-    ReconstructionStatus.Incomplete
+export const CandidateExcludedStatuses: AnnotationStatus[] = [
+    AnnotationStatus.Untraceable,
+    AnnotationStatus.Duplicate,
+    AnnotationStatus.Incomplete
 ];
 
-export type ReconstructionStatusFilter = {
-    status: ReconstructionStatus;
+export type AnnotationStatusFilter = {
+    status: AnnotationStatus;
     atlasStatus?: AtlasReconstructionStatus[];
 }
 
-export type ReconstructionsQueryArgs = {
-    status: ReconstructionStatus[];
-    statusFilters?: ReconstructionStatusFilter[];
+export type AnnotationsQueryArgs = {
+    status: AnnotationStatus[];
+    statusFilters?: AnnotationStatusFilter[];
     offset: number;
     limit: number;
     userOnly?: boolean;
@@ -235,10 +227,10 @@ export type ReconstructionsQueryArgs = {
     keywords?: string[];
 }
 
-export type ReconstructionQueryResponse = {
+export type AnnotationQueryResponse = {
     total: number;
     offset: number;
-    reconstructions: Reconstruction[];
+    annotations: Annotation[];
 }
 
 export type PublishedReconstructionQueryResponse = {
@@ -248,14 +240,14 @@ export type PublishedReconstructionQueryResponse = {
 }
 
 export type ReviewRequestArgs = {
-    reconstructionId: string
-    targetStatus: ReconstructionStatus.PeerReview | ReconstructionStatus.TeamReview | ReconstructionStatus.PublishReview;
+    annotationId: string
+    targetStatus: AnnotationStatus.PeerReview | AnnotationStatus.TeamReview | AnnotationStatus.PublishReview;
     duration?: number;
     notes?: string;
 }
 
-export type ReconstructionMetadataArgs = {
-    reconstructionId: string;
+export type AnnotationMetadataArgs = {
+    annotationId: string;
     duration?: number;
     notes?: string;
     started?: Date;
@@ -263,7 +255,7 @@ export type ReconstructionMetadataArgs = {
 }
 
 export type ReconstructionUploadArgs = {
-    reconstructionId: string;
+    annotationId: string;
     reconstructionSpace: ReconstructionSpace
     file: Promise<GqlFile>;
 }
@@ -274,7 +266,7 @@ export enum ReconstructionRevisionKind {
 }
 
 type HoldTransition = {
-    status: ReconstructionStatus;
+    status: AnnotationStatus;
     eventKind: EventLogItemKind;
     refusal: (currentStatusName: string) => string;
 };
@@ -287,23 +279,23 @@ class UploadError extends Error {
 
 /**
  * The upload gate, for the eager check and the locked re-check alike.  The order is the point: a caller who could not
- * upload in this space at any status is refused as unauthorized before the status is looked at, so the refusal does not
- * disclose where the reconstruction is; one who could is told the status is the problem (code 1009) rather than handed
- * the same 401, which read as a permissions fault to an admin.  disregardAuth skips both permission tests and keeps the
- * status test.
+ * upload this annotation in this space at any status is refused as unauthorized before the status is looked at, so the
+ * refusal does not disclose where the reconstruction is; one who could is told the status is the problem (code 1009)
+ * rather than handed the same 401, which read as a permissions fault to an admin.  disregardAuth skips both permission
+ * tests and keeps the status test.
  */
-function assertUploadAllowed(user: User, space: ReconstructionSpace, status: ReconstructionStatus, disregardAuth: boolean = false): void {
-    if (!disregardAuth && !user.canUploadReconstructionDataInSpace(space)) {
+function assertUploadAllowed(user: User, space: ReconstructionSpace, status: AnnotationStatus, annotatorId: string, disregardAuth: boolean = false): void {
+    if (!disregardAuth && !user.canUploadReconstructionDataInSpace(space, annotatorId)) {
         throw new UnauthorizedError();
     }
 
     if (!UploadSourceStatuses.get(space)?.has(status)) {
         const spaceName = space == ReconstructionSpace.Atlas ? "atlas-space" : "specimen-space";
 
-        throw new GraphQLError(`Uploading the ${spaceName} reconstruction is not allowed while in ${ReconstructionStatus[status]}.`, {extensions: {code: 1009}});
+        throw new GraphQLError(`Uploading the ${spaceName} reconstruction is not allowed while in ${AnnotationStatus[status]}.`, {extensions: {code: 1009}});
     }
 
-    if (!disregardAuth && !user.canUploadReconstructionData(space, status)) {
+    if (!disregardAuth && !user.canUploadReconstructionData(space, status, annotatorId)) {
         throw new UnauthorizedError();
     }
 }
@@ -314,15 +306,12 @@ class NotFoundError extends Error {
     }
 }
 
-type ReconstructionShape = {
+type AnnotationShape = {
     id?: string;
-    sourceUrl?: string;
-    sourceComments?: string;
-    status?: ReconstructionStatus;
+    status?: AnnotationStatus;
+    doi?: string;
     notes?: string;
     durationHours?: number;
-    specimenLengthMillimeters?: number;
-    specimenNodeCounts?: NodeCounts;
     startedAt?: Date;
     completedAt?: Date;
     reviewedAt?: Date;
@@ -330,21 +319,17 @@ type ReconstructionShape = {
     approvedAt?: Date;
     publishedAt?: Date;
     archivedAt?: Date;
-    specimenSomaNodeId?: string;
     annotatorId?: string;
     reviewerId?: string;
     teamReviewerId?: string;
     neuronId?: string;
 }
 
-export class Reconstruction extends BaseModel {
-    public sourceUrl: string;
-    public sourceComments: string;
-    public status: ReconstructionStatus;
+export class Annotation extends BaseModel {
+    public status: AnnotationStatus;
+    public doi: string;
     public notes: string;
     public durationHours: number;
-    public specimenLengthMillimeters: number;
-    public specimenNodeCounts: NodeCounts;
     public startedAt: Date;
     public completedAt: Date;
     public reviewedAt: Date;    // Peer review timestamp (specimen-space data)
@@ -352,33 +337,30 @@ export class Reconstruction extends BaseModel {
     public approvedAt: Date;    // Publish review timestamp (atlas-space data)
     public publishedAt: Date;
     public archivedAt: Date;
-    public specimenSomaNodeId: string;
     public annotatorId: string;
     public reviewerId: string;
     public teamReviewerId: string;
     public neuronId: string;
 
-    public getNodes!: HasManyGetAssociationsMixin<SpecimenNode>;
     public getNeuron!: BelongsToGetAssociationMixin<Neuron>;
-    public getSoma!: BelongsToGetAssociationMixin<SpecimenNode>;
     public getAnnotator!: BelongsToGetAssociationMixin<User>;
     public getReviewer!: BelongsToGetAssociationMixin<User>;
     public getTeamReviewer!: BelongsToGetAssociationMixin<User>;
     public getAtlasReconstruction!: HasOneGetAssociationMixin<AtlasReconstruction>;
-    public getPrecomputed!: HasOneGetAssociationMixin<SpecimenSpacePrecomputed>;
+    public getSpecimenSpaceReconstruction!: HasOneGetAssociationMixin<SpecimenSpaceReconstruction>;
 
     public Neuron?: Neuron;
-    public Nodes?: SpecimenNode[];
     public Annotator?: User;
     public Reviewer?: User;
     public TeamReviewer?: User;
     public AtlasReconstruction?: AtlasReconstruction;
+    public SpecimenSpaceReconstruction?: SpecimenSpaceReconstruction;
 
     protected static override defaultSort(): OrderItem[] {
         return [["Neuron", "Specimen", "label", "ASC"], ["Neuron", "label", "ASC"]];
     }
 
-    private async recordEvent(kind: EventLogItemKind, details: ReconstructionShape, user: User, t: Transaction, substituteUser: User = null): Promise<void> {
+    private async recordEvent(kind: EventLogItemKind, details: AnnotationShape, user: User, t: Transaction, substituteUser: User = null): Promise<void> {
         await recordEvent({
             kind: kind,
             targetId: this.id,
@@ -389,15 +371,15 @@ export class Reconstruction extends BaseModel {
         }, t);
     }
 
-    private static async createWithTransaction(user: User, shape: ReconstructionShape, t: Transaction, substituteUser: User): Promise<Reconstruction> {
-        const reconstruction = await this.create(shape, {transaction: t});
+    private static async createWithTransaction(user: User, shape: AnnotationShape, t: Transaction, substituteUser: User): Promise<Annotation> {
+        const annotation = await this.create(shape, {transaction: t});
 
-        await reconstruction.recordEvent(EventLogItemKind.ReconstructionCreate, shape, user, t, substituteUser);
+        await annotation.recordEvent(EventLogItemKind.AnnotationCreate, shape, user, t, substituteUser);
 
-        return reconstruction;
+        return annotation;
     }
 
-    public static async createForShape(user: User, shape: ReconstructionShape, t: Transaction = null, substituteUser: User = null): Promise<Reconstruction> {
+    public static async createForShape(user: User, shape: AnnotationShape, t: Transaction = null, substituteUser: User = null): Promise<Annotation> {
         if (t === null) {
             return await this.sequelize.transaction(async (t) => {
                 return await this.createWithTransaction(user, shape, t, substituteUser);
@@ -407,23 +389,23 @@ export class Reconstruction extends BaseModel {
         }
     }
 
-    private async updateWithTransaction(user: User, update: ReconstructionShape, t: Transaction, substituteUser: User = null) {
+    private async updateWithTransaction(user: User, update: AnnotationShape, t: Transaction, substituteUser: User = null) {
         const r = await this.update(update, {transaction: t});
 
-        await this.recordEvent(EventLogItemKind.ReconstructionUpdate, update, user, t, substituteUser);
+        await this.recordEvent(EventLogItemKind.AnnotationUpdate, update, user, t, substituteUser);
 
         return r;
     }
 
-    public static async getAll(user: User, args: ReconstructionsQueryArgs, include: Includeable[] = [], disregardAuth: boolean = false): Promise<ReconstructionQueryResponse> {
+    public static async getAll(user: User, args: AnnotationsQueryArgs, include: Includeable[] = [], disregardAuth: boolean = false): Promise<AnnotationQueryResponse> {
         if (!disregardAuth && !user?.canViewData()) {
             throw new UnauthorizedError();
         }
 
-        let out: ReconstructionQueryResponse = {
+        let out: AnnotationQueryResponse = {
             offset: 0,
             total: 0,
-            reconstructions: []
+            annotations: []
         };
 
         const specimenInclude = [{model: Neuron, as: "Neuron", include: [{model: Specimen, as: "Specimen"}]}];
@@ -436,7 +418,7 @@ export class Reconstruction extends BaseModel {
             throw new Error("A reconstruction query may filter by status or by statusFilters, but not both.");
         }
 
-        const statusFilters: ReconstructionStatusFilter[] = args.statusFilters?.length > 0 ? args.statusFilters : (args.status ?? []).map(status => ({status}));
+        const statusFilters: AnnotationStatusFilter[] = args.statusFilters?.length > 0 ? args.statusFilters : (args.status ?? []).map(status => ({status}));
 
         if (statusFilters.length > 0) {
             const atlasReplacements = {};
@@ -447,7 +429,7 @@ export class Reconstruction extends BaseModel {
                     return {status: filter.status};
                 }
 
-                const replacementName = `reconstructionAtlasStatus${idx}`;
+                const replacementName = `annotationAtlasStatus${idx}`;
 
                 atlasReplacements[replacementName] = filter.atlasStatus;
 
@@ -457,7 +439,7 @@ export class Reconstruction extends BaseModel {
                     [Op.and]: [{status: filter.status}, literal(`EXISTS (
             SELECT 1
             FROM "${AtlasReconstructionTableName}" AS atlas_child
-            WHERE atlas_child."reconstructionId" = "${ReconstructionTableName}"."id"
+            WHERE atlas_child."annotationId" = "${AnnotationTableName}"."id"
               AND atlas_child."deletedAt" IS NULL
               AND atlas_child."status" = ANY(ARRAY[:${replacementName}])
           )`)]
@@ -483,22 +465,22 @@ export class Reconstruction extends BaseModel {
             options.where[Op.and] = [literal(`EXISTS (
             SELECT 1
             FROM "${NeuronTableName}" AS keyword_neuron
-            WHERE keyword_neuron."id" = "${ReconstructionTableName}"."neuronId"
+            WHERE keyword_neuron."id" = "${AnnotationTableName}"."neuronId"
               AND keyword_neuron."deletedAt" IS NULL
               AND EXISTS (
                   SELECT 1
                   FROM jsonb_array_elements_text(keyword_neuron."keywords") AS elem
-                  WHERE elem ILIKE ANY(ARRAY[:reconstructionKeywords])
+                  WHERE elem ILIKE ANY(ARRAY[:annotationKeywords])
               )
           )`)];
 
-            options["replacements"] = {...(options["replacements"] ?? {}), reconstructionKeywords: keywordPatterns};
+            options["replacements"] = {...(options["replacements"] ?? {}), annotationKeywords: keywordPatterns};
         }
 
         out.total = await this.setSortAndLimiting(options, args);
         out.offset = options.offset;
 
-        out.reconstructions = await Reconstruction.findAll(options);
+        out.annotations = await Annotation.findAll(options);
 
         return out;
     }
@@ -506,16 +488,16 @@ export class Reconstruction extends BaseModel {
     public static async getAllPublished(user: User, offset: number = 0, limit: number = null): Promise<PublishedReconstructionQueryResponse> {
         const include = [{model: AtlasReconstruction, include: [{model: Precomputed}]}];
 
-        const response = await Reconstruction.getAll(user, {offset: offset, limit: limit, status: [ReconstructionStatus.Published]}, include, true);
+        const response = await Annotation.getAll(user, {offset: offset, limit: limit, status: [AnnotationStatus.Published]}, include, true);
 
         return {
             total: response.total,
             offset: response.offset,
-            reconstructions: response.reconstructions.map(r => r.AtlasReconstruction)
+            reconstructions: response.annotations.map(annotation => annotation.AtlasReconstruction)
         }
     }
 
-    public static async findOrOpenReconstruction(neuronId: string, user: User, substituteUser: User = null, includeUntraceable: boolean = false): Promise<Reconstruction> {
+    public static async findOrOpenAnnotation(neuronId: string, user: User, substituteUser: User = null, includeUntraceable: boolean = false): Promise<Annotation> {
         if (!user?.canViewData()) {
             throw new UnauthorizedError();
         }
@@ -533,25 +515,25 @@ export class Reconstruction extends BaseModel {
         // It stays opt-in so a caller that has no reason to resurrect a deleted row can not do so by accident, and it
         // is scoped to Untraceable rather than dropping paranoid wholesale so a discarded row still yields a new
         // reconstruction as it does today.
-        const existing = await Reconstruction.findOne({where: {...where, status: {[Op.notIn]: ClosedReconstructionStatuses}}, order})
-            ?? await Reconstruction.findOne({where, order})
+        const existing = await Annotation.findOne({where: {...where, status: {[Op.notIn]: ClosedAnnotationStatuses}}, order})
+            ?? await Annotation.findOne({where, order})
             ?? (includeUntraceable
-                ? await Reconstruction.findOne({where: {...where, status: ReconstructionStatus.Untraceable}, order, paranoid: false})
+                ? await Annotation.findOne({where: {...where, status: AnnotationStatus.Untraceable}, order, paranoid: false})
                 : null);
 
         if (existing) {
             return existing;
         }
 
-        const [reconstruction, _] = await this.openReconstruction(neuronId, user, null, substituteUser, false);
+        const [annotation, _] = await this.openAnnotation(neuronId, user, null, substituteUser, false);
 
-        return reconstruction;
+        return annotation;
     }
 
-    public static async updateMetadata(userOrId: User | string, args: ReconstructionMetadataArgs): Promise<Reconstruction> {
-        const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(args.reconstructionId, userOrId);
+    public static async updateMetadata(userOrId: User | string, args: AnnotationMetadataArgs): Promise<Annotation> {
+        const [annotation, user] = await Annotation.findAnnotationAndUser(args.annotationId, userOrId);
 
-        if (!user?.canModifyReconstruction()) {
+        if (!user?.canModifyAnnotation()) {
             throw new UnauthorizedError();
         }
 
@@ -578,29 +560,29 @@ export class Reconstruction extends BaseModel {
                 return;
             }
 
-            return await reconstruction.updateWithTransaction(user, update, t);
+            return await annotation.updateWithTransaction(user, update, t);
         });
     }
 
-    public static async openReconstructionRevision(userOrId: User | string, reconstructionId: string, revisionKind: ReconstructionRevisionKind): Promise<Reconstruction> {
-        const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(reconstructionId, userOrId);
+    public static async openAnnotationRevision(userOrId: User | string, annotationId: string, revisionKind: ReconstructionRevisionKind): Promise<Annotation> {
+        const [annotation, user] = await Annotation.findAnnotationAndUser(annotationId, userOrId);
 
-        if (!user?.canReviseReconstruction()) {
+        if (!user?.canReviseAnnotation()) {
             throw new UnauthorizedError();
         }
 
         return await this.sequelize.transaction(async (t) => {
-            debug(`creating revision for ${reconstruction.id}`);
+            debug(`creating revision for ${annotation.id}`);
 
-            const [revision, isExisting] = await this.openReconstruction(reconstruction.neuronId, user, t);
+            const [revision, isExisting] = await this.openAnnotation(annotation.neuronId, user, t);
 
             if (isExisting) {
                 return null;
             }
 
             if (revisionKind == ReconstructionRevisionKind.AtlasSpace) {
-                debug(`applying specimen-space data from ${reconstruction.id} to ${revision.id}`);
-                await revision.copyFrom(reconstruction, user, t);
+                debug(`applying specimen-space data from ${annotation.id} to ${revision.id}`);
+                await revision.copyFrom(annotation, user, t);
             }
 
             return revision;
@@ -609,19 +591,19 @@ export class Reconstruction extends BaseModel {
 
     public async onAtlasReconstructionStatusChanged(user: User, status: AtlasReconstructionStatus, t: Transaction) {
         if (status == AtlasReconstructionStatus.ReadyToPublish) {
-            if (this.status == ReconstructionStatus.WaitingForAtlasReconstruction) {
-                const update = {status: ReconstructionStatus.ReadyToPublish};
+            if (this.status == AnnotationStatus.WaitingForAtlasReconstruction) {
+                const update = {status: AnnotationStatus.ReadyToPublish};
                 await this.update(update, {transaction: t});
-                await this.recordEvent(EventLogItemKind.ReconstructionFinalizeApprove, update, user, t);
+                await this.recordEvent(EventLogItemKind.AnnotationFinalizeApprove, update, user, t);
             } else {
                 // TODO SystemError
                 debug(`received unexpected atlas reconstruction status update: ${status} (current status: ${this.status})`);
             }
         } else if (status == AtlasReconstructionStatus.Published) {
-            if (this.status == ReconstructionStatus.Publishing) {
-                const update = {status: ReconstructionStatus.Published, publishedAt: this.publishedAt ?? new Date()};
+            if (this.status == AnnotationStatus.Publishing) {
+                const update = {status: AnnotationStatus.Published, publishedAt: this.publishedAt ?? new Date()};
                 await this.update(update, {transaction: t});
-                await this.recordEvent(EventLogItemKind.ReconstructionPublished, update, user, t);
+                await this.recordEvent(EventLogItemKind.AnnotationPublished, update, user, t);
             } else {
                 // TODO SystemError
                 debug(`received unexpected atlas reconstruction status update: ${status} (current status: ${this.status})`);
@@ -632,45 +614,45 @@ export class Reconstruction extends BaseModel {
     // Only reachable from ReadyToPublish: a reset from a failed phase leaves the parent where it already is.  The
     // caller holds this row's lock.
     public async resetToWaiting(user: User, t: Transaction): Promise<void> {
-        const update = {status: ReconstructionStatus.WaitingForAtlasReconstruction};
+        const update = {status: AnnotationStatus.WaitingForAtlasReconstruction};
 
         await this.update(update, {transaction: t});
 
-        await this.recordEvent(EventLogItemKind.ReconstructionUpdate, update, user, t);
+        await this.recordEvent(EventLogItemKind.AnnotationUpdate, update, user, t);
     }
 
     // The indexing failure's half: without this the parent would stay at Publishing, indistinguishable from one
     // indexing normally.  Written in the same transaction as the child's FailedSearchIndexing.  The caller holds this
     // row's lock.
     public async onSearchIndexFailed(user: User, t: Transaction): Promise<void> {
-        if (this.status !== ReconstructionStatus.Publishing) {
+        if (this.status !== AnnotationStatus.Publishing) {
             debug(`not failing a reconstruction that is not publishing (current status: ${this.status})`);
             return;
         }
 
-        const update = {status: ReconstructionStatus.PublishFailed};
+        const update = {status: AnnotationStatus.PublishFailed};
 
         await this.update(update, {transaction: t});
 
-        await this.recordEvent(EventLogItemKind.ReconstructionUpdate, update, user, t);
+        await this.recordEvent(EventLogItemKind.AnnotationUpdate, update, user, t);
     }
 
     // The retry's half: PublishFailed is where onSearchIndexFailed left the parent, and onAtlasReconstructionStatusChanged
     // only moves a parent it finds at Publishing.  The caller holds this row's lock.
     public async resumePublishing(user: User, t: Transaction): Promise<void> {
-        if (this.status !== ReconstructionStatus.PublishFailed) {
+        if (this.status !== AnnotationStatus.PublishFailed) {
             debug(`not resuming a reconstruction that is not at PublishFailed (current status: ${this.status})`);
             return;
         }
 
-        const update = {status: ReconstructionStatus.Publishing};
+        const update = {status: AnnotationStatus.Publishing};
 
         await this.update(update, {transaction: t});
 
-        await this.recordEvent(EventLogItemKind.ReconstructionUpdate, update, user, t);
+        await this.recordEvent(EventLogItemKind.AnnotationUpdate, update, user, t);
     }
 
-    public static async openReconstruction(neuronId: string, userOrId: string | User, transaction: Transaction = null, substituteUser: User = null, enforceAnnotationLimit: boolean = true): Promise<[Reconstruction, boolean]> {
+    public static async openAnnotation(neuronId: string, userOrId: string | User, transaction: Transaction = null, substituteUser: User = null, enforceAnnotationLimit: boolean = true): Promise<[Annotation, boolean]> {
         const user = await User.findUserOrId(userOrId);
 
         if (!user?.canAnnotate()) {
@@ -681,7 +663,7 @@ export class Reconstruction extends BaseModel {
 
         const ownTransaction = transaction == null;
 
-        const t = ownTransaction ? await Reconstruction.sequelize.transaction() : transaction;
+        const t = ownTransaction ? await Annotation.sequelize.transaction() : transaction;
 
         try {
             if (enforceLimit) {
@@ -691,9 +673,9 @@ export class Reconstruction extends BaseModel {
             }
 
             // A user cannot open a new reconstruction if they have one that is not in a finalized state such as published or archived.
-            const whereStatus = {status: {[Op.notIn]: [ReconstructionStatus.Published, ReconstructionStatus.Archived, ReconstructionStatus.Untraceable, ReconstructionStatus.Discarded]}};
+            const whereStatus = {status: {[Op.notIn]: [AnnotationStatus.Published, AnnotationStatus.Archived, AnnotationStatus.Untraceable, AnnotationStatus.Discarded]}};
 
-            const existingReconstruction = await Reconstruction.findOne({
+            const existingAnnotation = await Annotation.findOne({
                 where: {
                     annotatorId: user.id,
                     neuronId: neuronId,
@@ -701,30 +683,32 @@ export class Reconstruction extends BaseModel {
                 }, transaction: t
             });
 
-            if (existingReconstruction) {
+            if (existingAnnotation) {
                 if (ownTransaction) {
                     await t.commit();
                 }
 
-                return [existingReconstruction, true];
+                return [existingAnnotation, true];
             }
 
             if (enforceLimit) {
-                await Reconstruction.assertAnnotationSlotFree(user.id, t);
+                await Annotation.assertAnnotationSlotFree(user.id, t);
             }
 
-            const shape: ReconstructionShape = {
+            const shape: AnnotationShape = {
                 neuronId: neuronId,
                 annotatorId: user.id,
-                status: ReconstructionStatus.InProgress,
+                status: AnnotationStatus.InProgress,
                 startedAt: new Date()
             };
 
-            const reconstruction = await Reconstruction.createWithTransaction(user, shape, t, substituteUser);
+            const annotation = await Annotation.createWithTransaction(user, shape, t, substituteUser);
+
+            await SpecimenSpaceReconstruction.createForShape(user, {status: SpecimenSpaceReconstructionStatus.Initialized, annotationId: annotation.id}, t, substituteUser);
 
             const atlasShape: AtlasReconstructionShape = {
                 status: AtlasReconstructionStatus.Initialized,
-                reconstructionId: reconstruction.id,
+                annotationId: annotation.id,
             };
 
             await AtlasReconstruction.createForShape(user, atlasShape, t, substituteUser);
@@ -733,7 +717,7 @@ export class Reconstruction extends BaseModel {
                 await t.commit();
             }
 
-            return [reconstruction, false];
+            return [annotation, false];
         } catch (err) {
             if (ownTransaction) {
                 await t.rollback();
@@ -757,17 +741,17 @@ export class Reconstruction extends BaseModel {
             where["id"] = {[Op.ne]: excludeId};
         }
 
-        const openCount = await Reconstruction.count({where: where, transaction: t});
+        const openCount = await Annotation.count({where: where, transaction: t});
 
         if (openCount > 0) {
             throw new GraphQLError("You already have an annotation in progress.  Complete or discard it before starting another.", {extensions: {code: 1002}});
         }
     }
 
-    private static async findReconstructionAndUser(id: string, userOrId: User | string, include: FindOptions["include"] = [], allowNoUser: boolean = false): Promise<[Reconstruction, User]> {
-        const reconstruction = await Reconstruction.findByPk(id, {include: include});
+    private static async findAnnotationAndUser(id: string, userOrId: User | string, include: FindOptions["include"] = [], allowNoUser: boolean = false): Promise<[Annotation, User]> {
+        const annotation = await Annotation.findByPk(id, {include: include});
 
-        if (!reconstruction) {
+        if (!annotation) {
             throw new NotFoundError(`Reconstruction ${id} does not exist`);
         }
 
@@ -778,29 +762,29 @@ export class Reconstruction extends BaseModel {
             throw new UnauthorizedError();
         }
 
-        return [reconstruction, user];
+        return [annotation, user];
     }
 
-    public static async pauseReconstruction(id: string, userOrId: User | string, substituteUser: User = null, disregardAuth: boolean = false): Promise<Reconstruction> {
-        return Reconstruction.holdReconstruction(id, userOrId, {
-            status: ReconstructionStatus.OnHold,
-            eventKind: EventLogItemKind.ReconstructionPause,
+    public static async pauseAnnotation(id: string, userOrId: User | string, substituteUser: User = null, disregardAuth: boolean = false): Promise<Annotation> {
+        return Annotation.holdAnnotation(id, userOrId, {
+            status: AnnotationStatus.OnHold,
+            eventKind: EventLogItemKind.AnnotationPause,
             refusal: statusName => `Cannot pause a reconstruction with status ${statusName}.`
         }, substituteUser, disregardAuth);
     }
 
-    public static async markIncomplete(id: string, userOrId: User | string, substituteUser: User = null, disregardAuth: boolean = false): Promise<Reconstruction> {
-        return Reconstruction.holdReconstruction(id, userOrId, {
-            status: ReconstructionStatus.Incomplete,
-            eventKind: EventLogItemKind.ReconstructionIncomplete,
+    public static async markIncomplete(id: string, userOrId: User | string, substituteUser: User = null, disregardAuth: boolean = false): Promise<Annotation> {
+        return Annotation.holdAnnotation(id, userOrId, {
+            status: AnnotationStatus.Incomplete,
+            eventKind: EventLogItemKind.AnnotationIncomplete,
             refusal: statusName => `Cannot mark a reconstruction with status ${statusName} as incomplete.`
         }, substituteUser, disregardAuth);
     }
 
-    public static async markDuplicate(id: string, userOrId: User | string, substituteUser: User = null, disregardAuth: boolean = false): Promise<Reconstruction> {
-        return Reconstruction.holdReconstruction(id, userOrId, {
-            status: ReconstructionStatus.Duplicate,
-            eventKind: EventLogItemKind.ReconstructionDuplicate,
+    public static async markDuplicate(id: string, userOrId: User | string, substituteUser: User = null, disregardAuth: boolean = false): Promise<Annotation> {
+        return Annotation.holdAnnotation(id, userOrId, {
+            status: AnnotationStatus.Duplicate,
+            eventKind: EventLogItemKind.AnnotationDuplicate,
             refusal: statusName => `Cannot mark a reconstruction with status ${statusName} as a duplicate.`
         }, substituteUser, disregardAuth);
     }
@@ -809,11 +793,11 @@ export class Reconstruction extends BaseModel {
     //  overriding.  The import reconciles against an external source of truth and holds reconstructions on behalf of
     //  annotators who hold no portal permission; the source-status rule below applies to it exactly as it does to the
     //  portal.
-    private static async holdReconstruction(id: string, userOrId: User | string, transition: HoldTransition, substituteUser: User, disregardAuth: boolean): Promise<Reconstruction> {
-        const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(id, userOrId);
+    private static async holdAnnotation(id: string, userOrId: User | string, transition: HoldTransition, substituteUser: User, disregardAuth: boolean): Promise<Annotation> {
+        const [annotation, user] = await Annotation.findAnnotationAndUser(id, userOrId);
 
         if (!disregardAuth) {
-            if (!user?.canPauseReconstruction(reconstruction.annotatorId)) {
+            if (!user?.canPauseAnnotation(annotation.annotatorId)) {
                 throw new UnauthorizedError();
             }
         }
@@ -821,14 +805,14 @@ export class Reconstruction extends BaseModel {
         // Unconditional: disregardAuth buys the import tools out of the permission, never out of the state rule.  A
         // reconstruction already in review or in the pipeline is not the annotator's - or an import's - to suspend, and
         // one already held resumes before it is held differently.
-        if (!PausableSourceStatuses.includes(reconstruction.status)) {
-            throw new Error(transition.refusal(ReconstructionStatus[reconstruction.status]));
+        if (!PausableSourceStatuses.includes(annotation.status)) {
+            throw new Error(transition.refusal(AnnotationStatus[annotation.status]));
         }
 
         return await this.sequelize.transaction(async (transaction) => {
             const update = {status: transition.status};
 
-            const updated = await reconstruction.update(update, {transaction: transaction});
+            const updated = await annotation.update(update, {transaction: transaction});
 
             await updated.recordEvent(transition.eventKind, update, user, transaction, substituteUser);
 
@@ -836,40 +820,40 @@ export class Reconstruction extends BaseModel {
         });
     }
 
-    public static async resumeReconstruction(id: string, userOrId: User | string, substituteUser: User = null): Promise<Reconstruction> {
-        const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(id, userOrId);
+    public static async resumeAnnotation(id: string, userOrId: User | string, substituteUser: User = null): Promise<Annotation> {
+        const [annotation, user] = await Annotation.findAnnotationAndUser(id, userOrId);
 
-        if (!user?.canResumeReconstruction(reconstruction.annotatorId)) {
+        if (!user?.canResumeAnnotation(annotation.annotatorId)) {
             throw new UnauthorizedError();
         }
 
-        if (!ResumableSourceStatuses.includes(reconstruction.status)) {
-            throw new Error(`Cannot resume a reconstruction with status ${ReconstructionStatus[reconstruction.status]}.`);
+        if (!ResumableSourceStatuses.includes(annotation.status)) {
+            throw new Error(`Cannot resume a reconstruction with status ${AnnotationStatus[annotation.status]}.`);
         }
 
         return await this.sequelize.transaction(async (t) => {
             // The limit is the annotator's, not the caller's - an admin resuming on their behalf is held to it too.
-            // Locked as openReconstruction locks it, so a concurrent open or resume waits for this one to commit.
-            const annotator = await User.findByPk(reconstruction.annotatorId, {transaction: t, lock: Transaction.LOCK.UPDATE});
+            // Locked as openAnnotation locks it, so a concurrent open or resume waits for this one to commit.
+            const annotator = await User.findByPk(annotation.annotatorId, {transaction: t, lock: Transaction.LOCK.UPDATE});
 
             if (annotator?.canAnnotate() && !annotator.canAnnotateMultiple()) {
-                await Reconstruction.assertAnnotationSlotFree(annotator.id, t, reconstruction.id);
+                await Annotation.assertAnnotationSlotFree(annotator.id, t, annotation.id);
             }
 
-            const update = {status: ReconstructionStatus.InProgress};
+            const update = {status: AnnotationStatus.InProgress};
 
-            const r = await reconstruction.update(update, {transaction: t});
+            const r = await annotation.update(update, {transaction: t});
 
-            await r.recordEvent(EventLogItemKind.ReconstructionResume, update, user, t, substituteUser);
+            await r.recordEvent(EventLogItemKind.AnnotationResume, update, user, t, substituteUser);
 
             return r;
         });
     }
 
-    public static async requestReview(args: ReviewRequestArgs, userOrId: User | string, substituteUser: User = null, disregardAuth: boolean = false): Promise<Reconstruction> {
-        const {reconstructionId, targetStatus, duration, notes} = args;
+    public static async requestReview(args: ReviewRequestArgs, userOrId: User | string, substituteUser: User = null, disregardAuth: boolean = false): Promise<Annotation> {
+        const {annotationId, targetStatus, duration, notes} = args;
 
-        const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(reconstructionId, userOrId);
+        const [annotation, user] = await Annotation.findAnnotationAndUser(annotationId, userOrId);
 
         if (!ReviewRequestEventKinds.has(targetStatus)) {
             throw new Error("Requested status must be Peer Review, Team Review or Publish Review")
@@ -880,15 +864,15 @@ export class Reconstruction extends BaseModel {
         // parking step that finds the reconstruction already where it is asking for is satisfied, not refused: nothing
         // is written and no event is recorded.  Portal callers keep the refusal - asking for a review a reconstruction
         // is already in is a mistake there.
-        if (disregardAuth && reconstruction.status == targetStatus) {
-            return reconstruction;
+        if (disregardAuth && annotation.status == targetStatus) {
+            return annotation;
         }
 
         // TODO When the SmartSheet import is no longer required, remove disregardAuth and don't allow the possibility of overriding. disregardAuth is needed
         //  because SmartSheets contain people as reviewers that we need to make as users in the system, but should not be auto-granted review permissions in
         //  the portal.
         if (!disregardAuth) {
-            if (!user?.canRequestReview(reconstruction.annotatorId)) {
+            if (!user?.canRequestReview(annotation.annotatorId)) {
                 throw new UnauthorizedError();
             }
         }
@@ -896,8 +880,8 @@ export class Reconstruction extends BaseModel {
         // Unconditional: disregardAuth buys the import tools out of the permission, never out of the state rule.  Once
         // a reconstruction is in review or in the pipeline, moving it back to a review status is a rewind the portal
         // has no route to produce.
-        if (!ReviewRequestSourceStatuses.includes(reconstruction.status)) {
-            throw new Error(`Cannot request a review for a reconstruction with status ${ReconstructionStatus[reconstruction.status]}.`);
+        if (!ReviewRequestSourceStatuses.includes(annotation.status)) {
+            throw new Error(`Cannot request a review for a reconstruction with status ${AnnotationStatus[annotation.status]}.`);
         }
 
         const update = {
@@ -914,7 +898,7 @@ export class Reconstruction extends BaseModel {
         }
 
         return await this.sequelize.transaction(async (t) => {
-            const r = await reconstruction.update(update, {transaction: t});
+            const r = await annotation.update(update, {transaction: t});
 
             await r.recordEvent(ReviewRequestEventKinds.get(targetStatus), update, user, t, substituteUser);
 
@@ -922,14 +906,14 @@ export class Reconstruction extends BaseModel {
         });
     }
 
-    public static async approveReconstruction(id: string, targetStatus: ReconstructionStatus, userOrId: User | string, substituteUser: User = null, disregardAuth: boolean = false): Promise<Reconstruction> {
-        const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(id, userOrId, [], true);
+    public static async approveAnnotation(id: string, targetStatus: AnnotationStatus, userOrId: User | string, substituteUser: User = null, disregardAuth: boolean = false): Promise<Annotation> {
+        const [annotation, user] = await Annotation.findAnnotationAndUser(id, userOrId, [], true);
 
         // TODO When the SmartSheet import is no longer required, remove disregardAuth and don't allow the possibility of overriding. disregardAuth is needed
         //  because SmartSheets contain people as reviewers that we need to make as users in the system, but should not be auto-granted review permissions in
         //  the portal.
         // At least block for the optional review sign-offs, neither of which is a part of import.
-        if (disregardAuth && (targetStatus == ReconstructionStatus.TeamReview || targetStatus == ReconstructionStatus.PublishReview)) {
+        if (disregardAuth && (targetStatus == AnnotationStatus.TeamReview || targetStatus == AnnotationStatus.PublishReview)) {
             throw new UnauthorizedError();
         }
 
@@ -940,12 +924,12 @@ export class Reconstruction extends BaseModel {
         }
 
         if (!disregardAuth) {
-            if (!user?.canApproveReconstruction(targetStatus, reconstruction.status)) {
+            if (!user?.canApproveAnnotation(targetStatus, annotation.status)) {
                 throw new UnauthorizedError();
             }
 
-            if (!requiredSources.includes(reconstruction.status)) {
-                throw new Error(`Cannot approve a reconstruction with status ${ReconstructionStatus[reconstruction.status]} to ${ReconstructionStatus[targetStatus]}.`);
+            if (!requiredSources.includes(annotation.status)) {
+                throw new Error(`Cannot approve a reconstruction with status ${AnnotationStatus[annotation.status]} to ${AnnotationStatus[targetStatus]}.`);
             }
         }
 
@@ -954,15 +938,15 @@ export class Reconstruction extends BaseModel {
             // approval taking them the other way round is a deadlock between two ordinary publish-reviewer actions on
             // one reconstruction.  Neither review sign-off touches the child, so both lock the parent alone and cannot
             // be part of a cycle either way.
-            const atlasReconstruction = targetStatus == ReconstructionStatus.Approved
+            const atlasReconstruction = targetStatus == AnnotationStatus.Approved
                 ? await AtlasReconstruction.findOne({
-                    where: {reconstructionId: reconstruction.id},
+                    where: {annotationId: annotation.id},
                     lock: Transaction.LOCK.UPDATE,
                     transaction: t
                 })
                 : null;
 
-            const locked = await Reconstruction.findByPk(reconstruction.id, {transaction: t, lock: Transaction.LOCK.UPDATE});
+            const locked = await Annotation.findByPk(annotation.id, {transaction: t, lock: Transaction.LOCK.UPDATE});
 
             // Repeated against the locked row, and unconditionally: a reject or another approval can have moved the
             // parent since the check above, and an import approving over a rejection that committed in between would
@@ -973,23 +957,23 @@ export class Reconstruction extends BaseModel {
             // reviewer who passed the check above at PeerReview must not approve a reconstruction a request has since
             // moved to TeamReview.  Admissibility first, so a row that moved reports the clearer error.
             if (!requiredSources.includes(locked.status)) {
-                throw new Error(`Cannot approve a reconstruction with status ${ReconstructionStatus[locked.status]} to ${ReconstructionStatus[targetStatus]}.`);
+                throw new Error(`Cannot approve a reconstruction with status ${AnnotationStatus[locked.status]} to ${AnnotationStatus[targetStatus]}.`);
             }
 
-            if (!disregardAuth && !user.canApproveReconstruction(targetStatus, locked.status)) {
+            if (!disregardAuth && !user.canApproveAnnotation(targetStatus, locked.status)) {
                 throw new UnauthorizedError();
             }
 
-            if (targetStatus != ReconstructionStatus.Approved) {
+            if (targetStatus != AnnotationStatus.Approved) {
                 // A review sign-off: peer review to team or publish review, or team review to publish review.  Which
                 // reviewer is recorded follows the stage being left, not the one being entered.
-                const update = locked.status == ReconstructionStatus.TeamReview
+                const update = locked.status == AnnotationStatus.TeamReview
                     ? {status: targetStatus, teamReviewerId: user.id, teamReviewedAt: new Date()}
                     : {status: targetStatus, reviewerId: user.id, reviewedAt: new Date()};
 
-                const kind = locked.status == ReconstructionStatus.TeamReview
-                    ? EventLogItemKind.ReconstructionApproveTeamReview
-                    : EventLogItemKind.ReconstructionApprovePeerReview;
+                const kind = locked.status == AnnotationStatus.TeamReview
+                    ? EventLogItemKind.AnnotationApproveTeamReview
+                    : EventLogItemKind.AnnotationApprovePeerReview;
 
                 const r = await locked.update(update, {transaction: t});
 
@@ -1005,50 +989,50 @@ export class Reconstruction extends BaseModel {
             }
 
             // Publish review is being approved.
-            const update = {status: ReconstructionStatus.Approved, approvedAt: new Date()};
+            const update = {status: AnnotationStatus.Approved, approvedAt: new Date()};
 
             const r = await locked.update(update, {transaction: t});
 
-            await r.recordEvent(EventLogItemKind.ReconstructionApprovePublishReview, update, user, t, substituteUser);
+            await r.recordEvent(EventLogItemKind.AnnotationApprovePublishReview, update, user, t, substituteUser);
 
             await atlasReconstruction.approve(user, t, substituteUser);
 
-            return await locked.update({status: ReconstructionStatus.WaitingForAtlasReconstruction}, {transaction: t});
+            return await locked.update({status: AnnotationStatus.WaitingForAtlasReconstruction}, {transaction: t});
         });
     }
 
-    private static isRejectable(status: ReconstructionStatus, childStatus: AtlasReconstructionStatus): boolean {
+    private static isRejectable(status: AnnotationStatus, childStatus: AtlasReconstructionStatus): boolean {
         return RejectableSourceStatuses.includes(status)
-            || (status == ReconstructionStatus.WaitingForAtlasReconstruction && AbandonableFailureStatuses.includes(childStatus))
+            || (status == AnnotationStatus.WaitingForAtlasReconstruction && AbandonableFailureStatuses.includes(childStatus))
             // A clause of its own rather than a new member of AbandonableFailureStatuses: that set is shared with
             // isDiscardable and the pipeline replay, and widening it would hand both of them a route out of
             // PublishFailed.  Reject is the only one, and it releases the neuron rather than recovering the publication.
-            || (status == ReconstructionStatus.PublishFailed && childStatus == AtlasReconstructionStatus.FailedSearchIndexing);
+            || (status == AnnotationStatus.PublishFailed && childStatus == AtlasReconstructionStatus.FailedSearchIndexing);
     }
 
-    private static isDiscardable(status: ReconstructionStatus, childStatus: AtlasReconstructionStatus): boolean {
+    private static isDiscardable(status: AnnotationStatus, childStatus: AtlasReconstructionStatus): boolean {
         return DiscardableSourceStatuses.includes(status)
             || AdminDiscardableSourceStatuses.includes(status)
-            || status == ReconstructionStatus.ReadyToPublish
-            || (status == ReconstructionStatus.WaitingForAtlasReconstruction && AbandonableFailureStatuses.includes(childStatus));
+            || status == AnnotationStatus.ReadyToPublish
+            || (status == AnnotationStatus.WaitingForAtlasReconstruction && AbandonableFailureStatuses.includes(childStatus));
     }
 
-    public static async rejectReconstruction(id: string, userOrId: User | string, substituteUser: User = null): Promise<Reconstruction> {
-        const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(id, userOrId, [{model: AtlasReconstruction}]);
+    public static async rejectAnnotation(id: string, userOrId: User | string, substituteUser: User = null): Promise<Annotation> {
+        const [annotation, user] = await Annotation.findAnnotationAndUser(id, userOrId, [{model: AtlasReconstruction}]);
 
         // Early refusal only, so an unauthorized caller is turned away without opening a transaction.
-        if (!user?.canRejectReconstruction(reconstruction.status, reconstruction.AtlasReconstruction?.status ?? null)) {
+        if (!user?.canRejectAnnotation(annotation.status, annotation.AtlasReconstruction?.status ?? null)) {
             throw new UnauthorizedError();
         }
 
         return await this.sequelize.transaction(async (t) => {
             const atlasReconstruction = await AtlasReconstruction.findOne({
-                where: {reconstructionId: reconstruction.id},
+                where: {annotationId: annotation.id},
                 lock: Transaction.LOCK.UPDATE,
                 transaction: t
             });
 
-            const locked = await Reconstruction.findByPk(reconstruction.id, {transaction: t, lock: Transaction.LOCK.UPDATE});
+            const locked = await Annotation.findByPk(annotation.id, {transaction: t, lock: Transaction.LOCK.UPDATE});
 
             const sourceStatus = locked.status;
             const childStatus = atlasReconstruction?.status ?? null;
@@ -1057,33 +1041,33 @@ export class Reconstruction extends BaseModel {
             // status, so a parent that moved between the eager read and this lock can change who is allowed as well as
             // whether anyone is.  A peer reviewer who passed the check above at PeerReview must not reject a
             // reconstruction an approval has since moved to PublishReview.
-            if (!user.canRejectReconstruction(sourceStatus, childStatus)) {
+            if (!user.canRejectAnnotation(sourceStatus, childStatus)) {
                 throw new UnauthorizedError();
             }
 
-            if (!Reconstruction.isRejectable(sourceStatus, childStatus)) {
-                throw new Error(`Cannot reject a reconstruction with status ${ReconstructionStatus[sourceStatus]}.`);
+            if (!Annotation.isRejectable(sourceStatus, childStatus)) {
+                throw new Error(`Cannot reject a reconstruction with status ${AnnotationStatus[sourceStatus]}.`);
             }
 
             const update = {
-                status: ReconstructionStatus.Rejected
+                status: AnnotationStatus.Rejected
             };
 
-            if (sourceStatus == ReconstructionStatus.PeerReview) {
+            if (sourceStatus == AnnotationStatus.PeerReview) {
                 update["reviewerId"] = user.id;
-            } else if (sourceStatus == ReconstructionStatus.TeamReview) {
+            } else if (sourceStatus == AnnotationStatus.TeamReview) {
                 update["teamReviewerId"] = user.id;
             }
 
             const r = await locked.update(update, {transaction: t});
 
-            await r.recordEvent(EventLogItemKind.ReconstructionReject, update, user, t, substituteUser);
+            await r.recordEvent(EventLogItemKind.AnnotationReject, update, user, t, substituteUser);
 
             // Neither optional review touches the child.  AtlasReconstruction.reject unconditionally writes reviewerId,
             // and that field is the publish reviewer the DOI credits - neither a peer nor a team reviewer may overwrite
             // it.  Nothing is lost by skipping it: at either review the child is Initialized or ReadyToProcess, never a
             // failed phase, so there is no failure state to rewind.
-            if (sourceStatus != ReconstructionStatus.PeerReview && sourceStatus != ReconstructionStatus.TeamReview) {
+            if (sourceStatus != AnnotationStatus.PeerReview && sourceStatus != AnnotationStatus.TeamReview) {
                 await atlasReconstruction.reject(user, t);
             }
 
@@ -1091,40 +1075,40 @@ export class Reconstruction extends BaseModel {
         });
     }
 
-    public static async publish(userOrId: User, reconstructionId: string, replaceExisting: boolean = false): Promise<Reconstruction> {
-        const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(reconstructionId, userOrId, [{model: AtlasReconstruction}, {model: Neuron, as: "Neuron"}]);
+    public static async publish(userOrId: User, annotationId: string, replaceExisting: boolean = false): Promise<Annotation> {
+        const [annotation, user] = await Annotation.findAnnotationAndUser(annotationId, userOrId, [{model: AtlasReconstruction}, {model: Neuron, as: "Neuron"}]);
 
         if (!user?.canPublish()) {
             throw new UnauthorizedError();
         }
 
-        if (!reconstruction) {
+        if (!annotation) {
             throw new Error("The reconstruction could not be found");
         }
 
-        if (reconstruction.AtlasReconstruction.nodeCounts == null || reconstruction.status != ReconstructionStatus.ReadyToPublish) {
+        if (annotation.AtlasReconstruction.nodeCounts == null || annotation.status != AnnotationStatus.ReadyToPublish) {
             throw new Error("The reconstruction is not in a publishable state");
         }
 
         // Asserted, not assigned: the DOI assignment phase registers both DOIs before the child reaches
         // ReadyToPublish, so publish makes no DataCite call at all.
-        if (!reconstruction.AtlasReconstruction.doi || !reconstruction.Neuron?.canonicalDoi) {
+        if (!annotation.doi || !annotation.Neuron?.canonicalDoi) {
             throw new Error("The reconstruction has no DOI assigned");
         }
 
         return await this.sequelize.transaction(async (t) => {
-            return await reconstruction.publishWithTransaction(user, replaceExisting, t);
+            return await annotation.publishWithTransaction(user, replaceExisting, t);
         });
     }
 
-    private async publishWithTransaction(user: User, replaceExisting: boolean, t: Transaction): Promise<Reconstruction> {
+    private async publishWithTransaction(user: User, replaceExisting: boolean, t: Transaction): Promise<Annotation> {
         // Guard here (not just in publish) so bulk publishing can not push a reconstruction that is not ready into the publish path.
-        if (this.AtlasReconstruction?.nodeCounts == null || this.status != ReconstructionStatus.ReadyToPublish) {
+        if (this.AtlasReconstruction?.nodeCounts == null || this.status != AnnotationStatus.ReadyToPublish) {
             throw new PublishRefusalError("The reconstruction is not in a publishable state", 1008);
         }
 
         // Serializes concurrent publishes of the same neuron: without it two transactions each read no sibling and both
-        // proceed.  Follows openReconstruction's lock on the annotator and is released when the transaction ends.
+        // proceed.  Follows openAnnotation's lock on the annotator and is released when the transaction ends.
         const neuron = await Neuron.findByPk(this.neuronId, {transaction: t, lock: Transaction.LOCK.UPDATE});
 
         // Both instances were loaded before this transaction opened.  Reset, reject, discard and the uploads can all
@@ -1132,29 +1116,29 @@ export class Reconstruction extends BaseModel {
         // serializes against them.  findByPk rather than reload for the parent - reload re-applies the eager include
         // and Postgres refuses FOR UPDATE on the nullable side of an outer join.
         const atlasReconstruction = await AtlasReconstruction.findOne({
-            where: {reconstructionId: this.id},
+            where: {annotationId: this.id},
             lock: Transaction.LOCK.UPDATE,
             transaction: t
         });
 
-        const locked = await Reconstruction.findByPk(this.id, {transaction: t, lock: Transaction.LOCK.UPDATE});
+        const locked = await Annotation.findByPk(this.id, {transaction: t, lock: Transaction.LOCK.UPDATE});
 
-        if (!atlasReconstruction?.nodeCounts || locked.status != ReconstructionStatus.ReadyToPublish) {
+        if (!atlasReconstruction?.nodeCounts || locked.status != AnnotationStatus.ReadyToPublish) {
             throw new PublishRefusalError("The reconstruction is not in a publishable state", 1008);
         }
 
         // Asserted, not assigned: the DOI assignment phase registers both DOIs before the child reaches
-        // ReadyToPublish, so publish makes no DataCite call.  Read off the locked rows because Neuron is not
+        // ReadyToPublish, so publish makes no DataCite call.  Both are read off the locked rows because Neuron is not
         // eager-loaded on every path in - publishAll enters through this method directly.
         //
         // Deliberately not a PublishRefusalError.  The DOIs are registered before this status and a pipeline reset
         // keeps them, so a ReadyToPublish row without one is a broken row rather than a lost race, and publishAll
         // should surface it instead of stopping quietly and handing back a short list that reads as contention.
-        if (!atlasReconstruction.doi || !neuron?.canonicalDoi) {
+        if (!locked.doi || !neuron?.canonicalDoi) {
             throw new Error("The reconstruction has no DOI assigned");
         }
 
-        const siblings = await Reconstruction.findAll({
+        const siblings = await Annotation.findAll({
             where: {neuronId: this.neuronId, status: {[Op.in]: PublishedCandidateBlockingStatuses}},
             transaction: t
         });
@@ -1163,11 +1147,11 @@ export class Reconstruction extends BaseModel {
         // A reconstruction already in transition to published is not something a second publish may displace, and
         // replaceExisting does not apply to it.  PublishFailed is the same case stalled: its predecessor is already
         // archived and de-indexed, and requestSearchIndexing is what finishes it.
-        if (siblings.some(sibling => sibling.status == ReconstructionStatus.Publishing || sibling.status == ReconstructionStatus.PublishFailed)) {
+        if (siblings.some(sibling => sibling.status == AnnotationStatus.Publishing || sibling.status == AnnotationStatus.PublishFailed)) {
             throw new PublishRefusalError("A publish is already in progress for this neuron, or has stalled and is awaiting a retry.", 1003);
         }
 
-        const existingPublished = siblings.find(sibling => sibling.status == ReconstructionStatus.Published);
+        const existingPublished = siblings.find(sibling => sibling.status == AnnotationStatus.Published);
 
         if (existingPublished) {
             if (!replaceExisting) {
@@ -1181,27 +1165,27 @@ export class Reconstruction extends BaseModel {
             throw new PublishRefusalError("The associated atlas reconstruction is not in a publishable state", 1008);
         }
 
-        const update = {status: ReconstructionStatus.Publishing};
+        const update = {status: AnnotationStatus.Publishing};
 
         const updated = await locked.update(update, {transaction: t});
 
-        await updated.recordEvent(EventLogItemKind.ReconstructionPublishing, update, user, t);
+        await updated.recordEvent(EventLogItemKind.AnnotationPublishing, update, user, t);
 
         return updated;
     }
 
-    public static async publishAll(user: User, reconstructionIds: string[]): Promise<Reconstruction[]> {
+    public static async publishAll(user: User, annotationIds: string[]): Promise<Annotation[]> {
         if (!user?.canPublish()) {
             throw new UnauthorizedError();
         }
 
-        if (reconstructionIds.length > PublishAllLimit) {
+        if (annotationIds.length > PublishAllLimit) {
             throw new GraphQLError(`At most ${PublishAllLimit} reconstructions can be published in one request.`, {extensions: {code: 1007}});
         }
 
-        let reconstructions: Reconstruction[];
+        let annotations: Annotation[];
 
-        if (reconstructionIds.length == 1 && reconstructionIds[0] == "ALL") {
+        if (annotationIds.length == 1 && annotationIds[0] == "ALL") {
             // Oldest first so repeated calls walk the queue in a stable order rather than reshuffling the selection.
             // The id tie-break is required, not decorative: createdAt is written from JavaScript at millisecond
             // resolution, so rows created in one loop or one import tie, and Postgres leaves tied rows unordered - a
@@ -1217,12 +1201,12 @@ export class Reconstruction extends BaseModel {
             // the transaction is still refused there.
             const options: FindOptions = {
                 where: {
-                    status: ReconstructionStatus.ReadyToPublish,
+                    status: AnnotationStatus.ReadyToPublish,
                     [Op.and]: [literal(`NOT EXISTS (
             SELECT 1
-            FROM "${ReconstructionTableName}" AS sibling
-            WHERE sibling."neuronId" = "${ReconstructionTableName}"."neuronId"
-              AND sibling."id" != "${ReconstructionTableName}"."id"
+            FROM "${AnnotationTableName}" AS sibling
+            WHERE sibling."neuronId" = "${AnnotationTableName}"."neuronId"
+              AND sibling."id" != "${AnnotationTableName}"."id"
               AND sibling."deletedAt" IS NULL
               AND sibling."status" = ANY(ARRAY[:publishBlockingStatuses])
           )`)]
@@ -1234,12 +1218,12 @@ export class Reconstruction extends BaseModel {
 
             options["replacements"] = {publishBlockingStatuses: PublishedCandidateBlockingStatuses};
 
-            reconstructions = await this.findAll(options);
+            annotations = await this.findAll(options);
         } else {
-            reconstructions = await this.findAll({where: {id: {[Op.in]: reconstructionIds}}, include: [{model: AtlasReconstruction}]});
+            annotations = await this.findAll({where: {id: {[Op.in]: annotationIds}}, include: [{model: AtlasReconstruction}]});
         }
 
-        const updated: Reconstruction[] = [];
+        const updated: Annotation[] = [];
 
         // Publish each reconstruction in its own transaction so one failure does not roll back the others.
         //
@@ -1248,17 +1232,17 @@ export class Reconstruction extends BaseModel {
         // list against what it sent.  Anything else - a lock timeout, a failed commit, a defect - is not a refusal and
         // propagates, because reporting an outage as a short list invites the caller to retry into it forever.  What
         // committed before it stays committed either way.
-        for (const reconstruction of reconstructions) {
+        for (const annotation of annotations) {
             try {
                 updated.push(await this.sequelize.transaction(async (t) => {
-                    return await reconstruction.publishWithTransaction(user, false, t);
+                    return await annotation.publishWithTransaction(user, false, t);
                 }));
             } catch (error) {
                 if (!(error instanceof PublishRefusalError)) {
                     throw error;
                 }
 
-                debug(`publishAll stopped at ${reconstruction.id}: ${error.message}`);
+                debug(`publishAll stopped at ${annotation.id}: ${error.message}`);
 
                 break;
             }
@@ -1267,68 +1251,64 @@ export class Reconstruction extends BaseModel {
         return updated;
     }
 
-    public static async discardReconstruction(id: string, userOrId: User | string, substituteUser: User = null): Promise<Reconstruction> {
-        const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(id, userOrId, [{model: AtlasReconstruction}]);
+    public static async discardAnnotation(id: string, userOrId: User | string, substituteUser: User = null): Promise<Annotation> {
+        const [annotation, user] = await Annotation.findAnnotationAndUser(id, userOrId, [{model: AtlasReconstruction}]);
 
-        const eagerChildStatus = reconstruction.AtlasReconstruction?.status ?? null;
+        const eagerChildStatus = annotation.AtlasReconstruction?.status ?? null;
 
         // Status first, so an admin refused for a status reason gets the descriptive error rather than Unauthorized.
-        if (!Reconstruction.isDiscardable(reconstruction.status, eagerChildStatus)) {
-            throw new Error(`Cannot discard a reconstruction with status ${ReconstructionStatus[reconstruction.status]}.`);
+        if (!Annotation.isDiscardable(annotation.status, eagerChildStatus)) {
+            throw new Error(`Cannot discard a reconstruction with status ${AnnotationStatus[annotation.status]}.`);
         }
 
-        if (!user?.canDiscardReconstruction(reconstruction.annotatorId, reconstruction.status, eagerChildStatus)) {
+        if (!user?.canDiscardAnnotation(annotation.annotatorId, annotation.status, eagerChildStatus)) {
             throw new UnauthorizedError();
         }
 
-        return await Reconstruction.sequelize.transaction(async (t) => {
+        return await Annotation.sequelize.transaction(async (t) => {
             const atlasReconstruction = await AtlasReconstruction.findOne({
-                where: {reconstructionId: reconstruction.id},
+                where: {annotationId: annotation.id},
                 lock: Transaction.LOCK.UPDATE,
                 transaction: t
             });
 
-            const locked = await Reconstruction.findByPk(reconstruction.id, {transaction: t, lock: Transaction.LOCK.UPDATE});
+            const locked = await Annotation.findByPk(annotation.id, {transaction: t, lock: Transaction.LOCK.UPDATE});
 
             const childStatus = atlasReconstruction?.status ?? null;
 
             // Re-decided and re-authorized under the locks: a retry can have restarted a failed phase, and a
             // requestReview can have moved the parent to a status only an admin may discard from.
-            if (!Reconstruction.isDiscardable(locked.status, childStatus)) {
-                throw new Error(`Cannot discard a reconstruction with status ${ReconstructionStatus[locked.status]}.`);
+            if (!Annotation.isDiscardable(locked.status, childStatus)) {
+                throw new Error(`Cannot discard a reconstruction with status ${AnnotationStatus[locked.status]}.`);
             }
 
-            if (!user.canDiscardReconstruction(locked.annotatorId, locked.status, childStatus)) {
+            if (!user.canDiscardAnnotation(locked.annotatorId, locked.status, childStatus)) {
                 throw new UnauthorizedError();
             }
 
-            await AtlasReconstruction.discardForReconstruction(user, reconstruction.id, t);
+            await AtlasReconstruction.discardForAnnotation(user, annotation.id, t);
 
-            await SpecimenNode.destroy({
-                where: {
-                    reconstructionId: reconstruction.id
-                }, transaction: t
-            });
+            await SpecimenSpaceReconstruction.discardForAnnotation(annotation.id, t);
 
-            const update = {status: ReconstructionStatus.Discarded};
+            const update = {status: AnnotationStatus.Discarded};
 
             await locked.update(update, {transaction: t});
 
             await locked.destroy({transaction: t});
 
-            await locked.recordEvent(EventLogItemKind.ReconstructionDiscard, update, user, t, substituteUser);
+            await locked.recordEvent(EventLogItemKind.AnnotationDiscard, update, user, t, substituteUser);
 
             return locked;
         });
     }
 
-    public static async markUntraceable(id: string, userOrId: User | string, substituteUser: User = null, disregardAuth: boolean = false): Promise<Reconstruction> {
-        const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(id, userOrId);
+    public static async markUntraceable(id: string, userOrId: User | string, substituteUser: User = null, disregardAuth: boolean = false): Promise<Annotation> {
+        const [annotation, user] = await Annotation.findAnnotationAndUser(id, userOrId);
 
         // disregardAuth is for the import tools, which reconcile against an external source of truth and mark
         // reconstructions untraceable on behalf of annotators who hold no portal permission.
         if (!disregardAuth) {
-            if (!user?.canMarkReconstructionUntraceable(reconstruction.annotatorId)) {
+            if (!user?.canMarkAnnotationUntraceable(annotation.annotatorId)) {
                 throw new UnauthorizedError();
             }
         }
@@ -1336,31 +1316,27 @@ export class Reconstruction extends BaseModel {
         // Unconditional: disregardAuth buys the import tools out of the permission, never out of the state rule.  This
         // is the transition that costs most if it fires at the wrong status - the teardown below destroys the quality
         // control row, the atlas nodes, the child and the specimen nodes, and neither node table is paranoid.
-        if (!UntraceableSourceStatuses.includes(reconstruction.status)) {
-            throw new Error(`Cannot mark a reconstruction with status ${ReconstructionStatus[reconstruction.status]} as untraceable.`);
+        if (!UntraceableSourceStatuses.includes(annotation.status)) {
+            throw new Error(`Cannot mark a reconstruction with status ${AnnotationStatus[annotation.status]} as untraceable.`);
         }
 
         // Torn down exactly as a discard is: the row and everything downstream of it soft-delete, so the attempt drops
         // out of every ordinary query.  Neuron.untraceableByNeuron is the sole reader that needs it back and overrides
         // paranoid to find it.
-        return await Reconstruction.sequelize.transaction(async (t) => {
-            await AtlasReconstruction.discardForReconstruction(user, reconstruction.id, t);
+        return await Annotation.sequelize.transaction(async (t) => {
+            await AtlasReconstruction.discardForAnnotation(user, annotation.id, t);
 
-            await SpecimenNode.destroy({
-                where: {
-                    reconstructionId: reconstruction.id
-                }, transaction: t
-            });
+            await SpecimenSpaceReconstruction.discardForAnnotation(annotation.id, t);
 
-            const update = {status: ReconstructionStatus.Untraceable};
+            const update = {status: AnnotationStatus.Untraceable};
 
-            await reconstruction.update(update, {transaction: t});
+            await annotation.update(update, {transaction: t});
 
-            await reconstruction.destroy({transaction: t});
+            await annotation.destroy({transaction: t});
 
-            await reconstruction.recordEvent(EventLogItemKind.ReconstructionUntraceable, update, user, t, substituteUser);
+            await annotation.recordEvent(EventLogItemKind.AnnotationUntraceable, update, user, t, substituteUser);
 
-            return reconstruction;
+            return annotation;
         });
     }
 
@@ -1372,168 +1348,62 @@ export class Reconstruction extends BaseModel {
         return null;
     }
 
-    public static async fromSwcUpload(userOrId: User | string, args: ReconstructionUploadArgs): Promise<Reconstruction> {
-        await Reconstruction.validateUploadArgs(args);
+    public static async fromSwcUpload(userOrId: User | string, args: ReconstructionUploadArgs): Promise<Annotation> {
+        await Annotation.validateUploadArgs(args);
 
-        const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(args.reconstructionId, userOrId);
+        const [annotation, user] = await Annotation.findAnnotationAndUser(args.annotationId, userOrId);
 
-        assertUploadAllowed(user, args.reconstructionSpace, reconstruction.status);
+        assertUploadAllowed(user, args.reconstructionSpace, annotation.status, annotation.annotatorId);
 
         const file: any = await args.file;
 
         const reconstructionData = await parseSwcFile(file.filename, file.createReadStream());
 
-        await reconstruction.fromParsedStructures(user, args.reconstructionSpace, reconstructionData);
+        await annotation.fromParsedStructures(user, args.reconstructionSpace, reconstructionData);
 
-        return await Reconstruction.findByPk(args.reconstructionId);
+        return await Annotation.findByPk(args.annotationId);
     }
 
-    public static async fromSwcFile(userOrId: User | string, reconstructionId: string, sourceFile: string, space: ReconstructionSpace, substituteUser: User): Promise<void> {
-        const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(reconstructionId, userOrId);
+    public static async fromSwcFile(userOrId: User | string, annotationId: string, sourceFile: string, space: ReconstructionSpace, substituteUser: User): Promise<void> {
+        const [annotation, user] = await Annotation.findAnnotationAndUser(annotationId, userOrId);
 
         const reconstructionData = await parseSwcFile(sourceFile, fs.createReadStream(sourceFile));
 
         // The import's uploader is an imported proofreader who by design holds no portal review permissions; the status
         // check inside still applies to it.
-        await reconstruction.fromParsedStructures(user, space, reconstructionData, substituteUser, true);
+        await annotation.fromParsedStructures(user, space, reconstructionData, substituteUser, true);
     }
 
-    public static async fromParquetUpload(userOrId: User | string, args: ReconstructionUploadArgs): Promise<Reconstruction> {
+    public static async fromParquetUpload(userOrId: User | string, args: ReconstructionUploadArgs): Promise<Annotation> {
         if (!args.file) {
             throw new UploadError("The Parquet file is missing.");
         }
 
-        const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(args.reconstructionId, userOrId);
+        const [annotation, user] = await Annotation.findAnnotationAndUser(args.annotationId, userOrId);
 
-        assertUploadAllowed(user, args.reconstructionSpace, reconstruction.status);
+        assertUploadAllowed(user, args.reconstructionSpace, annotation.status, annotation.annotatorId);
 
         const file: any = await args.file;
 
         const reconstructionData = await parseParquetUpload(file.filename, file.createReadStream());
 
-        await reconstruction.fromParsedStructures(user, args.reconstructionSpace, reconstructionData);
+        await annotation.fromParsedStructures(user, args.reconstructionSpace, reconstructionData);
 
-        return await Reconstruction.findByPk(args.reconstructionId);
+        return await Annotation.findByPk(args.annotationId);
     }
 
-    public static async fromParquetFile(userOrId: User | string, reconstructionId: string, sourceFile: string, space: ReconstructionSpace, substituteUser: User): Promise<void> {
-        const [reconstruction, user] = await Reconstruction.findReconstructionAndUser(reconstructionId, userOrId);
+    public static async fromParquetFile(userOrId: User | string, annotationId: string, sourceFile: string, space: ReconstructionSpace, substituteUser: User): Promise<void> {
+        const [annotation, user] = await Annotation.findAnnotationAndUser(annotationId, userOrId);
 
         const reconstructionData = await parseParquetFile(sourceFile, sourceFile);
 
         // See fromSwcFile: the import's uploader holds no portal review permissions.
-        await reconstruction.fromParsedStructures(user, space, reconstructionData, substituteUser, true);
-    }
-
-    public static async toPortalFormat(user: User, idOrAtlasId: string): Promise<PortalReconstruction> {
-        if (!user?.canRequestReconstructionData()) {
-            throw new UnauthorizedError();
-        }
-
-        const includes: any[] = [{
-            model: User,
-            as: "Annotator"
-        }, {
-            model: User,
-            as: "Reviewer"
-        }, {
-            model: User,
-            as: "TeamReviewer"
-        }, {
-            model: Neuron,
-            as: "Neuron",
-            include: [{
-                model: Specimen,
-                as: "Specimen",
-                include: [{
-                    model: Injection,
-                    include: [{
-                        model: InjectionVirus,
-                    }, {
-                        model: Fluorophore,
-                    }]
-                }, {
-                    model: Genotype,
-                }, {
-                    model: Collection,
-                }]
-            }]
-        }];
-
-        // Assume it is direct reference.
-        let reconstruction = await this.findByPk(idOrAtlasId, {
-            include: includes.length > 0 ? includes : undefined
-        });
-
-        if (!reconstruction) {
-            // Some context, such as the current Export service, only have access to the associated Atlas reconstruction id.  Allow it to be a fallback.
-            const atlas = await AtlasReconstruction.findByPk(idOrAtlasId);
-
-            if (!atlas) {
-                return null;
-            }
-
-            debug(`toPortalFormat found atlas reconstruction ${idOrAtlasId}`);
-
-            reconstruction = await this.findByPk(atlas.reconstructionId, {
-                include: includes.length > 0 ? includes : undefined
-            });
-        } else {
-            debug(`toPortalFormat found reconstruction ${idOrAtlasId}`);
-        }
-
-        if (!reconstruction) {
-            debug(`toPortalFormat ${idOrAtlasId} not found as specimen or atlas reconstruction`);
-            return null;
-        }
-
-        const nodes = await this.serializeNodes(user, reconstruction.id);
-
-        return {
-            id: reconstruction.id,
-            annotationSpace: PortalAnnotationSpace.Specimen,
-            doi: null,
-            publishedAt: reconstruction.publishedAt ?? null,
-            neuron: reconstruction.Neuron.toPortalFormat(),
-            annotator: reconstruction.Annotator?.toPortalFormat() ?? null,
-            peerReviewer: reconstruction.Reviewer?.toPortalFormat() ?? null,
-            teamReviewer: reconstruction.TeamReviewer?.toPortalFormat() ?? null,
-            proofreader: null,
-            nodes: nodes
-        }
-    }
-
-    public static async serializeNodes(user: User, reconstructionId: string): Promise<PortalNode[]> {
-        if (!user?.canRequestReconstructionData()) {
-            throw new UnauthorizedError();
-        }
-
-        const options: FindOptions = {
-            where: {reconstructionId: reconstructionId},
-            include: [{
-                model: NodeStructure,
-            }],
-            order: [["index", "ASC"]]
-        };
-
-        const nodes = await SpecimenNode.findAll(options);
-
-        return nodes.map(n => {
-            return {
-                index: n.index,
-                structure: NeuronStructure.swcStructureValue(n.neuronStructureId),
-                x: n.x,
-                y: n.y,
-                z: n.z,
-                radius: n.radius,
-                parentIndex: n.parentIndex,
-            }
-        });
+        await annotation.fromParsedStructures(user, space, reconstructionData, substituteUser, true);
     }
 
     private async archivePublished(user: User, t: Transaction): Promise<void> {
         const shape = {
-            status: ReconstructionStatus.Archived,
+            status: AnnotationStatus.Archived,
             archivedAt: new Date(),
         };
 
@@ -1549,62 +1419,28 @@ export class Reconstruction extends BaseModel {
             });
         }
 
-        await this.recordEvent(EventLogItemKind.ReconstructionArchive, shape, user, t);
+        await this.recordEvent(EventLogItemKind.AnnotationArchive, shape, user, t);
     }
 
     /*
-     * Copies the specimen-space properties from the source reconstruction to this reconstruction instance.  This is primarily for creating revisions to
+     * Copies the specimen-space properties from the source annotation to this annotation instance.  This is primarily for creating revisions to
      * neuron reconstructions that will only change the atlas-space reconstruction information and saves the user the step of re-uploading or applying
      * specimen-space metadata and reconstruction data.
      */
-    private async copyFrom(source: Reconstruction, user: User, t: Transaction): Promise<void> {
-        const nodes = await SpecimenNode.findAll({
-            where: {
-                reconstructionId: source.id
-            },
-            transaction: t
-        });
+    private async copyFrom(source: Annotation, user: User, t: Transaction): Promise<void> {
+        await this.update({status: AnnotationStatus.InProgress, notes: source.notes, durationHours: source.durationHours}, {transaction: t});
 
-        const chunkSize = AtlasReconstruction.PreferredDatabaseChunkSize;
+        const sourceData = await SpecimenSpaceReconstruction.findOne({where: {annotationId: source.id}, transaction: t});
+        const revisionData = await SpecimenSpaceReconstruction.findOne({where: {annotationId: this.id}, transaction: t});
 
-        for (let idx = 0; idx < nodes.length; idx += chunkSize) {
-            const nodeData = nodes.slice(idx, idx + chunkSize).map(n => {
-                const obj = n.toJSON();
-                obj.id = undefined;
-                obj.reconstructionId = this.id;
-                return obj;
-            });
-
-            await SpecimenNode.bulkCreate(nodeData, {transaction: t});
+        if (!sourceData || !revisionData) {
+            throw new Error(`Specimen-space reconstruction for ${sourceData ? this.id : source.id} not found.`);
         }
 
-        const soma = await SpecimenNode.findOne({
-            where: {
-                reconstructionId: this.id,
-                index: 1
-            },
-            transaction: t
-        });
-
-        const shape = {
-            status: ReconstructionStatus.InProgress,
-            sourceUrl: source.sourceUrl,
-            sourceComments: source.sourceComments,
-            notes: source.notes,
-            durationHours: source.durationHours,
-            specimenLengthMillimeters: source.specimenLengthMillimeters,
-            specimenNodeCounts: source.specimenNodeCounts,
-            specimenSomaNodeId: soma?.id
-        };
-
-        await this.update(shape, {transaction: t});
-
-        const precomputed = await SpecimenSpacePrecomputed.createForReconstruction(user, this.id, t);
-
-        await precomputed.requestGeneration(user, t);
+        await revisionData.copyFrom(sourceData, user, t);
     }
 
-    private async fromParsedStructures(user: User, space: ReconstructionSpace, reconstructionData: SimpleReconstruction, substituteUser: User = null, disregardAuth: boolean = false): Promise<Reconstruction> {
+    private async fromParsedStructures(user: User, space: ReconstructionSpace, reconstructionData: SimpleReconstruction, substituteUser: User = null, disregardAuth: boolean = false): Promise<void> {
         // TODO allow for soma in axon or dendrite.  replaceNodes in both reconstruction types would need to be updated.
         const soma = reconstructionData.axon.soma ?? reconstructionData.dendrite.soma;
 
@@ -1618,24 +1454,31 @@ export class Reconstruction extends BaseModel {
         return await this.sequelize.transaction(async (t) => {
             if (space == ReconstructionSpace.Specimen) {
                 // Parent only: this branch does not touch the child or the neuron, so it cannot be part of a lock cycle.
-                const locked = await Reconstruction.findByPk(this.id, {transaction: t, lock: Transaction.LOCK.UPDATE});
+                const locked = await Annotation.findByPk(this.id, {transaction: t, lock: Transaction.LOCK.UPDATE});
 
                 // Re-checked under the lock.  The caller's check ran before the file was parsed, which is the slow
                 // part - an approval can easily have committed in between, and both the status and who is allowed to
                 // write at that status change with it.
-                assertUploadAllowed(user, space, locked.status, disregardAuth);
+                assertUploadAllowed(user, space, locked.status, locked.annotatorId, disregardAuth);
 
-                const updated = await locked.replaceNodeData(user, reconstructionData, t);
+                // No lock of its own: every write to this row holds the annotation's lock, taken above.
+                const specimenSpaceReconstruction = await SpecimenSpaceReconstruction.findOne({where: {annotationId: this.id}, transaction: t});
 
-                let precomputed = await SpecimenSpacePrecomputed.findOne({where: {reconstructionId: this.id}, transaction: t});
+                if (!specimenSpaceReconstruction) {
+                    throw new UploadError(`Specimen-space reconstruction for ${this.id} not found.`);
+                }
+
+                await specimenSpaceReconstruction.replaceNodeData(user, reconstructionData, t);
+
+                let precomputed = await SpecimenSpacePrecomputed.findOne({where: {reconstructionId: specimenSpaceReconstruction.id}, transaction: t});
 
                 if (!precomputed) {
-                    precomputed = await SpecimenSpacePrecomputed.createForReconstruction(user, this.id, t);
+                    precomputed = await SpecimenSpacePrecomputed.createForReconstruction(user, specimenSpaceReconstruction.id, t);
                 }
 
                 await precomputed.requestGeneration(user, t);
 
-                return updated;
+                return;
             }
 
             // Neuron, then child, then parent - publish's order.  The atlas-soma back-fill below updates this row, so
@@ -1645,7 +1488,7 @@ export class Reconstruction extends BaseModel {
             const neuron = await Neuron.findByPk(this.neuronId, {transaction: t, lock: Transaction.LOCK.UPDATE});
 
             const atlasReconstruction = await AtlasReconstruction.findOne({
-                where: {reconstructionId: this.id},
+                where: {annotationId: this.id},
                 lock: Transaction.LOCK.UPDATE,
                 transaction: t
             });
@@ -1654,12 +1497,12 @@ export class Reconstruction extends BaseModel {
                 throw new UploadError(`Atlas reconstruction for ${this.id} not found.`)
             }
 
-            const locked = await Reconstruction.findByPk(this.id, {transaction: t, lock: Transaction.LOCK.UPDATE});
+            const locked = await Annotation.findByPk(this.id, {transaction: t, lock: Transaction.LOCK.UPDATE});
 
             // Approved is gone as a source: the approval now requires the data, so an upload arriving after one has
             // committed is a lost race, not a deferred step, and replaceNodeData would otherwise rewind the child out
             // of the pipeline and strand the parent at WaitingForAtlasReconstruction.
-            assertUploadAllowed(user, space, locked.status, disregardAuth);
+            assertUploadAllowed(user, space, locked.status, locked.annotatorId, disregardAuth);
 
             // The upload's integer structure ids name no atlas of their own; they are read in the specimen's.
             const atlasId = await Specimen.findAtlasId(neuron.specimenId, t);
@@ -1680,61 +1523,15 @@ export class Reconstruction extends BaseModel {
             }
         });
     }
-
-    private async replaceNodeData(user: User, reconstructionData: SimpleReconstruction, t: Transaction): Promise<Reconstruction> {
-        try {
-            await this.update({specimenSomaNodeId: null}, {transaction: t});
-
-            await SpecimenNode.destroy({
-                where: {reconstructionId: this.id},
-                transaction: t
-            });
-
-            for (const s of [reconstructionData.axon, reconstructionData.dendrite]) {
-                const nodeData: SpecimenNodeShape[] = s.getNonSomaNodes().map(node => mapToSpecimenNodeShape(node, s.NeuronStructureId, this.id));
-
-                const chunkSize = AtlasReconstruction.PreferredDatabaseChunkSize;
-
-                for (let idx = 0; idx < nodeData.length; idx += chunkSize) {
-                    await SpecimenNode.bulkCreate(nodeData.slice(idx, idx + chunkSize), {transaction: t});
-                }
-            }
-
-            const somaShape = mapToSpecimenNodeShape(reconstructionData.axon.soma, NeuronStructure.SomaNeuronStructureId, this.id);
-
-            const soma = await SpecimenNode.create(somaShape, {transaction: t});
-
-            const updated = await this.update({
-                sourceUrl: reconstructionData.source,
-                sourceComments: reconstructionData.comments,
-                specimenNodeCounts: {axon: reconstructionData.axon.nodeCounts, dendrite: reconstructionData.dendrite.nodeCounts},
-                specimenSomaNodeId: soma?.id
-            }, {transaction: t});
-
-            await this.recordEvent(EventLogItemKind.ReconstructionUpload, null, user, t);
-
-            return updated;
-        } catch (err) {
-            throw err;
-        }
-    }
 }
 
 // noinspection JSUnusedGlobalSymbols
 export const modelInit = (sequelize: Sequelize) => {
-    return Reconstruction.init({
+    return Annotation.init({
         id: {
             primaryKey: true,
             type: DataTypes.UUID,
             defaultValue: Sequelize.literal("uuidv7()")
-        },
-        sourceUrl: {
-            type: DataTypes.TEXT,
-            defaultValue: ""
-        },
-        sourceComments: {
-            type: DataTypes.TEXT,
-            defaultValue: ""
         },
         status: {
             type: DataTypes.INTEGER,
@@ -1748,23 +1545,19 @@ export const modelInit = (sequelize: Sequelize) => {
             type: DataTypes.DOUBLE,
             defaultValue: null
         },
-        specimenLengthMillimeters: {
-            type: DataTypes.DOUBLE,
-            defaultValue: null
-        },
-        specimenNodeCounts: {
-            type: DataTypes.JSONB,
-            defaultValue: null
-        },
         startedAt: DataTypes.DATE,
         completedAt: DataTypes.DATE,
         reviewedAt: DataTypes.DATE,
         teamReviewedAt: DataTypes.DATE,
         approvedAt: DataTypes.DATE,
         publishedAt: DataTypes.DATE,
-        archivedAt: DataTypes.DATE
+        archivedAt: DataTypes.DATE,
+        doi: {
+            type: DataTypes.TEXT,
+            defaultValue: ""
+        }
     }, {
-        tableName: ReconstructionTableName,
+        tableName: AnnotationTableName,
         timestamps: true,
         paranoid: true,
         sequelize
@@ -1773,12 +1566,10 @@ export const modelInit = (sequelize: Sequelize) => {
 
 // noinspection JSUnusedGlobalSymbols
 export const modelAssociate = () => {
-    Reconstruction.belongsTo(Neuron, {foreignKey: "neuronId"});
-    Reconstruction.belongsTo(User, {foreignKey: "annotatorId", as: "Annotator"});
-    Reconstruction.belongsTo(User, {foreignKey: "reviewerId", as: "Reviewer"});
-    Reconstruction.belongsTo(User, {foreignKey: "teamReviewerId", as: "TeamReviewer"});
-    Reconstruction.belongsTo(SpecimenNode, {foreignKey: "specimenSomaNodeId", as: "Soma"});
-    Reconstruction.hasMany(SpecimenNode, {foreignKey: "reconstructionId"});
-    Reconstruction.hasOne(SpecimenSpacePrecomputed, {foreignKey: "reconstructionId", as: "Precomputed"});
-    Reconstruction.hasOne(AtlasReconstruction, {foreignKey: "reconstructionId"});
+    Annotation.belongsTo(Neuron, {foreignKey: "neuronId"});
+    Annotation.belongsTo(User, {foreignKey: "annotatorId", as: "Annotator"});
+    Annotation.belongsTo(User, {foreignKey: "reviewerId", as: "Reviewer"});
+    Annotation.belongsTo(User, {foreignKey: "teamReviewerId", as: "TeamReviewer"});
+    Annotation.hasOne(SpecimenSpaceReconstruction, {foreignKey: "annotationId"});
+    Annotation.hasOne(AtlasReconstruction, {foreignKey: {name: "annotationId", allowNull: false}});
 };

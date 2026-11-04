@@ -26,7 +26,10 @@ export const SpecimenTableName = "Specimen";
 export const NeuronTableName = "Neuron";
 
 // Reconstruction and derived entities
+// The table before it was split into Annotation and SpecimenSpaceReconstruction; only migrations use it.
 export const ReconstructionTableName = "Reconstruction";
+export const AnnotationTableName = "Annotation";
+export const SpecimenSpaceReconstructionTableName = "SpecimenSpaceReconstruction";
 export const SpecimenNodeTableName = "SpecimenNode";
 export const AtlasNodeTableName = "AtlasNode";
 export const AtlasReconstructionTableName = "AtlasReconstruction";

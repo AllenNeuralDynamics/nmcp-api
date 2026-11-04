@@ -5,6 +5,7 @@ import {expect, test, vi, describe, afterEach} from "vitest";
 const {Transaction} = require("sequelize");
 const {User, UserPermissions} = require("../src/models/user");
 const {Neuron} = require("../src/models/neuron");
+const {Annotation} = require("../src/models/annotation");
 const {AtlasReconstruction} = require("../src/models/atlasReconstruction");
 const {AtlasReconstructionStatus} = require("../src/models/atlasReconstructionStatus");
 const {PrecomputedStatus} = require("../src/models/precomputed");
@@ -126,8 +127,9 @@ function fixture(options: FixtureOptions = {}) {
     // mint the canonical.
     const lockNeuron = vi.spyOn(Neuron, "findByPk").mockResolvedValue(neuron);
 
-    const parent = {
-        id: "reconstruction-1",
+    // The reconstruction DOI is the annotation's, so T2 writes it through the parent's update.
+    const parent = prototypeStub(Annotation, {
+        id: "annotation-1",
         neuronId: "neuron-1",
         reviewerId: options.peerReviewer ? "peer-reviewer-1" : null,
         teamReviewerId: options.teamReviewer ? "team-reviewer-1" : null,
@@ -135,18 +137,18 @@ function fixture(options: FixtureOptions = {}) {
         TeamReviewer: options.teamReviewer ?? null,
         Neuron: neuron,
         Annotator: {DisplayName: "Ann Otator", isSystemUser: false},
+        doi: options.doi ?? null,
         onAtlasReconstructionStatusChanged: vi.fn().mockResolvedValue(undefined)
-    };
+    });
 
     const child = prototypeStub(AtlasReconstruction, {
         id: "atlas-1",
-        reconstructionId: "reconstruction-1",
+        annotationId: "annotation-1",
         reviewerId: options.proofreader ? "proofreader-1" : null,
         Reviewer: options.proofreader ?? null,
-        doi: options.doi ?? null,
         status: options.status ?? AtlasReconstructionStatus.PendingDoiAssignment,
-        Reconstruction: parent,
-        getReconstruction: vi.fn().mockResolvedValue(parent)
+        Annotation: parent,
+        getAnnotation: vi.fn().mockResolvedValue(parent)
     });
 
     // Keyed on the payload rather than call order, so a test can run the phase more than once against one set of
@@ -193,7 +195,7 @@ describe("assignDois registration", () => {
         expect(createdAttributes(stubs.createDoi, 1).event).toBe("publish");
 
         expect(stubs.neuron.canonicalDoi).toBe(canonicalDoi);
-        expect(stubs.child.doi).toBe(reconstructionDoi);
+        expect(stubs.parent.doi).toBe(reconstructionDoi);
 
         expect(DataCiteService.promoteDoi).toBeUndefined();
         expect(stubs.updateDoi).toHaveBeenCalledWith(canonicalDoi, [hasVersion(reconstructionDoi)]);
@@ -201,6 +203,17 @@ describe("assignDois registration", () => {
         expect(stubs.child.status).toBe(AtlasReconstructionStatus.ReadyToPublish);
         expect(stubs.parent.onAtlasReconstructionStatusChanged)
             .toHaveBeenCalledWith(systemUser, AtlasReconstructionStatus.ReadyToPublish, transaction);
+    });
+
+    test("records the DOI against the parent annotation", async () => {
+        const stubs = fixture();
+
+        await stubs.child.assignDois(systemUser);
+
+        const assigned = (EventLogItem.create as any).mock.calls.map((call: any[]) => call[0])
+            .find((event: any) => event.kind === EventLogItemKind.AnnotationAssignDoi);
+
+        expect(assigned).toMatchObject({targetId: "annotation-1", parentId: "neuron-1", details: {doi: reconstructionDoi}});
     });
 
     test("the reconstruction payload describes this reconstruction and points at the canonical", async () => {
@@ -217,8 +230,8 @@ describe("assignDois registration", () => {
             {relatedIdentifierType: "DOI", relationType: "IsVersionOf", relatedIdentifier: canonicalDoi, resourceTypeGeneral: "Dataset"}
         ]);
 
-        // The parent reconstruction id, not the child's.
-        expect(attributes.url).toContain("neuron/neuron-1/reconstruction-1");
+        // The parent annotation id, not the child's.
+        expect(attributes.url).toContain("neuron/neuron-1/annotation-1");
     });
 
     test("the publication year comes from the child's precomputed completion, not the current year", async () => {
@@ -282,6 +295,30 @@ describe("assignDois registration", () => {
         expect(stubs.createDoi).not.toHaveBeenCalled();
         expect(stubs.updateDoi).not.toHaveBeenCalled();
         expect(stubs.child.update).not.toHaveBeenCalled();
+        expect(stubs.parent.update).not.toHaveBeenCalled();
+    });
+
+    test("T2 writes the DOI to the annotation and nothing DOI-related to the atlas row", async () => {
+        const stubs = fixture({canonicalDoi: canonicalDoi});
+
+        await stubs.child.assignDois(systemUser);
+
+        expect(stubs.parent.update).toHaveBeenCalledWith({doi: reconstructionDoi}, {transaction: transaction});
+
+        for (const call of stubs.child.update.mock.calls) {
+            expect(call[0]).not.toHaveProperty("doi");
+        }
+    });
+
+    test("the completion event carries the annotation's DOI", async () => {
+        const stubs = fixture();
+
+        await stubs.child.assignDois(systemUser);
+
+        const complete = (EventLogItem.create as any).mock.calls.map((call: any[]) => call[0])
+            .find((event: any) => event.kind === EventLogItemKind.AtlasReconstructionDoiAssignmentComplete);
+
+        expect(complete.details).toEqual({doi: reconstructionDoi, canonicalDoi: canonicalDoi});
     });
 });
 
@@ -422,7 +459,7 @@ describe("assignDois service outcomes", () => {
         expect(await stubs.child.assignDois(systemUser)).toBe(PhaseOutcome.ServiceUnavailable);
 
         expect(stubs.neuron.canonicalDoi).toBeNull();
-        expect(stubs.child.doi).toBeNull();
+        expect(stubs.parent.doi).toBeNull();
         expect(stubs.child.status).toBe(AtlasReconstructionStatus.PendingDoiAssignment);
     });
 
@@ -436,7 +473,7 @@ describe("assignDois service outcomes", () => {
         expect(await stubs.child.assignDois(systemUser)).toBe(PhaseOutcome.ServiceUnavailable);
 
         expect(stubs.neuron.canonicalDoi).toBe(canonicalDoi);
-        expect(stubs.child.doi).toBeNull();
+        expect(stubs.parent.doi).toBeNull();
         expect(stubs.child.status).toBe(AtlasReconstructionStatus.PendingDoiAssignment);
         expect(stubs.updateDoi).not.toHaveBeenCalled();
     });
@@ -568,23 +605,24 @@ describe("assignDois failure at a remote/local boundary", () => {
     test("T2 definitely rolled back: the retry creates a fresh reconstruction DOI", async () => {
         const stubs = fixture({canonicalDoi: canonicalDoi});
 
-        // The instance update is what T2 writes the new DOI through, and what recordPhaseFailure would use to record
-        // the failure - so the failure write fails too, and the phase throws for the worker to release.
-        stubs.child.update = vi.fn().mockRejectedValue(new Error("write failed"));
+        // T2 writes the new DOI through the annotation; the failure is recorded on the child, which still succeeds.
+        stubs.parent.update = vi.fn().mockRejectedValue(new Error("write failed"));
 
-        await expect(stubs.child.assignDois(systemUser)).rejects.toThrow("write failed");
+        expect(await stubs.child.assignDois(systemUser)).toBe(PhaseOutcome.Handled);
+        expect(stubs.child.status).toBe(AtlasReconstructionStatus.FailedDoiAssignment);
 
-        expect(stubs.child.doi).toBeNull();
+        expect(stubs.parent.doi).toBeNull();
         expect(stubs.updateDoi).not.toHaveBeenCalled();
 
         nextPass();
-        stubs.child.update = updateMock(stubs.child);
+        stubs.parent.update = updateMock(stubs.parent);
+        stubs.child.status = AtlasReconstructionStatus.PendingDoiAssignment;
         stubs.reserved.reconstruction = "10.x/second-create";
 
         expect(await stubs.child.assignDois(systemUser)).toBe(PhaseOutcome.Handled);
 
         expect(stubs.createDoi).toHaveBeenCalledTimes(1);
-        expect(stubs.child.doi).toBe("10.x/second-create");
+        expect(stubs.parent.doi).toBe("10.x/second-create");
         expect(stubs.updateDoi).toHaveBeenCalledWith(canonicalDoi, [hasVersion("10.x/second-create")]);
     });
 
@@ -595,7 +633,7 @@ describe("assignDois failure at a remote/local boundary", () => {
         expect(await stubs.child.assignDois(systemUser)).toBe(PhaseOutcome.Handled);
         expect(stubs.child.status).toBe(AtlasReconstructionStatus.FailedDoiAssignment);
 
-        expect(stubs.child.doi).toBe(reconstructionDoi);
+        expect(stubs.parent.doi).toBe(reconstructionDoi);
         expect(stubs.updateDoi).not.toHaveBeenCalled();
 
         nextPass();
@@ -617,7 +655,7 @@ describe("assignDois failure at a remote/local boundary", () => {
 
         expect(await stubs.child.assignDois(systemUser)).toBe(PhaseOutcome.ServiceUnavailable);
 
-        expect(stubs.child.doi).toBeNull();
+        expect(stubs.parent.doi).toBeNull();
         expect(stubs.updateDoi).not.toHaveBeenCalled();
 
         nextPass();
@@ -626,7 +664,7 @@ describe("assignDois failure at a remote/local boundary", () => {
         expect(await stubs.child.assignDois(systemUser)).toBe(PhaseOutcome.Handled);
 
         // Only ever the recorded identifier: the stranded one is never cross-referenced, so nothing cites it.
-        expect(stubs.child.doi).toBe("10.x/fresh-create");
+        expect(stubs.parent.doi).toBe("10.x/fresh-create");
         expect(stubs.updateDoi).toHaveBeenCalledWith(canonicalDoi, [hasVersion("10.x/fresh-create")]);
     });
 });
@@ -662,7 +700,7 @@ describe("requestDoiAssignment", () => {
 
         const child = status === null ? null : prototypeStub(AtlasReconstruction, {
             id: "atlas-1",
-            reconstructionId: "reconstruction-1",
+            annotationId: "annotation-1",
             status: status
         });
 
@@ -672,21 +710,21 @@ describe("requestDoiAssignment", () => {
     test("refuses a user without the reconstruction-modify permission", async () => {
         requestable(AtlasReconstructionStatus.FailedDoiAssignment);
 
-        await expect(AtlasReconstruction.requestDoiAssignment(userWith(UserPermissions.AnnotateOne), "reconstruction-1"))
+        await expect(AtlasReconstruction.requestDoiAssignment(userWith(UserPermissions.AnnotateOne), "annotation-1"))
             .rejects.toBeInstanceOf(UnauthorizedError);
     });
 
     test("refuses when there is no atlas reconstruction", async () => {
         requestable(null);
 
-        await expect(AtlasReconstruction.requestDoiAssignment(userWith(UserPermissions.PublishReview), "reconstruction-1"))
+        await expect(AtlasReconstruction.requestDoiAssignment(userWith(UserPermissions.PublishReview), "annotation-1"))
             .rejects.toThrow("No atlas reconstruction found for this reconstruction");
     });
 
     test("resets a failed child and records the request", async () => {
         const stubs = requestable(AtlasReconstructionStatus.FailedDoiAssignment);
 
-        const child = await AtlasReconstruction.requestDoiAssignment(userWith(UserPermissions.PublishReview), "reconstruction-1");
+        const child = await AtlasReconstruction.requestDoiAssignment(userWith(UserPermissions.PublishReview), "annotation-1");
 
         expect(child.status).toBe(AtlasReconstructionStatus.PendingDoiAssignment);
 
@@ -703,7 +741,7 @@ describe("requestDoiAssignment", () => {
     ])("refuses a child at %s with code 1004", async (_name: string, status: number) => {
         const stubs = requestable(status);
 
-        await expect(AtlasReconstruction.requestDoiAssignment(userWith(UserPermissions.PublishReview), "reconstruction-1"))
+        await expect(AtlasReconstruction.requestDoiAssignment(userWith(UserPermissions.PublishReview), "annotation-1"))
             .rejects.toMatchObject({
                 message: "This reconstruction is not waiting on DOI assignment; its current phase has already moved on.",
                 extensions: {code: 1004}

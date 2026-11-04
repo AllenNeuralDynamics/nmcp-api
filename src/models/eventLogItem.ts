@@ -3,7 +3,7 @@ import {DataTypes, BelongsToGetAssociationMixin, Sequelize, Transaction} from "s
 
 import {User} from "./user";
 import {EventLogItemTableName} from "./tableNames";
-import {ReconstructionStatus} from "./reconstructionStatus";
+import {AnnotationStatus} from "./annotationStatus";
 
 export enum EventLogItemKind {
     Invalid = -1000,
@@ -57,31 +57,33 @@ export enum EventLogItemKind {
 
     CandidatesInsert = 4500,
 
-    ReconstructionCreate = 5000,
-    ReconstructionUpdate = 5010,
+    AnnotationCreate = 5000,
+    AnnotationUpdate = 5010,
+    // Retired by the annotation split and written by nothing; kept so the value is never reused and so rows from
+    // before the split still name it.
     ReconstructionUpload = 5020,
 
-    ReconstructionPause = 5100,
-    ReconstructionResume = 5110,
-    ReconstructionIncomplete = 5120,
-    ReconstructionDuplicate = 5130,
+    AnnotationPause = 5100,
+    AnnotationResume = 5110,
+    AnnotationIncomplete = 5120,
+    AnnotationDuplicate = 5130,
 
-    ReconstructionRequestPeerReview = 5200,
-    ReconstructionRequestTeamReview = 5202,
-    ReconstructionRequestPublishReview = 5205,
-    ReconstructionApprovePeerReview = 5210,
-    ReconstructionApproveTeamReview = 5212,
-    ReconstructionApprovePublishReview = 5215,
-    ReconstructionFinalizeApprove = 5225,
-    ReconstructionReject = 5230,
-    ReconstructionDiscard = 5235,
-    ReconstructionUntraceable = 5240,
+    AnnotationRequestPeerReview = 5200,
+    AnnotationRequestTeamReview = 5202,
+    AnnotationRequestPublishReview = 5205,
+    AnnotationApprovePeerReview = 5210,
+    AnnotationApproveTeamReview = 5212,
+    AnnotationApprovePublishReview = 5215,
+    AnnotationFinalizeApprove = 5225,
+    AnnotationReject = 5230,
+    AnnotationDiscard = 5235,
+    AnnotationUntraceable = 5240,
 
-    ReconstructionPublishing = 5300,
-    ReconstructionPublished = 5305,
-    ReconstructionAssignDoi = 5310,
+    AnnotationPublishing = 5300,
+    AnnotationPublished = 5305,
+    AnnotationAssignDoi = 5310,
 
-    ReconstructionArchive = 5900,
+    AnnotationArchive = 5900,
 
     AtlasReconstructionCreate = 6000,
     AtlasReconstructionUpdate = 6010,
@@ -120,22 +122,25 @@ export enum EventLogItemKind {
     SpecimenPrecomputedCreate = 9000,
     SpecimenPrecomputedUpdate = 9010,
     SpecimenPrecomputedComplete = 9100,
-    SpecimenPrecomputedError = 9120
+    SpecimenPrecomputedError = 9120,
+
+    SpecimenSpaceReconstructionCreate = 10000,
+    SpecimenSpaceReconstructionUpload = 10020
 }
 
 /**
  * The event recorded for each review request target, and the set of targets requestReview admits: a status absent here
  * is not a review target at all, so the lookup that follows the guard cannot miss.
  *
- * Declared here rather than beside the source-status lists in reconstruction.ts, for the reason UploadSourceStatuses is
- * declared in user.ts: the values are EventLogItemKind members, and reconstruction.ts, user.ts and this file form a
- * require cycle, so dereferencing the enum at reconstruction.ts's module scope throws whenever the cycle is entered
- * from anywhere but there.  ReconstructionStatus is a leaf module and safe to read from either side.
+ * Declared here rather than beside the source-status lists in annotation.ts, for the reason UploadSourceStatuses is
+ * declared in user.ts: the values are EventLogItemKind members, and annotation.ts, user.ts and this file form a
+ * require cycle, so dereferencing the enum at annotation.ts's module scope throws whenever the cycle is entered
+ * from anywhere but there.  AnnotationStatus is a leaf module and safe to read from either side.
  */
-export const ReviewRequestEventKinds: ReadonlyMap<ReconstructionStatus, EventLogItemKind> = new Map([
-    [ReconstructionStatus.PeerReview, EventLogItemKind.ReconstructionRequestPeerReview],
-    [ReconstructionStatus.TeamReview, EventLogItemKind.ReconstructionRequestTeamReview],
-    [ReconstructionStatus.PublishReview, EventLogItemKind.ReconstructionRequestPublishReview]
+export const ReviewRequestEventKinds: ReadonlyMap<AnnotationStatus, EventLogItemKind> = new Map([
+    [AnnotationStatus.PeerReview, EventLogItemKind.AnnotationRequestPeerReview],
+    [AnnotationStatus.TeamReview, EventLogItemKind.AnnotationRequestTeamReview],
+    [AnnotationStatus.PublishReview, EventLogItemKind.AnnotationRequestPublishReview]
 ]);
 
 export enum EventLogReferenceKind {

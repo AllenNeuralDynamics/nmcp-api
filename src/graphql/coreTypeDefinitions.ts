@@ -196,9 +196,9 @@ export const coreTypeDefinitions = gql`
         metadata: NeuronMetadata
         canonicalDoi: String
         specimen: Specimen
-        published: AtlasReconstruction
-        reconstructions: [Reconstruction]
-        reconstructionCount: Int
+        published: Annotation
+        annotations: [Annotation]
+        annotationCount: Int
         untraceable: Boolean
         createdAt: Date
         updatedAt: Date
@@ -252,17 +252,13 @@ export const coreTypeDefinitions = gql`
         failedAt: Date
     }
 
-    type Reconstruction {
+    type Annotation {
         id: String!
-        sourceUrl: String
-        sourceComments: String
         status: Int
+        doi: String
         phaseFailure: PhaseFailure
         notes: String
         durationHours: Float
-        specimenLengthMillimeters: Float
-        specimenNodeCounts: NodeCounts
-        soma: SpecimenNode
         annotatorId: String
         annotator: User
         reviewerId: String
@@ -273,7 +269,7 @@ export const coreTypeDefinitions = gql`
         neuron: Neuron
         atlasReconstructionId: String
         atlasReconstruction: AtlasReconstruction
-        precomputed: Precomputed
+        specimenSpaceReconstruction: SpecimenSpaceReconstruction!
         startedAt: Date
         completedAt: Date
         reviewedAt: Date
@@ -285,17 +281,30 @@ export const coreTypeDefinitions = gql`
         updatedAt: Date
     }
 
+    type SpecimenSpaceReconstruction {
+        id: String!
+        status: Int
+        sourceUrl: String
+        sourceComments: String
+        lengthMillimeters: Float
+        nodeCounts: NodeCounts
+        soma: SpecimenNode
+        precomputed: Precomputed
+        annotationId: String
+        createdAt: Date
+        updatedAt: Date
+    }
+
     type AtlasReconstruction {
         id: String!
         sourceUrl: String
         sourceComments: String
         status: Int
-        doi: String
         lengthMillimeters: Float
         nodeCounts: NodeCounts
         soma: AtlasNode
-        reconstruction: Reconstruction
-        reconstructionId: String
+        annotation: Annotation
+        annotationId: String
         qualityControl: QualityControl
         neuron: Neuron
         precomputed: Precomputed
@@ -486,7 +495,7 @@ export const coreTypeDefinitions = gql`
     }
 
     type VersionHistoryBranch {
-        reconstructionId: String!
+        annotationId: String!
         status: Int!
         startedAt: Date
         events: [VersionHistoryEvent!]!

@@ -5,15 +5,14 @@ import {BaseModel} from "../models/baseModel";
 import {Neuron} from "../models/neuron";
 import {Specimen} from "../models/specimen";
 import {AtlasStructure} from "../models/atlasStructure";
-import {Reconstruction} from "../models/reconstruction";
-import {AtlasReconstruction} from "../models/atlasReconstruction";
+import {Annotation} from "../models/annotation";
 
 export type NeuronLoaders = {
     specimen: DataLoader<string, Specimen>;
     atlasStructure: DataLoader<string, AtlasStructure>;
-    reconstructionCount: DataLoader<string, number>;
-    reconstructions: DataLoader<string, Reconstruction[]>;
-    published: DataLoader<string, AtlasReconstruction>;
+    annotationCount: DataLoader<string, number>;
+    annotations: DataLoader<string, Annotation[]>;
+    published: DataLoader<string, Annotation>;
     untraceable: DataLoader<string, boolean>;
 };
 
@@ -39,8 +38,8 @@ export function createNeuronLoaders(): NeuronLoaders {
     return {
         specimen: batchScopedLoader(async ids => alignById(ids, await Specimen.findAll({where: {id: {[Op.in]: [...ids]}}}))),
         atlasStructure: batchScopedLoader(async ids => alignById(ids, await AtlasStructure.findAll({where: {id: {[Op.in]: [...ids]}}}))),
-        reconstructionCount: batchScopedLoader(ids => Neuron.reconstructionCounts(ids)),
-        reconstructions: batchScopedLoader(ids => Neuron.reconstructionsByNeuron(ids)),
+        annotationCount: batchScopedLoader(ids => Neuron.annotationCounts(ids)),
+        annotations: batchScopedLoader(ids => Neuron.annotationsByNeuron(ids)),
         published: batchScopedLoader(ids => Neuron.publishedByNeuron(ids)),
         untraceable: batchScopedLoader(ids => Neuron.untraceableByNeuron(ids))
     };

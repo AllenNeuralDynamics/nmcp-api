@@ -2,7 +2,7 @@ import {Sequelize, DataTypes, BelongsToGetAssociationMixin} from "sequelize";
 
 import {BaseModel} from "./baseModel";
 import {NodeStructure} from "./nodeStructure";
-import {Reconstruction} from "./reconstruction";
+import {SpecimenSpaceReconstruction} from "./specimenSpaceReconstruction";
 import {NeuronStructure} from "./neuronStructure";
 import {SpecimenNodeTableName} from "./tableNames";
 import {PortalNode} from "../io/portalFormat";
@@ -49,11 +49,11 @@ export class SpecimenNode extends BaseModel {
 
     public getNodeStructure!: BelongsToGetAssociationMixin<NodeStructure>;
     public getNeuronStructure!: BelongsToGetAssociationMixin<NeuronStructure>;
-    public getReconstruction!: BelongsToGetAssociationMixin<Reconstruction>;
+    public getReconstruction!: BelongsToGetAssociationMixin<SpecimenSpaceReconstruction>;
 
     public readonly NodeStructure?: NodeStructure;
     public readonly NeuronStructure?: NeuronStructure;
-    public readonly Reconstruction?: Reconstruction;
+    public readonly Reconstruction?: SpecimenSpaceReconstruction;
 }
 
 // noinspection JSUnusedGlobalSymbols
@@ -83,5 +83,5 @@ export const modelInit = (sequelize: Sequelize) => {
 export const modelAssociate = () => {
     SpecimenNode.belongsTo(NodeStructure, {foreignKey: "nodeStructureId"});
     SpecimenNode.belongsTo(NeuronStructure, {foreignKey: "neuronStructureId"});
-    SpecimenNode.belongsTo(Reconstruction, {foreignKey: "reconstructionId", as: "Reconstruction"});
+    SpecimenNode.belongsTo(SpecimenSpaceReconstruction, {foreignKey: "reconstructionId", as: "Reconstruction"});
 };

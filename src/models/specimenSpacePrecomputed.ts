@@ -5,7 +5,7 @@ import {User} from "./user"
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {UnauthorizedError} from "../graphql/secureResolvers";
 import {SpecimenSpacePrecomputedTableName} from "./tableNames";
-import {Reconstruction} from "./reconstruction";
+import {SpecimenSpaceReconstruction} from "./specimenSpaceReconstruction";
 import {PrecomputedGenerationStatus, PrecomputedStatus} from "./precomputed";
 
 export class SpecimenSpacePrecomputed extends BaseModel {
@@ -16,7 +16,7 @@ export class SpecimenSpacePrecomputed extends BaseModel {
     public generatedAt?: Date;
     public reconstructionId?: string;
 
-    public getReconstruction: BelongsToGetAssociationMixin<Reconstruction>
+    public getReconstruction: BelongsToGetAssociationMixin<SpecimenSpaceReconstruction>
 
     protected async recordEvent(kind: EventLogItemKind, details: object, user: User, t: Transaction): Promise<void> {
         await recordEvent({
@@ -171,5 +171,5 @@ export const modelInit = (sequelize: Sequelize) => {
 
 // noinspection JSUnusedGlobalSymbols
 export const modelAssociate = () => {
-    SpecimenSpacePrecomputed.belongsTo(Reconstruction, {foreignKey: "reconstructionId", as: "Reconstruction"});
+    SpecimenSpacePrecomputed.belongsTo(SpecimenSpaceReconstruction, {foreignKey: "reconstructionId", as: "Reconstruction"});
 };

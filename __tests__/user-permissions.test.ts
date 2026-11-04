@@ -2,9 +2,9 @@ import {expect, test, describe, vi, afterEach} from "vitest";
 
 // Use require() to get the CJS module instance the compiled sources use (a plain ESM import yields a separate
 // instance under vitest).
-const {User, UserPermissions, UserPermissionsAll, UserPermissionsMultipleAnnotationsAll, UserPermissionsSingleAnnotationAll} = require("../src/models/user");
-const {DiscardableSourceStatuses, AdminDiscardableSourceStatuses} = require("../src/models/reconstruction");
-const {ReconstructionStatus} = require("../src/models/reconstructionStatus");
+const {User, UserPermissions, isAnnotatorUploadStatus, UserPermissionsAll, UserPermissionsMultipleAnnotationsAll, UserPermissionsSingleAnnotationAll} = require("../src/models/user");
+const {DiscardableSourceStatuses, AdminDiscardableSourceStatuses} = require("../src/models/annotation");
+const {AnnotationStatus} = require("../src/models/annotationStatus");
 const {AbandonableFailureStatuses, AtlasReconstructionStatus} = require("../src/models/atlasReconstructionStatus");
 const {ReconstructionSpace} = require("../src/models/reconstructionSpace");
 const {UnauthorizedError} = require("../src/graphql/secureResolvers");
@@ -38,9 +38,9 @@ function userWithPermissionsAndId(permissions: number, id: string = "annotator-1
     return user;
 }
 
-const allStatuses = Object.keys(ReconstructionStatus)
+const allStatuses = Object.keys(AnnotationStatus)
     .filter(key => isNaN(Number(key)))
-    .map(key => ReconstructionStatus[key] as number);
+    .map(key => AnnotationStatus[key] as number);
 
 describe("canAnnotate", () => {
     test("allows either annotation bit, alone or together", () => {
@@ -96,19 +96,19 @@ describe("canViewData", () => {
     });
 });
 
-describe("canReviseReconstruction", () => {
+describe("canReviseAnnotation", () => {
     test("allows either annotation bit", () => {
-        expect(userWithPermissions(UserPermissions.AnnotateOne).canReviseReconstruction()).toBe(true);
-        expect(userWithPermissions(UserPermissions.AnnotateMany).canReviseReconstruction()).toBe(true);
+        expect(userWithPermissions(UserPermissions.AnnotateOne).canReviseAnnotation()).toBe(true);
+        expect(userWithPermissions(UserPermissions.AnnotateMany).canReviseAnnotation()).toBe(true);
     });
 
     test("denies None and a non-annotation permission", () => {
-        expect(userWithPermissions(UserPermissions.None).canReviseReconstruction()).toBe(false);
-        expect(userWithPermissions(UserPermissions.Edit).canReviseReconstruction()).toBe(false);
+        expect(userWithPermissions(UserPermissions.None).canReviseAnnotation()).toBe(false);
+        expect(userWithPermissions(UserPermissions.Edit).canReviseAnnotation()).toBe(false);
     });
 });
 
-describe("canMarkReconstructionUntraceable", () => {
+describe("canMarkAnnotationUntraceable", () => {
     function userWithId(permissions: number) {
         const user = userWithPermissions(permissions);
         user.id = "annotator-1";
@@ -116,29 +116,29 @@ describe("canMarkReconstructionUntraceable", () => {
     }
 
     test("allows an admin for any annotator", () => {
-        expect(userWithId(UserPermissions.Admin).canMarkReconstructionUntraceable("annotator-2")).toBe(true);
+        expect(userWithId(UserPermissions.Admin).canMarkAnnotationUntraceable("annotator-2")).toBe(true);
     });
 
     test("allows the reconstruction's own annotator", () => {
-        expect(userWithId(UserPermissions.AnnotateOne).canMarkReconstructionUntraceable("annotator-1")).toBe(true);
+        expect(userWithId(UserPermissions.AnnotateOne).canMarkAnnotationUntraceable("annotator-1")).toBe(true);
     });
 
     test("allows either review bit for another annotator's reconstruction", () => {
-        expect(userWithId(UserPermissions.PeerReview).canMarkReconstructionUntraceable("annotator-2")).toBe(true);
-        expect(userWithId(UserPermissions.PublishReview).canMarkReconstructionUntraceable("annotator-2")).toBe(true);
+        expect(userWithId(UserPermissions.PeerReview).canMarkAnnotationUntraceable("annotator-2")).toBe(true);
+        expect(userWithId(UserPermissions.PublishReview).canMarkAnnotationUntraceable("annotator-2")).toBe(true);
     });
 
     // The one rule with no diff behind it: the TeamReview bit is deliberately absent from the reviewer mask, so this
     // test is what holds it.  A team reviewer who finds a neuron untraceable rejects it instead.
     test("denies a team reviewer on another annotator's reconstruction", () => {
-        expect(userWithId(UserPermissions.TeamReview).canMarkReconstructionUntraceable("annotator-2")).toBe(false);
+        expect(userWithId(UserPermissions.TeamReview).canMarkAnnotationUntraceable("annotator-2")).toBe(false);
     });
 
     test("denies a non-reviewer on another annotator's reconstruction", () => {
-        expect(userWithId(UserPermissions.None).canMarkReconstructionUntraceable("annotator-2")).toBe(false);
-        expect(userWithId(UserPermissions.Edit).canMarkReconstructionUntraceable("annotator-2")).toBe(false);
-        expect(userWithId(UserPermissions.AnnotateOne).canMarkReconstructionUntraceable("annotator-2")).toBe(false);
-        expect(userWithId(UserPermissions.AnnotateMany).canMarkReconstructionUntraceable("annotator-2")).toBe(false);
+        expect(userWithId(UserPermissions.None).canMarkAnnotationUntraceable("annotator-2")).toBe(false);
+        expect(userWithId(UserPermissions.Edit).canMarkAnnotationUntraceable("annotator-2")).toBe(false);
+        expect(userWithId(UserPermissions.AnnotateOne).canMarkAnnotationUntraceable("annotator-2")).toBe(false);
+        expect(userWithId(UserPermissions.AnnotateMany).canMarkAnnotationUntraceable("annotator-2")).toBe(false);
     });
 });
 
@@ -161,30 +161,30 @@ describe("canRequestReview", () => {
     });
 });
 
-describe("canDiscardReconstruction", () => {
+describe("canDiscardAnnotation", () => {
     test.each(DiscardableSourceStatuses as number[])("allows the annotator and an admin at status %s", (status: number) => {
-        expect(userWithPermissionsAndId(UserPermissions.AnnotateOne).canDiscardReconstruction("annotator-1", status)).toBe(true);
-        expect(userWithPermissionsAndId(UserPermissions.Admin).canDiscardReconstruction("annotator-2", status)).toBe(true);
+        expect(userWithPermissionsAndId(UserPermissions.AnnotateOne).canDiscardAnnotation("annotator-1", status)).toBe(true);
+        expect(userWithPermissionsAndId(UserPermissions.Admin).canDiscardAnnotation("annotator-2", status)).toBe(true);
     });
 
     test.each(DiscardableSourceStatuses as number[])("denies another annotator at status %s", (status: number) => {
-        expect(userWithPermissionsAndId(UserPermissions.AnnotateOne).canDiscardReconstruction("annotator-2", status)).toBe(false);
+        expect(userWithPermissionsAndId(UserPermissions.AnnotateOne).canDiscardAnnotation("annotator-2", status)).toBe(false);
     });
 
     test.each(AdminDiscardableSourceStatuses as number[])("allows only an admin at status %s", (status: number) => {
-        expect(userWithPermissionsAndId(UserPermissions.Admin).canDiscardReconstruction("annotator-2", status)).toBe(true);
-        expect(userWithPermissionsAndId(UserPermissions.AnnotateOne).canDiscardReconstruction("annotator-1", status)).toBe(false);
-        expect(userWithPermissionsAndId(UserPermissions.PublishReview).canDiscardReconstruction("annotator-2", status)).toBe(false);
+        expect(userWithPermissionsAndId(UserPermissions.Admin).canDiscardAnnotation("annotator-2", status)).toBe(true);
+        expect(userWithPermissionsAndId(UserPermissions.AnnotateOne).canDiscardAnnotation("annotator-1", status)).toBe(false);
+        expect(userWithPermissionsAndId(UserPermissions.PublishReview).canDiscardAnnotation("annotator-2", status)).toBe(false);
     });
 
     test.each([
-        ReconstructionStatus.Approved,
-        ReconstructionStatus.Publishing,
-        ReconstructionStatus.Published,
-        ReconstructionStatus.Archived
+        AnnotationStatus.Approved,
+        AnnotationStatus.Publishing,
+        AnnotationStatus.Published,
+        AnnotationStatus.Archived
     ])("denies everyone at status %s", (status: number) => {
-        expect(userWithPermissionsAndId(UserPermissions.Admin).canDiscardReconstruction("annotator-1", status)).toBe(false);
-        expect(userWithPermissionsAndId(UserPermissions.AnnotateOne).canDiscardReconstruction("annotator-1", status)).toBe(false);
+        expect(userWithPermissionsAndId(UserPermissions.Admin).canDiscardAnnotation("annotator-1", status)).toBe(false);
+        expect(userWithPermissionsAndId(UserPermissions.AnnotateOne).canDiscardAnnotation("annotator-1", status)).toBe(false);
     });
 
     /**
@@ -193,18 +193,18 @@ describe("canDiscardReconstruction", () => {
      * absent from both.
      */
     test.each(AbandonableFailureStatuses as number[])("allows a publish reviewer and an admin at a child status of %s", (childStatus: number) => {
-        const status = ReconstructionStatus.WaitingForAtlasReconstruction;
+        const status = AnnotationStatus.WaitingForAtlasReconstruction;
 
-        expect(userWithPermissionsAndId(UserPermissions.PublishReview).canDiscardReconstruction("annotator-2", status, childStatus)).toBe(true);
-        expect(userWithPermissionsAndId(UserPermissions.Admin).canDiscardReconstruction("annotator-2", status, childStatus)).toBe(true);
-        expect(userWithPermissionsAndId(UserPermissions.AnnotateOne).canDiscardReconstruction("annotator-1", status, childStatus)).toBe(false);
-        expect(userWithPermissionsAndId(UserPermissions.PeerReview).canDiscardReconstruction("annotator-2", status, childStatus)).toBe(false);
+        expect(userWithPermissionsAndId(UserPermissions.PublishReview).canDiscardAnnotation("annotator-2", status, childStatus)).toBe(true);
+        expect(userWithPermissionsAndId(UserPermissions.Admin).canDiscardAnnotation("annotator-2", status, childStatus)).toBe(true);
+        expect(userWithPermissionsAndId(UserPermissions.AnnotateOne).canDiscardAnnotation("annotator-1", status, childStatus)).toBe(false);
+        expect(userWithPermissionsAndId(UserPermissions.PeerReview).canDiscardAnnotation("annotator-2", status, childStatus)).toBe(false);
     });
 
     test("allows a publish reviewer and an admin at ReadyToPublish, whatever the child", () => {
-        expect(userWithPermissionsAndId(UserPermissions.PublishReview).canDiscardReconstruction("annotator-2", ReconstructionStatus.ReadyToPublish)).toBe(true);
-        expect(userWithPermissionsAndId(UserPermissions.Admin).canDiscardReconstruction("annotator-2", ReconstructionStatus.ReadyToPublish)).toBe(true);
-        expect(userWithPermissionsAndId(UserPermissions.AnnotateOne).canDiscardReconstruction("annotator-1", ReconstructionStatus.ReadyToPublish)).toBe(false);
+        expect(userWithPermissionsAndId(UserPermissions.PublishReview).canDiscardAnnotation("annotator-2", AnnotationStatus.ReadyToPublish)).toBe(true);
+        expect(userWithPermissionsAndId(UserPermissions.Admin).canDiscardAnnotation("annotator-2", AnnotationStatus.ReadyToPublish)).toBe(true);
+        expect(userWithPermissionsAndId(UserPermissions.AnnotateOne).canDiscardAnnotation("annotator-1", AnnotationStatus.ReadyToPublish)).toBe(false);
     });
 
     test.each([
@@ -213,38 +213,38 @@ describe("canDiscardReconstruction", () => {
         ["a phase actually running", AtlasReconstructionStatus.InStructureAssignment],
         ["a phase merely queued", AtlasReconstructionStatus.PendingQualityControl]
     ])("denies everyone at WaitingForAtlasReconstruction with %s", (_label: string, childStatus: number | null) => {
-        const status = ReconstructionStatus.WaitingForAtlasReconstruction;
+        const status = AnnotationStatus.WaitingForAtlasReconstruction;
 
-        expect(userWithPermissionsAndId(UserPermissions.PublishReview).canDiscardReconstruction("annotator-2", status, childStatus)).toBe(false);
-        expect(userWithPermissionsAndId(UserPermissions.Admin).canDiscardReconstruction("annotator-2", status, childStatus)).toBe(false);
+        expect(userWithPermissionsAndId(UserPermissions.PublishReview).canDiscardAnnotation("annotator-2", status, childStatus)).toBe(false);
+        expect(userWithPermissionsAndId(UserPermissions.Admin).canDiscardAnnotation("annotator-2", status, childStatus)).toBe(false);
     });
 });
 
-describe("canRejectReconstruction", () => {
+describe("canRejectAnnotation", () => {
     test("the review bit matching the review the reconstruction is in", () => {
-        expect(userWithPermissions(UserPermissions.PeerReview).canRejectReconstruction(ReconstructionStatus.PeerReview)).toBe(true);
-        expect(userWithPermissions(UserPermissions.TeamReview).canRejectReconstruction(ReconstructionStatus.TeamReview)).toBe(true);
-        expect(userWithPermissions(UserPermissions.PublishReview).canRejectReconstruction(ReconstructionStatus.PublishReview)).toBe(true);
-        expect(userWithPermissions(UserPermissions.PeerReview).canRejectReconstruction(ReconstructionStatus.PublishReview)).toBe(false);
-        expect(userWithPermissions(UserPermissions.PeerReview).canRejectReconstruction(ReconstructionStatus.TeamReview)).toBe(false);
-        expect(userWithPermissions(UserPermissions.TeamReview).canRejectReconstruction(ReconstructionStatus.PeerReview)).toBe(false);
-        expect(userWithPermissions(UserPermissions.TeamReview).canRejectReconstruction(ReconstructionStatus.PublishReview)).toBe(false);
-        expect(userWithPermissions(UserPermissions.PublishReview).canRejectReconstruction(ReconstructionStatus.PeerReview)).toBe(false);
-        expect(userWithPermissions(UserPermissions.PublishReview).canRejectReconstruction(ReconstructionStatus.TeamReview)).toBe(false);
+        expect(userWithPermissions(UserPermissions.PeerReview).canRejectAnnotation(AnnotationStatus.PeerReview)).toBe(true);
+        expect(userWithPermissions(UserPermissions.TeamReview).canRejectAnnotation(AnnotationStatus.TeamReview)).toBe(true);
+        expect(userWithPermissions(UserPermissions.PublishReview).canRejectAnnotation(AnnotationStatus.PublishReview)).toBe(true);
+        expect(userWithPermissions(UserPermissions.PeerReview).canRejectAnnotation(AnnotationStatus.PublishReview)).toBe(false);
+        expect(userWithPermissions(UserPermissions.PeerReview).canRejectAnnotation(AnnotationStatus.TeamReview)).toBe(false);
+        expect(userWithPermissions(UserPermissions.TeamReview).canRejectAnnotation(AnnotationStatus.PeerReview)).toBe(false);
+        expect(userWithPermissions(UserPermissions.TeamReview).canRejectAnnotation(AnnotationStatus.PublishReview)).toBe(false);
+        expect(userWithPermissions(UserPermissions.PublishReview).canRejectAnnotation(AnnotationStatus.PeerReview)).toBe(false);
+        expect(userWithPermissions(UserPermissions.PublishReview).canRejectAnnotation(AnnotationStatus.TeamReview)).toBe(false);
     });
 
     // B2: ReadyToPublish was admin-only, and is now the publish reviewer's to reject as well.
     test("a publish reviewer may reject at ReadyToPublish", () => {
-        expect(userWithPermissions(UserPermissions.PublishReview).canRejectReconstruction(ReconstructionStatus.ReadyToPublish)).toBe(true);
-        expect(userWithPermissions(UserPermissions.PeerReview).canRejectReconstruction(ReconstructionStatus.ReadyToPublish)).toBe(false);
+        expect(userWithPermissions(UserPermissions.PublishReview).canRejectAnnotation(AnnotationStatus.ReadyToPublish)).toBe(true);
+        expect(userWithPermissions(UserPermissions.PeerReview).canRejectAnnotation(AnnotationStatus.ReadyToPublish)).toBe(false);
     });
 
     test.each(AbandonableFailureStatuses as number[])("a publish reviewer may reject a child stopped at %s", (childStatus: number) => {
-        const status = ReconstructionStatus.WaitingForAtlasReconstruction;
+        const status = AnnotationStatus.WaitingForAtlasReconstruction;
 
-        expect(userWithPermissions(UserPermissions.PublishReview).canRejectReconstruction(status, childStatus)).toBe(true);
-        expect(userWithPermissions(UserPermissions.PeerReview).canRejectReconstruction(status, childStatus)).toBe(false);
-        expect(userWithPermissions(UserPermissions.AnnotateOne).canRejectReconstruction(status, childStatus)).toBe(false);
+        expect(userWithPermissions(UserPermissions.PublishReview).canRejectAnnotation(status, childStatus)).toBe(true);
+        expect(userWithPermissions(UserPermissions.PeerReview).canRejectAnnotation(status, childStatus)).toBe(false);
+        expect(userWithPermissions(UserPermissions.AnnotateOne).canRejectAnnotation(status, childStatus)).toBe(false);
     });
 
     test.each([
@@ -253,18 +253,18 @@ describe("canRejectReconstruction", () => {
         ["a phase actually running", AtlasReconstructionStatus.InDoiAssignment]
     ])("denies a publish reviewer at WaitingForAtlasReconstruction with %s", (_label: string, childStatus: number | null) => {
         expect(userWithPermissions(UserPermissions.PublishReview)
-            .canRejectReconstruction(ReconstructionStatus.WaitingForAtlasReconstruction, childStatus)).toBe(false);
+            .canRejectAnnotation(AnnotationStatus.WaitingForAtlasReconstruction, childStatus)).toBe(false);
     });
 
     // B3: the one route out of PublishFailed that is not another retry.  It is the pair that qualifies, not the parent
     // status - a PublishFailed parent whose child stopped anywhere else is still nobody's to reject.
     test("a publish reviewer may reject a PublishFailed parent whose child failed indexing", () => {
         expect(userWithPermissions(UserPermissions.PublishReview)
-            .canRejectReconstruction(ReconstructionStatus.PublishFailed, AtlasReconstructionStatus.FailedSearchIndexing)).toBe(true);
+            .canRejectAnnotation(AnnotationStatus.PublishFailed, AtlasReconstructionStatus.FailedSearchIndexing)).toBe(true);
         expect(userWithPermissions(UserPermissions.PeerReview)
-            .canRejectReconstruction(ReconstructionStatus.PublishFailed, AtlasReconstructionStatus.FailedSearchIndexing)).toBe(false);
+            .canRejectAnnotation(AnnotationStatus.PublishFailed, AtlasReconstructionStatus.FailedSearchIndexing)).toBe(false);
         expect(userWithPermissions(UserPermissions.AnnotateOne)
-            .canRejectReconstruction(ReconstructionStatus.PublishFailed, AtlasReconstructionStatus.FailedSearchIndexing)).toBe(false);
+            .canRejectAnnotation(AnnotationStatus.PublishFailed, AtlasReconstructionStatus.FailedSearchIndexing)).toBe(false);
     });
 
     test.each([
@@ -273,22 +273,22 @@ describe("canRejectReconstruction", () => {
         ["a child that failed elsewhere", AtlasReconstructionStatus.FailedQualityControl]
     ])("denies a publish reviewer at PublishFailed with %s", (_label: string, childStatus: number | null) => {
         expect(userWithPermissions(UserPermissions.PublishReview)
-            .canRejectReconstruction(ReconstructionStatus.PublishFailed, childStatus)).toBe(false);
+            .canRejectAnnotation(AnnotationStatus.PublishFailed, childStatus)).toBe(false);
     });
 
     // The regression guard for the shared predicate: isReviewerAbandonable is not widened, so the discard permission
     // does not follow reject to PublishFailed and then get refused by isDiscardable a moment later.
     test("the discard permission does not follow it to PublishFailed", () => {
         expect(userWithPermissionsAndId(UserPermissions.PublishReview)
-            .canDiscardReconstruction("annotator-2", ReconstructionStatus.PublishFailed, AtlasReconstructionStatus.FailedSearchIndexing)).toBe(false);
+            .canDiscardAnnotation("annotator-2", AnnotationStatus.PublishFailed, AtlasReconstructionStatus.FailedSearchIndexing)).toBe(false);
         expect(userWithPermissionsAndId(UserPermissions.Admin)
-            .canDiscardReconstruction("annotator-2", ReconstructionStatus.PublishFailed, AtlasReconstructionStatus.FailedSearchIndexing)).toBe(false);
+            .canDiscardAnnotation("annotator-2", AnnotationStatus.PublishFailed, AtlasReconstructionStatus.FailedSearchIndexing)).toBe(false);
     });
 
     // The admin bypass on this predicate predates the new sources and is unchanged.
     test("an admin may reject from any of them", () => {
-        expect(userWithPermissions(UserPermissions.Admin).canRejectReconstruction(ReconstructionStatus.PeerReview)).toBe(true);
-        expect(userWithPermissions(UserPermissions.Admin).canRejectReconstruction(ReconstructionStatus.ReadyToPublish)).toBe(true);
+        expect(userWithPermissions(UserPermissions.Admin).canRejectAnnotation(AnnotationStatus.PeerReview)).toBe(true);
+        expect(userWithPermissions(UserPermissions.Admin).canRejectAnnotation(AnnotationStatus.ReadyToPublish)).toBe(true);
     });
 });
 
@@ -312,118 +312,154 @@ describe("canOperateReconstructionPipeline", () => {
 describe("canUploadReconstructionData", () => {
     test("specimen space requires the bit matching the review the reconstruction is in", () => {
         expect(userWithPermissions(UserPermissions.PeerReview)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, ReconstructionStatus.PeerReview)).toBe(true);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.PeerReview, "annotator-1")).toBe(true);
         expect(userWithPermissions(UserPermissions.TeamReview)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, ReconstructionStatus.TeamReview)).toBe(true);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.TeamReview, "annotator-1")).toBe(true);
         expect(userWithPermissions(UserPermissions.PublishReview)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, ReconstructionStatus.PublishReview)).toBe(true);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.PublishReview, "annotator-1")).toBe(true);
     });
 
     test("specimen space denies the bit for the other review", () => {
         expect(userWithPermissions(UserPermissions.PublishReview)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, ReconstructionStatus.PeerReview)).toBe(false);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.PeerReview, "annotator-1")).toBe(false);
         expect(userWithPermissions(UserPermissions.PeerReview)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, ReconstructionStatus.PublishReview)).toBe(false);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.PublishReview, "annotator-1")).toBe(false);
     });
 
     // The admin bypass now applies in both spaces, which is what lets one status-to-bit map serve them both.
     test("specimen space exempts an admin who holds no review bit", () => {
         expect(userWithPermissions(UserPermissions.Admin)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, ReconstructionStatus.PeerReview)).toBe(true);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.PeerReview, "annotator-1")).toBe(true);
         expect(userWithPermissions(UserPermissions.Admin)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, ReconstructionStatus.TeamReview)).toBe(true);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.TeamReview, "annotator-1")).toBe(true);
         expect(userWithPermissions(UserPermissions.Admin)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, ReconstructionStatus.PublishReview)).toBe(true);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.PublishReview, "annotator-1")).toBe(true);
     });
 
     test.each([
-        ReconstructionStatus.InProgress,
-        ReconstructionStatus.OnHold,
-        ReconstructionStatus.Incomplete,
-        ReconstructionStatus.Duplicate,
-        ReconstructionStatus.Approved,
-        ReconstructionStatus.WaitingForAtlasReconstruction,
-        ReconstructionStatus.ReadyToPublish,
-        ReconstructionStatus.Rejected,
-        ReconstructionStatus.Publishing,
-        ReconstructionStatus.Published,
-        ReconstructionStatus.Archived
+        AnnotationStatus.OnHold,
+        AnnotationStatus.Incomplete,
+        AnnotationStatus.Duplicate,
+        AnnotationStatus.Approved,
+        AnnotationStatus.WaitingForAtlasReconstruction,
+        AnnotationStatus.ReadyToPublish,
+        AnnotationStatus.Publishing,
+        AnnotationStatus.Published,
+        AnnotationStatus.Archived
     ])("specimen space denies status %s outright", (status: number) => {
         expect(userWithPermissions(UserPermissions.Admin | UserPermissions.ReviewAll)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, status)).toBe(false);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, status, "annotator-1")).toBe(false);
+    });
+
+    test.each([AnnotationStatus.InProgress, AnnotationStatus.Rejected])("specimen space admits the owning annotator at %s", (status: number) => {
+        expect(userWithPermissionsAndId(UserPermissions.AnnotateOne, "annotator-1")
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, status, "annotator-1")).toBe(true);
+    });
+
+    test.each([AnnotationStatus.InProgress, AnnotationStatus.Rejected])("specimen space refuses %s to anyone but the annotator, an admin included", (status: number) => {
+        expect(userWithPermissionsAndId(UserPermissions.Admin | UserPermissions.ReviewAll, "admin-1")
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, status, "annotator-1")).toBe(false);
+        expect(userWithPermissionsAndId(UserPermissions.AnnotateOne, "annotator-2")
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, status, "annotator-1")).toBe(false);
+    });
+
+    test.each([AnnotationStatus.InProgress, AnnotationStatus.Rejected])("specimen space admits an admin who is the annotator at %s", (status: number) => {
+        expect(userWithPermissionsAndId(UserPermissions.Admin, "annotator-1")
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, status, "annotator-1")).toBe(true);
+    });
+
+    test.each([AnnotationStatus.PeerReview, AnnotationStatus.TeamReview, AnnotationStatus.PublishReview])(
+        "specimen space refuses the owning annotator with no review bit at %s",
+        (status: number) => {
+            expect(userWithPermissionsAndId(UserPermissions.AnnotateOne, "annotator-1")
+                .canUploadReconstructionData(ReconstructionSpace.Specimen, status, "annotator-1")).toBe(false);
+        });
+
+    test.each(allStatuses)("atlas space refuses the owning annotator at %s", (status: number) => {
+        expect(userWithPermissionsAndId(UserPermissions.AnnotateOne, "annotator-1")
+            .canUploadReconstructionData(ReconstructionSpace.Atlas, status, "annotator-1")).toBe(false);
+    });
+
+    test("a user with no id does not own an annotation with no annotator", () => {
+        expect(userWithPermissions(UserPermissions.AnnotateOne)
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.InProgress, undefined)).toBe(false);
     });
 
     test("atlas space allows an admin or the publish-review bit, at publish review", () => {
         expect(userWithPermissions(UserPermissions.Admin)
-            .canUploadReconstructionData(ReconstructionSpace.Atlas, ReconstructionStatus.PublishReview)).toBe(true);
+            .canUploadReconstructionData(ReconstructionSpace.Atlas, AnnotationStatus.PublishReview, "annotator-1")).toBe(true);
         expect(userWithPermissions(UserPermissions.PublishReview)
-            .canUploadReconstructionData(ReconstructionSpace.Atlas, ReconstructionStatus.PublishReview)).toBe(true);
+            .canUploadReconstructionData(ReconstructionSpace.Atlas, AnnotationStatus.PublishReview, "annotator-1")).toBe(true);
     });
 
     // A team reviewer uploads in both spaces, so atlas space is no longer publish review's alone.
     test("atlas space allows an admin or the team-review bit, at team review", () => {
         expect(userWithPermissions(UserPermissions.Admin)
-            .canUploadReconstructionData(ReconstructionSpace.Atlas, ReconstructionStatus.TeamReview)).toBe(true);
+            .canUploadReconstructionData(ReconstructionSpace.Atlas, AnnotationStatus.TeamReview, "annotator-1")).toBe(true);
         expect(userWithPermissions(UserPermissions.TeamReview)
-            .canUploadReconstructionData(ReconstructionSpace.Atlas, ReconstructionStatus.TeamReview)).toBe(true);
+            .canUploadReconstructionData(ReconstructionSpace.Atlas, AnnotationStatus.TeamReview, "annotator-1")).toBe(true);
     });
 
     // The status rule the model's locked check used to carry alone: the eager predicate now refuses an atlas upload at
     // an inadmissible status rather than letting the file be parsed first.
-    test.each(allStatuses.filter(status => status != ReconstructionStatus.TeamReview && status != ReconstructionStatus.PublishReview))(
+    test.each(allStatuses.filter(status => status != AnnotationStatus.TeamReview && status != AnnotationStatus.PublishReview))(
         "atlas space denies status %s, for an admin as well",
         (status: number) => {
             expect(userWithPermissions(UserPermissions.Admin | UserPermissions.ReviewAll)
-                .canUploadReconstructionData(ReconstructionSpace.Atlas, status)).toBe(false);
+                .canUploadReconstructionData(ReconstructionSpace.Atlas, status, "annotator-1")).toBe(false);
         });
 
+    // The user is "annotator-1" throughout, so the annotatorId column decides ownership.
     test.each([
-        [ReconstructionSpace.Specimen, UserPermissions.Admin, true],
-        [ReconstructionSpace.Specimen, UserPermissions.PeerReview, true],
-        [ReconstructionSpace.Specimen, UserPermissions.TeamReview, true],
-        [ReconstructionSpace.Specimen, UserPermissions.PublishReview, true],
-        [ReconstructionSpace.Specimen, UserPermissions.AnnotateMany | UserPermissions.Edit, false],
-        [ReconstructionSpace.Atlas, UserPermissions.Admin, true],
-        [ReconstructionSpace.Atlas, UserPermissions.TeamReview, true],
-        [ReconstructionSpace.Atlas, UserPermissions.PublishReview, true],
-        [ReconstructionSpace.Atlas, UserPermissions.PeerReview, false],
-        [ReconstructionSpace.Atlas, UserPermissions.AnnotateOne, false]
-    ])("canUploadReconstructionDataInSpace(%i) for permissions %i is %s", (space: number, permissions: number, expected: boolean) => {
-        expect(userWithPermissions(permissions).canUploadReconstructionDataInSpace(space)).toBe(expected);
+        [ReconstructionSpace.Specimen, UserPermissions.Admin, "annotator-2", true],
+        [ReconstructionSpace.Specimen, UserPermissions.PeerReview, "annotator-2", true],
+        [ReconstructionSpace.Specimen, UserPermissions.TeamReview, "annotator-2", true],
+        [ReconstructionSpace.Specimen, UserPermissions.PublishReview, "annotator-2", true],
+        [ReconstructionSpace.Specimen, UserPermissions.AnnotateMany | UserPermissions.Edit, "annotator-2", false],
+        [ReconstructionSpace.Specimen, UserPermissions.AnnotateOne, "annotator-1", true],
+        [ReconstructionSpace.Specimen, UserPermissions.AnnotateOne, "annotator-2", false],
+        [ReconstructionSpace.Atlas, UserPermissions.Admin, "annotator-2", true],
+        [ReconstructionSpace.Atlas, UserPermissions.TeamReview, "annotator-2", true],
+        [ReconstructionSpace.Atlas, UserPermissions.PublishReview, "annotator-2", true],
+        [ReconstructionSpace.Atlas, UserPermissions.PeerReview, "annotator-2", false],
+        [ReconstructionSpace.Atlas, UserPermissions.AnnotateOne, "annotator-2", false],
+        [ReconstructionSpace.Atlas, UserPermissions.AnnotateOne, "annotator-1", false]
+    ])("canUploadReconstructionDataInSpace(%i) for permissions %i on %s's annotation is %s", (space: number, permissions: number, annotatorId: string, expected: boolean) => {
+        expect(userWithPermissionsAndId(permissions, "annotator-1").canUploadReconstructionDataInSpace(space, annotatorId)).toBe(expected);
     });
 
     test("atlas space denies a peer reviewer and an annotator", () => {
         expect(userWithPermissions(UserPermissions.PeerReview)
-            .canUploadReconstructionData(ReconstructionSpace.Atlas, ReconstructionStatus.PublishReview)).toBe(false);
+            .canUploadReconstructionData(ReconstructionSpace.Atlas, AnnotationStatus.PublishReview, "annotator-1")).toBe(false);
         expect(userWithPermissions(UserPermissions.PeerReview)
-            .canUploadReconstructionData(ReconstructionSpace.Atlas, ReconstructionStatus.TeamReview)).toBe(false);
+            .canUploadReconstructionData(ReconstructionSpace.Atlas, AnnotationStatus.TeamReview, "annotator-1")).toBe(false);
         expect(userWithPermissions(UserPermissions.AnnotateOne)
-            .canUploadReconstructionData(ReconstructionSpace.Atlas, ReconstructionStatus.PublishReview)).toBe(false);
+            .canUploadReconstructionData(ReconstructionSpace.Atlas, AnnotationStatus.PublishReview, "annotator-1")).toBe(false);
     });
 
     // The bit tracks the status, not the space: holding TeamReview is no licence to write atlas data at publish review.
     test("atlas space still pairs each review status with its own bit", () => {
         expect(userWithPermissions(UserPermissions.TeamReview)
-            .canUploadReconstructionData(ReconstructionSpace.Atlas, ReconstructionStatus.PublishReview)).toBe(false);
+            .canUploadReconstructionData(ReconstructionSpace.Atlas, AnnotationStatus.PublishReview, "annotator-1")).toBe(false);
         expect(userWithPermissions(UserPermissions.PublishReview)
-            .canUploadReconstructionData(ReconstructionSpace.Atlas, ReconstructionStatus.TeamReview)).toBe(false);
+            .canUploadReconstructionData(ReconstructionSpace.Atlas, AnnotationStatus.TeamReview, "annotator-1")).toBe(false);
     });
 
     // Specimen space keeps the bit tracking the status even with the bypass in place: the peer reviewer is not admitted
     // at publish review, and vice versa.
     test("specimen space still pairs each review status with its own bit", () => {
         expect(userWithPermissions(UserPermissions.PeerReview)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, ReconstructionStatus.PublishReview)).toBe(false);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.PublishReview, "annotator-1")).toBe(false);
         expect(userWithPermissions(UserPermissions.PeerReview)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, ReconstructionStatus.TeamReview)).toBe(false);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.TeamReview, "annotator-1")).toBe(false);
         expect(userWithPermissions(UserPermissions.TeamReview)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, ReconstructionStatus.PeerReview)).toBe(false);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.PeerReview, "annotator-1")).toBe(false);
         expect(userWithPermissions(UserPermissions.TeamReview)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, ReconstructionStatus.PublishReview)).toBe(false);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.PublishReview, "annotator-1")).toBe(false);
         expect(userWithPermissions(UserPermissions.PublishReview)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, ReconstructionStatus.PeerReview)).toBe(false);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.PeerReview, "annotator-1")).toBe(false);
         expect(userWithPermissions(UserPermissions.PublishReview)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, ReconstructionStatus.TeamReview)).toBe(false);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.TeamReview, "annotator-1")).toBe(false);
     });
 });
 
@@ -431,55 +467,55 @@ describe("canUploadReconstructionData", () => {
  * The source decides for the two review sign-offs and the target for the final approval, because PublishReview as a
  * target is now reachable from peer review and from team review alike.
  */
-describe("canApproveReconstruction", () => {
+describe("canApproveAnnotation", () => {
     test("a peer reviewer signs off out of peer review, to either target", () => {
         expect(userWithPermissions(UserPermissions.PeerReview)
-            .canApproveReconstruction(ReconstructionStatus.TeamReview, ReconstructionStatus.PeerReview)).toBe(true);
+            .canApproveAnnotation(AnnotationStatus.TeamReview, AnnotationStatus.PeerReview)).toBe(true);
         expect(userWithPermissions(UserPermissions.PeerReview)
-            .canApproveReconstruction(ReconstructionStatus.PublishReview, ReconstructionStatus.PeerReview)).toBe(true);
+            .canApproveAnnotation(AnnotationStatus.PublishReview, AnnotationStatus.PeerReview)).toBe(true);
     });
 
     test("a peer reviewer is refused out of team review", () => {
         expect(userWithPermissions(UserPermissions.PeerReview)
-            .canApproveReconstruction(ReconstructionStatus.PublishReview, ReconstructionStatus.TeamReview)).toBe(false);
+            .canApproveAnnotation(AnnotationStatus.PublishReview, AnnotationStatus.TeamReview)).toBe(false);
     });
 
     test("a team reviewer signs off out of team review", () => {
         expect(userWithPermissions(UserPermissions.TeamReview)
-            .canApproveReconstruction(ReconstructionStatus.PublishReview, ReconstructionStatus.TeamReview)).toBe(true);
+            .canApproveAnnotation(AnnotationStatus.PublishReview, AnnotationStatus.TeamReview)).toBe(true);
     });
 
     test("a team reviewer is refused out of peer review", () => {
         expect(userWithPermissions(UserPermissions.TeamReview)
-            .canApproveReconstruction(ReconstructionStatus.TeamReview, ReconstructionStatus.PeerReview)).toBe(false);
+            .canApproveAnnotation(AnnotationStatus.TeamReview, AnnotationStatus.PeerReview)).toBe(false);
         expect(userWithPermissions(UserPermissions.TeamReview)
-            .canApproveReconstruction(ReconstructionStatus.PublishReview, ReconstructionStatus.PeerReview)).toBe(false);
+            .canApproveAnnotation(AnnotationStatus.PublishReview, AnnotationStatus.PeerReview)).toBe(false);
     });
 
     test("only the publish-review bit approves to Approved", () => {
         expect(userWithPermissions(UserPermissions.PublishReview)
-            .canApproveReconstruction(ReconstructionStatus.Approved, ReconstructionStatus.PublishReview)).toBe(true);
+            .canApproveAnnotation(AnnotationStatus.Approved, AnnotationStatus.PublishReview)).toBe(true);
         expect(userWithPermissions(UserPermissions.PeerReview)
-            .canApproveReconstruction(ReconstructionStatus.Approved, ReconstructionStatus.PublishReview)).toBe(false);
+            .canApproveAnnotation(AnnotationStatus.Approved, AnnotationStatus.PublishReview)).toBe(false);
         expect(userWithPermissions(UserPermissions.TeamReview)
-            .canApproveReconstruction(ReconstructionStatus.Approved, ReconstructionStatus.PublishReview)).toBe(false);
+            .canApproveAnnotation(AnnotationStatus.Approved, AnnotationStatus.PublishReview)).toBe(false);
     });
 
     // Neither review bit reaches a sign-off it does not own, and the publish reviewer's does not reach the earlier two.
     test("a publish reviewer is refused out of either review", () => {
         expect(userWithPermissions(UserPermissions.PublishReview)
-            .canApproveReconstruction(ReconstructionStatus.TeamReview, ReconstructionStatus.PeerReview)).toBe(false);
+            .canApproveAnnotation(AnnotationStatus.TeamReview, AnnotationStatus.PeerReview)).toBe(false);
         expect(userWithPermissions(UserPermissions.PublishReview)
-            .canApproveReconstruction(ReconstructionStatus.PublishReview, ReconstructionStatus.TeamReview)).toBe(false);
+            .canApproveAnnotation(AnnotationStatus.PublishReview, AnnotationStatus.TeamReview)).toBe(false);
     });
 
     test.each([
-        [ReconstructionStatus.TeamReview, ReconstructionStatus.PeerReview],
-        [ReconstructionStatus.PublishReview, ReconstructionStatus.PeerReview],
-        [ReconstructionStatus.PublishReview, ReconstructionStatus.TeamReview],
-        [ReconstructionStatus.Approved, ReconstructionStatus.PublishReview]
+        [AnnotationStatus.TeamReview, AnnotationStatus.PeerReview],
+        [AnnotationStatus.PublishReview, AnnotationStatus.PeerReview],
+        [AnnotationStatus.PublishReview, AnnotationStatus.TeamReview],
+        [AnnotationStatus.Approved, AnnotationStatus.PublishReview]
     ])("an admin approves to %s from %s", (targetStatus: number, currentStatus: number) => {
-        expect(userWithPermissions(UserPermissions.Admin).canApproveReconstruction(targetStatus, currentStatus)).toBe(true);
+        expect(userWithPermissions(UserPermissions.Admin).canApproveAnnotation(targetStatus, currentStatus)).toBe(true);
     });
 });
 
@@ -526,12 +562,12 @@ describe("the internal gates", () => {
         expect(userWithPermissions(UserPermissions.None)[gate]()).toBe(false);
     });
 
-    // canModifyReconstruction gates metadata edits and nothing else now, and stays PublishReview-only: editing a
+    // canModifyAnnotation gates metadata edits and nothing else now, and stays PublishReview-only: editing a
     // reconstruction's own metadata is a reviewer's job.  What an admin uses for the pipeline is
     // canOperateReconstructionPipeline, which does carry the admin bypass.
-    test("canModifyReconstruction has no admin bypass", () => {
-        expect(userWithPermissions(UserPermissions.Admin | UserPermissions.PublishReview).canModifyReconstruction()).toBe(true);
-        expect(userWithPermissions(UserPermissions.Admin).canModifyReconstruction()).toBe(false);
+    test("canModifyAnnotation has no admin bypass", () => {
+        expect(userWithPermissions(UserPermissions.Admin | UserPermissions.PublishReview).canModifyAnnotation()).toBe(true);
+        expect(userWithPermissions(UserPermissions.Admin).canModifyAnnotation()).toBe(false);
     });
 });
 
@@ -824,5 +860,17 @@ describe("updateForShape transaction", () => {
         expect((User as any).sequelize.transaction).toHaveBeenCalledTimes(1);
         expect(user.update).toHaveBeenCalledWith({isAnonymousForPublish: true}, carriesTransaction);
         expect(create).toHaveBeenCalledWith(expect.objectContaining({kind: EventLogItemKind.UserUpdate}), carriesTransaction);
+    });
+});
+
+describe("isAnnotatorUploadStatus", () => {
+    test.each(allStatuses)("specimen space status %s", (status: number) => {
+        const expected = status == AnnotationStatus.InProgress || status == AnnotationStatus.Rejected;
+
+        expect(isAnnotatorUploadStatus(ReconstructionSpace.Specimen, status)).toBe(expected);
+    });
+
+    test.each(allStatuses)("atlas space status %s is never the annotator's", (status: number) => {
+        expect(isAnnotatorUploadStatus(ReconstructionSpace.Atlas, status)).toBe(false);
     });
 });

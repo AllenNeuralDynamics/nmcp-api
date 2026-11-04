@@ -6,8 +6,8 @@ const {ConnectionError, DatabaseError, Transaction} = require("sequelize");
 const {User, UserPermissions} = require("../src/models/user");
 const {AtlasReconstruction} = require("../src/models/atlasReconstruction");
 const {AtlasReconstructionStatus} = require("../src/models/atlasReconstructionStatus");
-const {Reconstruction} = require("../src/models/reconstruction");
-const {ReconstructionStatus} = require("../src/models/reconstructionStatus");
+const {Annotation} = require("../src/models/annotation");
+const {AnnotationStatus} = require("../src/models/annotationStatus");
 const {AtlasNode} = require("../src/models/atlasNode");
 const {Atlas} = require("../src/models/atlas");
 const {QualityControl} = require("../src/models/qualityControl");
@@ -17,7 +17,7 @@ const {EventLogItem} = require("../src/models/eventLogItem");
 const {QualityCheckService, QualityCheckServiceStatus, QualityControlScore} = require("../src/data-access/qualityCheckService");
 const {SearchIndexOperation} = require("../src/transform/searchIndexOperation");
 const {SearchIndex} = require("../src/models/searchIndex");
-const {PhaseOutcome} = require("../src/util/phaseFailure");
+const {PhaseOutcome, failureText} = require("../src/util/phaseFailure");
 
 const transaction = {sentinel: "t"} as any;
 
@@ -80,7 +80,7 @@ describe("qualityControlChanged", () => {
 
         return prototypeStub(AtlasReconstruction, {
             id: "atlas-1",
-            reconstructionId: "reconstruction-1",
+            annotationId: "annotation-1",
             status: status,
             failureReason: "a failure from the previous run",
             failedAt: new Date("2026-01-01")
@@ -154,7 +154,7 @@ describe("QualityControl.assess outcomes", () => {
 
         const child = prototypeStub(AtlasReconstruction, {
             id: "atlas-1",
-            reconstructionId: "reconstruction-1",
+            annotationId: "annotation-1",
             status: AtlasReconstructionStatus.InQualityControl
         });
 
@@ -258,9 +258,9 @@ describe("calculateStructureAssignments failures", () => {
 
         const atlasReconstruction = prototypeStub(AtlasReconstruction, {
             id: "atlas-1",
-            reconstructionId: "reconstruction-1",
+            annotationId: "annotation-1",
             status: AtlasReconstructionStatus.InStructureAssignment,
-            getReconstruction: vi.fn().mockResolvedValue({Neuron: {Specimen: {atlasId: "atlas-id-1"}}}),
+            getAnnotation: vi.fn().mockResolvedValue({Neuron: {Specimen: {atlasId: "atlas-id-1"}}}),
             getPrecomputed: vi.fn().mockResolvedValue({requestGeneration: vi.fn().mockResolvedValue(undefined)})
         });
 
@@ -354,22 +354,22 @@ describe("updateSearchIndex failures", () => {
             process.mockResolvedValue(undefined);
         }
 
-        const parent = prototypeStub(Reconstruction, {
-            id: "reconstruction-1",
-            status: options.parentStatus ?? ReconstructionStatus.Publishing,
+        const parent = prototypeStub(Annotation, {
+            id: "annotation-1",
+            status: options.parentStatus ?? AnnotationStatus.Publishing,
             onAtlasReconstructionStatusChanged: vi.fn().mockResolvedValue(undefined)
         });
 
-        const lockParent = vi.spyOn(Reconstruction, "findByPk").mockResolvedValue(parent);
+        const lockParent = vi.spyOn(Annotation, "findByPk").mockResolvedValue(parent);
 
         const clearIndex = vi.spyOn(SearchIndex, "destroy").mockResolvedValue(0 as any);
 
         const atlasReconstruction = prototypeStub(AtlasReconstruction, {
             id: "atlas-1",
-            reconstructionId: "reconstruction-1",
+            annotationId: "annotation-1",
             status: AtlasReconstructionStatus.InSearchIndexing,
             failureReason: "a failure from the previous run",
-            getReconstruction: vi.fn().mockResolvedValue(parent)
+            getAnnotation: vi.fn().mockResolvedValue(parent)
         });
 
         return {atlasReconstruction, parent, lockParent, clearIndex};
@@ -392,10 +392,10 @@ describe("updateSearchIndex failures", () => {
 
         await stubs.atlasReconstruction.updateSearchIndex(systemUser);
 
-        expect(stubs.lockParent).toHaveBeenCalledWith("reconstruction-1", {transaction: transaction, lock: Transaction.LOCK.UPDATE});
+        expect(stubs.lockParent).toHaveBeenCalledWith("annotation-1", {transaction: transaction, lock: Transaction.LOCK.UPDATE});
 
-        expect(stubs.parent.status).toBe(ReconstructionStatus.PublishFailed);
-        expect(stubs.parent.update).toHaveBeenCalledWith({status: ReconstructionStatus.PublishFailed}, {transaction: transaction});
+        expect(stubs.parent.status).toBe(AnnotationStatus.PublishFailed);
+        expect(stubs.parent.update).toHaveBeenCalledWith({status: AnnotationStatus.PublishFailed}, {transaction: transaction});
 
         // Child first, then parent - the one lock order, and both writes in the one failure transaction.
         expect(stubs.atlasReconstruction.update.mock.invocationCallOrder[0])
@@ -420,7 +420,7 @@ describe("updateSearchIndex failures", () => {
 
         await stubs.atlasReconstruction.updateSearchIndex(systemUser);
 
-        expect(stubs.parent.status).toBe(ReconstructionStatus.Publishing);
+        expect(stubs.parent.status).toBe(AnnotationStatus.Publishing);
         expect(stubs.parent.update).not.toHaveBeenCalled();
         expect(stubs.parent.onAtlasReconstructionStatusChanged).not.toHaveBeenCalled();
     });
@@ -428,11 +428,11 @@ describe("updateSearchIndex failures", () => {
     // The guard is in onSearchIndexFailed rather than at the call site, so a parent a publish or a replay has moved
     // since is logged and left alone rather than clobbered.  The child's failure still records.
     test("a parent found at some other status is left alone, and the child still fails", async () => {
-        const stubs = indexable({rejectWith: new TypeError("no soma"), parentStatus: ReconstructionStatus.WaitingForAtlasReconstruction});
+        const stubs = indexable({rejectWith: new TypeError("no soma"), parentStatus: AnnotationStatus.WaitingForAtlasReconstruction});
 
         expect(await stubs.atlasReconstruction.updateSearchIndex(systemUser)).toBe(PhaseOutcome.Handled);
 
-        expect(stubs.parent.status).toBe(ReconstructionStatus.WaitingForAtlasReconstruction);
+        expect(stubs.parent.status).toBe(AnnotationStatus.WaitingForAtlasReconstruction);
         expect(stubs.parent.update).not.toHaveBeenCalled();
 
         expect(stubs.atlasReconstruction.status).toBe(AtlasReconstructionStatus.FailedSearchIndexing);
@@ -466,7 +466,7 @@ describe("precomputedChanged failure kinds", () => {
 
         return prototypeStub(AtlasReconstruction, {
             id: "atlas-1",
-            reconstructionId: "reconstruction-1",
+            annotationId: "annotation-1",
             status: AtlasReconstructionStatus.PendingPrecomputed,
             failureReason: "a failure from the previous run",
             failedAt: new Date("2026-01-01")
@@ -496,5 +496,29 @@ describe("precomputedChanged failure kinds", () => {
         expect(atlasReconstruction.status).toBe(AtlasReconstructionStatus.PendingDoiAssignment);
         expect(atlasReconstruction.failureReason).toBeNull();
         expect(atlasReconstruction.failedAt).toBeNull();
+    });
+});
+
+describe("failureText", () => {
+    test("names a database error's message and statement, which Sequelize leaves out of its stack", () => {
+        const parent = Object.assign(new Error("column \"annotationId\" does not exist"), {sql: "SELECT \"annotationId\" FROM \"AtlasReconstruction\";"});
+        const stack = "Error\n    at Query.run (query.js:50:25)";
+        const error = new DatabaseError(parent, {stack: stack});
+
+        const lines = failureText(error).split("\n");
+
+        expect(lines[0]).toBe("SequelizeDatabaseError: column \"annotationId\" does not exist");
+        expect(lines[1]).toBe("    sql: SELECT \"annotationId\" FROM \"AtlasReconstruction\";");
+        expect(lines[2]).toBe("    at Query.run (query.js:50:25)");
+    });
+
+    test("leaves an ordinary error's stack as it is", () => {
+        const error = new Error("plain failure");
+
+        expect(failureText(error)).toBe(error.stack);
+    });
+
+    test("renders a non-error value as a string", () => {
+        expect(failureText("plain value")).toBe("plain value");
     });
 });

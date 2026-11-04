@@ -2,13 +2,14 @@ import {Op} from "sequelize";
 
 import {EventLogItem, EventLogItemKind} from "./eventLogItem";
 import {Neuron} from "./neuron";
-import {Reconstruction} from "./reconstruction";
+import {Annotation} from "./annotation";
 import {AtlasReconstruction} from "./atlasReconstruction";
+import {SpecimenSpaceReconstruction} from "./specimenSpaceReconstruction";
 
 export type VersionHistoryEvent = EventLogItem;
 
 export type NeuronVersionHistoryBranch = {
-    reconstructionId: string;
+    annotationId: string;
     status: number;
     startedAt: Date;
     events: VersionHistoryEvent[];
@@ -28,30 +29,48 @@ export async function getNeuronVersionHistory(neuronId: string): Promise<NeuronV
         throw new Error(`Neuron ${neuronId} not found`);
     }
 
-    const reconstructions = await Reconstruction.findAll({
+    const annotations = await Annotation.findAll({
         where: {neuronId},
         paranoid: false
     });
 
-    const reconstructionIds = reconstructions.map(rec => rec.id);
+    const annotationIds = annotations.map(annotation => annotation.id);
 
-    const atlasReconstructions = reconstructionIds.length > 0
+    const specimenSpaceReconstructions = annotationIds.length > 0
+        ? await SpecimenSpaceReconstruction.findAll({
+            where: {annotationId: {[Op.in]: annotationIds}},
+            attributes: ["id", "annotationId"],
+            paranoid: false
+        })
+        : [];
+
+    const atlasReconstructions = annotationIds.length > 0
         ? await AtlasReconstruction.findAll({
-            where: {reconstructionId: {[Op.in]: reconstructionIds}},
+            where: {annotationId: {[Op.in]: annotationIds}},
             paranoid: false
         })
         : [];
 
     const atlasReconstructionIds = atlasReconstructions.map(ar => ar.id);
 
-    const reconstructionToAtlasMap = new Map<string, string[]>();
+    const annotationToAtlasMap = new Map<string, string[]>();
     for (const atlasRec of atlasReconstructions) {
-        const existing = reconstructionToAtlasMap.get(atlasRec.reconstructionId) || [];
+        const existing = annotationToAtlasMap.get(atlasRec.annotationId) || [];
         existing.push(atlasRec.id);
-        reconstructionToAtlasMap.set(atlasRec.reconstructionId, existing);
+        annotationToAtlasMap.set(atlasRec.annotationId, existing);
     }
 
-    const [specimenEvents, trunkEvents, reconstructionEvents, reconstructionChildEvents, atlasChildEvents] = await Promise.all([
+    // On rows that existed before the split the specimen-space id is the annotation id; the Map keeps the parent list
+    // free of duplicates, so no event is fetched twice.
+    const branchByParentId = new Map<string, string>();
+    for (const annotationId of annotationIds) {
+        branchByParentId.set(annotationId, annotationId);
+    }
+    for (const specimenSpaceReconstruction of specimenSpaceReconstructions) {
+        branchByParentId.set(specimenSpaceReconstruction.id, specimenSpaceReconstruction.annotationId);
+    }
+
+    const [specimenEvents, trunkEvents, annotationEvents, annotationChildEvents, atlasChildEvents] = await Promise.all([
         EventLogItem.findAll({
             where: {
                 targetId: neuron.specimenId,
@@ -74,20 +93,22 @@ export async function getNeuronVersionHistory(neuronId: string): Promise<NeuronV
             order: [["createdAt", "ASC"]]
         }),
 
-        reconstructionIds.length > 0
+        annotationIds.length > 0
             ? EventLogItem.findAll({
                 where: {
                     parentId: neuronId,
-                    kind: {[Op.between]: [EventLogItemKind.ReconstructionCreate, EventLogItemKind.ReconstructionArchive]}
+                    kind: {[Op.between]: [EventLogItemKind.AnnotationCreate, EventLogItemKind.AnnotationArchive]}
                 },
                 order: [["createdAt", "ASC"]]
             })
             : [],
 
-        reconstructionIds.length > 0
+        // One query for the atlas, specimen-space and specimen precomputed events: the first two are parented by the
+        // annotation, the last by the specimen-space row.
+        annotationIds.length > 0
             ? EventLogItem.findAll({
                 where: {
-                    parentId: {[Op.in]: reconstructionIds},
+                    parentId: {[Op.in]: [...branchByParentId.keys()]},
                     kind: {[Op.gte]: EventLogItemKind.AtlasReconstructionCreate}
                 },
                 order: [["createdAt", "ASC"]]
@@ -105,20 +126,20 @@ export async function getNeuronVersionHistory(neuronId: string): Promise<NeuronV
             : []
     ]);
 
-    const reconstructionEventsByTarget = new Map<string, EventLogItem[]>();
-    for (const event of reconstructionEvents) {
+    const annotationEventsByTarget = new Map<string, EventLogItem[]>();
+    for (const event of annotationEvents) {
         const targetId = event.targetId;
-        const existing = reconstructionEventsByTarget.get(targetId) || [];
+        const existing = annotationEventsByTarget.get(targetId) || [];
         existing.push(event);
-        reconstructionEventsByTarget.set(targetId, existing);
+        annotationEventsByTarget.set(targetId, existing);
     }
 
-    const eventsByParentReconstruction = new Map<string, EventLogItem[]>();
-    for (const event of reconstructionChildEvents) {
-        const parentId = (event as any).parentId as string;
-        const existing = eventsByParentReconstruction.get(parentId) || [];
+    const eventsByParentAnnotation = new Map<string, EventLogItem[]>();
+    for (const event of annotationChildEvents) {
+        const branchId = branchByParentId.get((event as any).parentId as string);
+        const existing = eventsByParentAnnotation.get(branchId) || [];
         existing.push(event);
-        eventsByParentReconstruction.set(parentId, existing);
+        eventsByParentAnnotation.set(branchId, existing);
     }
 
     const eventsByAtlasReconstruction = new Map<string, EventLogItem[]>();
@@ -129,16 +150,16 @@ export async function getNeuronVersionHistory(neuronId: string): Promise<NeuronV
         eventsByAtlasReconstruction.set(parentId, existing);
     }
 
-    const branches: NeuronVersionHistoryBranch[] = reconstructions.map(rec => {
+    const branches: NeuronVersionHistoryBranch[] = annotations.map(annotation => {
         const branchEvents: EventLogItem[] = [];
 
-        const recEvents = reconstructionEventsByTarget.get(rec.id) || [];
-        branchEvents.push(...recEvents);
+        const ownEvents = annotationEventsByTarget.get(annotation.id) || [];
+        branchEvents.push(...ownEvents);
 
-        const childEvents = eventsByParentReconstruction.get(rec.id) || [];
+        const childEvents = eventsByParentAnnotation.get(annotation.id) || [];
         branchEvents.push(...childEvents);
 
-        const atlasIds = reconstructionToAtlasMap.get(rec.id) || [];
+        const atlasIds = annotationToAtlasMap.get(annotation.id) || [];
         for (const atlasId of atlasIds) {
             const atlasEvents = eventsByAtlasReconstruction.get(atlasId) || [];
             branchEvents.push(...atlasEvents);
@@ -147,9 +168,9 @@ export async function getNeuronVersionHistory(neuronId: string): Promise<NeuronV
         branchEvents.sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime());
 
         return {
-            reconstructionId: rec.id,
-            status: rec.status,
-            startedAt: rec.startedAt,
+            annotationId: annotation.id,
+            status: annotation.status,
+            startedAt: annotation.startedAt,
             events: branchEvents
         };
     });

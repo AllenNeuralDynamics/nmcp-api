@@ -36,8 +36,7 @@ function stub(id: string | null = "atlas-1") {
 
     const atlasReconstruction = {
         id: id,
-        doi: "10.0/abc",
-        getReconstruction: vi.fn().mockResolvedValue({getNeuron: getNeuron}),
+        getAnnotation: vi.fn().mockResolvedValue({doi: "10.0/abc", getNeuron: getNeuron}),
         getSoma: vi.fn().mockResolvedValue(somaNode)
     };
 
@@ -101,7 +100,7 @@ describe("SearchIndexOperation.process", () => {
 
         await stubs.operation.process(transaction);
 
-        expect(stubs.atlasReconstruction.getReconstruction).toHaveBeenCalledWith({transaction: transaction});
+        expect(stubs.atlasReconstruction.getAnnotation).toHaveBeenCalledWith({transaction: transaction});
         expect(stubs.atlasReconstruction.getSoma).toHaveBeenCalledWith({transaction: transaction});
         expect(stubs.getNeuron).toHaveBeenCalledWith(expect.objectContaining({transaction: transaction}));
 
@@ -114,12 +113,26 @@ describe("SearchIndexOperation.process", () => {
         }
     });
 
+    test("index rows carry the annotation's DOI", async () => {
+        const stubs = stub();
+
+        await stubs.operation.process(transaction);
+
+        const rows = stubs.bulkCreate.mock.calls.flatMap((call: any[]) => call[0]);
+
+        expect(rows.length).toBeGreaterThan(0);
+
+        for (const row of rows) {
+            expect(row.doi).toBe("10.0/abc");
+        }
+    });
+
     test("a reconstruction with no id does nothing at all", async () => {
         const stubs = stub(null);
 
         await stubs.operation.process(transaction);
 
-        expect(stubs.atlasReconstruction.getReconstruction).not.toHaveBeenCalled();
+        expect(stubs.atlasReconstruction.getAnnotation).not.toHaveBeenCalled();
         expect(stubs.destroy).not.toHaveBeenCalled();
         expect(stubs.bulkCreate).not.toHaveBeenCalled();
     });

@@ -5,12 +5,12 @@ import {expect, test, vi, describe, afterEach} from "vitest";
 const {Op} = require("sequelize");
 const {User, UserPermissions} = require("../src/models/user");
 const {
-    Reconstruction,
+    Annotation,
     PublishAllLimit,
     PublishRefusalError,
     PublishedCandidateBlockingStatuses
-} = require("../src/models/reconstruction");
-const {ReconstructionStatus} = require("../src/models/reconstructionStatus");
+} = require("../src/models/annotation");
+const {AnnotationStatus} = require("../src/models/annotationStatus");
 const {UnauthorizedError} = require("../src/graphql/secureResolvers");
 
 const transaction = {sentinel: "t"} as any;
@@ -27,7 +27,7 @@ const publisher = userWith(UserPermissions.PublishReview);
 function stubTransactions() {
     const transactionFn = vi.fn().mockImplementation(async (callback: any) => callback(transaction));
 
-    Object.defineProperty(Reconstruction, "sequelize", {value: {transaction: transactionFn}, configurable: true, writable: true});
+    Object.defineProperty(Annotation, "sequelize", {value: {transaction: transactionFn}, configurable: true, writable: true});
 
     return transactionFn;
 }
@@ -40,17 +40,17 @@ function stubTransactions() {
  */
 function reconstructions(count: number, failOn: string[] = [], failWith: () => Error = () => new PublishRefusalError("not publishable", 1008)) {
     return Array.from({length: count}, (_unused, index) => {
-        const reconstruction = Object.create(Reconstruction.prototype);
+        const reconstruction = Object.create(Annotation.prototype);
 
-        reconstruction.id = `reconstruction-${index}`;
-        reconstruction.status = ReconstructionStatus.ReadyToPublish;
+        reconstruction.id = `annotation-${index}`;
+        reconstruction.status = AnnotationStatus.ReadyToPublish;
 
         reconstruction.publishWithTransaction = vi.fn().mockImplementation(async () => {
             if (failOn.includes(reconstruction.id)) {
                 throw failWith();
             }
 
-            reconstruction.status = ReconstructionStatus.Publishing;
+            reconstruction.status = AnnotationStatus.Publishing;
 
             return reconstruction;
         });
@@ -59,11 +59,11 @@ function reconstructions(count: number, failOn: string[] = [], failWith: () => E
     });
 }
 
-const ids = (count: number) => Array.from({length: count}, (_unused, index) => `reconstruction-${index}`);
+const ids = (count: number) => Array.from({length: count}, (_unused, index) => `annotation-${index}`);
 
 afterEach(() => {
     vi.restoreAllMocks();
-    delete (Reconstruction as any).sequelize;
+    delete (Annotation as any).sequelize;
 });
 
 describe("publishAll batch cap", () => {
@@ -74,9 +74,9 @@ describe("publishAll batch cap", () => {
     test("refuses an explicit list of 51 with code 1007, without reading anything", async () => {
         stubTransactions();
 
-        const findAll = vi.spyOn(Reconstruction, "findAll").mockResolvedValue([]);
+        const findAll = vi.spyOn(Annotation, "findAll").mockResolvedValue([]);
 
-        await expect(Reconstruction.publishAll(publisher, ids(51))).rejects.toMatchObject({
+        await expect(Annotation.publishAll(publisher, ids(51))).rejects.toMatchObject({
             message: "At most 50 reconstructions can be published in one request.",
             extensions: {code: 1007}
         });
@@ -89,20 +89,20 @@ describe("publishAll batch cap", () => {
 
         const batch = reconstructions(PublishAllLimit);
 
-        vi.spyOn(Reconstruction, "findAll").mockResolvedValue(batch);
+        vi.spyOn(Annotation, "findAll").mockResolvedValue(batch);
 
-        const published = await Reconstruction.publishAll(publisher, ids(PublishAllLimit));
+        const published = await Annotation.publishAll(publisher, ids(PublishAllLimit));
 
         expect(published).toHaveLength(PublishAllLimit);
-        expect(batch.every((reconstruction: any) => reconstruction.status === ReconstructionStatus.Publishing)).toBe(true);
+        expect(batch.every((reconstruction: any) => reconstruction.status === AnnotationStatus.Publishing)).toBe(true);
     });
 
     test("the explicit-id branch selects exactly the ids asked for", async () => {
         stubTransactions();
 
-        const findAll = vi.spyOn(Reconstruction, "findAll").mockResolvedValue(reconstructions(2));
+        const findAll = vi.spyOn(Annotation, "findAll").mockResolvedValue(reconstructions(2));
 
-        await Reconstruction.publishAll(publisher, ids(2));
+        await Annotation.publishAll(publisher, ids(2));
 
         const options = findAll.mock.calls[0][0] as any;
 
@@ -116,13 +116,13 @@ describe("publishAll batch cap", () => {
     test("ALL is bounded at 50 and ordered by createdAt then id", async () => {
         stubTransactions();
 
-        const findAll = vi.spyOn(Reconstruction, "findAll").mockResolvedValue([]);
+        const findAll = vi.spyOn(Annotation, "findAll").mockResolvedValue([]);
 
-        await Reconstruction.publishAll(publisher, ["ALL"]);
+        await Annotation.publishAll(publisher, ["ALL"]);
 
         const options = findAll.mock.calls[0][0] as any;
 
-        expect(options.where.status).toBe(ReconstructionStatus.ReadyToPublish);
+        expect(options.where.status).toBe(AnnotationStatus.ReadyToPublish);
         expect(options.limit).toBe(50);
         expect(options.order).toEqual([["createdAt", "ASC"], ["id", "ASC"]]);
     });
@@ -132,9 +132,9 @@ describe("publishAll batch cap", () => {
     test("ALL excludes reconstructions whose neuron already holds a publish", async () => {
         stubTransactions();
 
-        const findAll = vi.spyOn(Reconstruction, "findAll").mockResolvedValue([]);
+        const findAll = vi.spyOn(Annotation, "findAll").mockResolvedValue([]);
 
-        await Reconstruction.publishAll(publisher, ["ALL"]);
+        await Annotation.publishAll(publisher, ["ALL"]);
 
         const options = findAll.mock.calls[0][0] as any;
         const clause = options.where[Op.and][0].val as string;
@@ -150,9 +150,9 @@ describe("publishAll batch cap", () => {
     test("the explicit-id branch carries no sibling filter", async () => {
         stubTransactions();
 
-        const findAll = vi.spyOn(Reconstruction, "findAll").mockResolvedValue([]);
+        const findAll = vi.spyOn(Annotation, "findAll").mockResolvedValue([]);
 
-        await Reconstruction.publishAll(publisher, ids(2));
+        await Annotation.publishAll(publisher, ids(2));
 
         const options = findAll.mock.calls[0][0] as any;
 
@@ -163,9 +163,9 @@ describe("publishAll batch cap", () => {
     test("refuses an unauthorized caller before the length check", async () => {
         stubTransactions();
 
-        const findAll = vi.spyOn(Reconstruction, "findAll").mockResolvedValue([]);
+        const findAll = vi.spyOn(Annotation, "findAll").mockResolvedValue([]);
 
-        await expect(Reconstruction.publishAll(userWith(UserPermissions.AnnotateOne), ids(51)))
+        await expect(Annotation.publishAll(userWith(UserPermissions.AnnotateOne), ids(51)))
             .rejects.toBeInstanceOf(UnauthorizedError);
 
         expect(findAll).not.toHaveBeenCalled();
@@ -178,14 +178,14 @@ describe("publishAll per-item failures", () => {
     test("returns what committed and stops at the first refusal", async () => {
         stubTransactions();
 
-        const batch = reconstructions(3, ["reconstruction-1"]);
+        const batch = reconstructions(3, ["annotation-1"]);
 
-        vi.spyOn(Reconstruction, "findAll").mockResolvedValue(batch);
+        vi.spyOn(Annotation, "findAll").mockResolvedValue(batch);
 
-        expect(await Reconstruction.publishAll(publisher, ids(3))).toEqual([batch[0]]);
+        expect(await Annotation.publishAll(publisher, ids(3))).toEqual([batch[0]]);
 
-        expect(batch[0].status).toBe(ReconstructionStatus.Publishing);
-        expect(batch[2].status).toBe(ReconstructionStatus.ReadyToPublish);
+        expect(batch[0].status).toBe(AnnotationStatus.Publishing);
+        expect(batch[2].status).toBe(AnnotationStatus.ReadyToPublish);
         expect(batch[2].publishWithTransaction).not.toHaveBeenCalled();
     });
 
@@ -194,11 +194,11 @@ describe("publishAll per-item failures", () => {
     test("propagates an error that is not a refusal", async () => {
         stubTransactions();
 
-        const batch = reconstructions(3, ["reconstruction-1"], () => new Error("connection terminated unexpectedly"));
+        const batch = reconstructions(3, ["annotation-1"], () => new Error("connection terminated unexpectedly"));
 
-        vi.spyOn(Reconstruction, "findAll").mockResolvedValue(batch);
+        vi.spyOn(Annotation, "findAll").mockResolvedValue(batch);
 
-        await expect(Reconstruction.publishAll(publisher, ids(3))).rejects.toThrow("connection terminated unexpectedly");
+        await expect(Annotation.publishAll(publisher, ids(3))).rejects.toThrow("connection terminated unexpectedly");
 
         expect(batch[2].publishWithTransaction).not.toHaveBeenCalled();
     });
@@ -207,38 +207,38 @@ describe("publishAll per-item failures", () => {
     test("classifies on the type rather than the message", async () => {
         stubTransactions();
 
-        const batch = reconstructions(2, ["reconstruction-1"], () => new Error("This neuron has an existing published reconstruction."));
+        const batch = reconstructions(2, ["annotation-1"], () => new Error("This neuron has an existing published reconstruction."));
 
-        vi.spyOn(Reconstruction, "findAll").mockResolvedValue(batch);
+        vi.spyOn(Annotation, "findAll").mockResolvedValue(batch);
 
-        await expect(Reconstruction.publishAll(publisher, ids(2)))
+        await expect(Annotation.publishAll(publisher, ids(2)))
             .rejects.toThrow("This neuron has an existing published reconstruction.");
     });
 
     test("resolves to an empty list when the selection is empty", async () => {
         stubTransactions();
 
-        vi.spyOn(Reconstruction, "findAll").mockResolvedValue([]);
+        vi.spyOn(Annotation, "findAll").mockResolvedValue([]);
 
-        expect(await Reconstruction.publishAll(publisher, ["ALL"])).toEqual([]);
+        expect(await Annotation.publishAll(publisher, ["ALL"])).toEqual([]);
     });
 
     test("resolves to an empty list when the head of the batch is refused", async () => {
         stubTransactions();
 
-        const batch = reconstructions(3, ["reconstruction-0"]);
+        const batch = reconstructions(3, ["annotation-0"]);
 
-        vi.spyOn(Reconstruction, "findAll").mockResolvedValue(batch);
+        vi.spyOn(Annotation, "findAll").mockResolvedValue(batch);
 
-        expect(await Reconstruction.publishAll(publisher, ["ALL"])).toEqual([]);
+        expect(await Annotation.publishAll(publisher, ["ALL"])).toEqual([]);
     });
 
     test("each item publishes in its own transaction", async () => {
         const transactionFn = stubTransactions();
 
-        vi.spyOn(Reconstruction, "findAll").mockResolvedValue(reconstructions(3));
+        vi.spyOn(Annotation, "findAll").mockResolvedValue(reconstructions(3));
 
-        await Reconstruction.publishAll(publisher, ids(3));
+        await Annotation.publishAll(publisher, ids(3));
 
         expect(transactionFn).toHaveBeenCalledTimes(3);
     });

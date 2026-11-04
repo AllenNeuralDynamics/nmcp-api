@@ -7,10 +7,10 @@ import {AtlasKindId} from "../models/atlasKind";
 import {Collection} from "../models/collection";
 import {Injection, InjectionShape} from "../models/injection";
 import {Neuron, NeuronShape} from "../models/neuron";
-import {Reconstruction} from "../models/reconstruction";
+import {Annotation} from "../models/annotation";
 import {importMayTransition} from "./importTransitionGuard";
 import {ReconstructionSpace} from "../models/reconstructionSpace";
-import {ReconstructionStatus} from "../models/reconstructionStatus";
+import {AnnotationStatus} from "../models/annotationStatus";
 import {Specimen, SpecimenShape} from "../models/specimen";
 import {User} from "../models/user";
 import {normalizeKeywords} from "../util/keywords";
@@ -103,7 +103,7 @@ const neuronsQuery = `{
   }
 }`;
 
-const immutableReconstructionStatus = [ReconstructionStatus.Published, ReconstructionStatus.Archived, ReconstructionStatus.Untraceable, ReconstructionStatus.Discarded];
+const immutableReconstructionStatus = [AnnotationStatus.Published, AnnotationStatus.Archived, AnnotationStatus.Untraceable, AnnotationStatus.Discarded];
 
 function buildBaseUrl(host: string, port?: string): string {
     return port ? `${host}:${port}` : host;
@@ -371,7 +371,7 @@ async function importNeuron(specimen: Specimen, mlNeuron: MlNeuron, exportNeuron
 }
 
 async function importAtlasReconstruction(neuronId: string, idString: string, swcPath: string, doi?: string): Promise<void> {
-    let reconstruction = await Reconstruction.findOrOpenReconstruction(
+    let reconstruction = await Annotation.findOrOpenAnnotation(
         neuronId,
         User.SystemAutomationUser,
         User.SystemAutomationUser,
@@ -379,23 +379,23 @@ async function importAtlasReconstruction(neuronId: string, idString: string, swc
     );
 
     if (immutableReconstructionStatus.includes(reconstruction.status)) {
-        debug(`${reconstruction.id} (${idString}) skipped ${ReconstructionStatus[reconstruction.status]}`);
+        debug(`${reconstruction.id} (${idString}) skipped ${AnnotationStatus[reconstruction.status]}`);
         return;
     }
 
     // Held to the same source-status rule the portal is, and skipped before the upload and the approve below rather
     // than throwing out of the park.  No report entry - this tool has no report structure yet.
-    if (!importMayTransition(reconstruction.status, ReconstructionStatus.PublishReview)) {
-        debug(`${reconstruction.id} (${idString}) skipped ${ReconstructionStatus[reconstruction.status]} for Publish Review`);
+    if (!importMayTransition(reconstruction.status, AnnotationStatus.PublishReview)) {
+        debug(`${reconstruction.id} (${idString}) skipped ${AnnotationStatus[reconstruction.status]} for Publish Review`);
         return;
     }
 
-    await Reconstruction.requestReview({
-        reconstructionId: reconstruction.id,
-        targetStatus: ReconstructionStatus.PublishReview
+    await Annotation.requestReview({
+        annotationId: reconstruction.id,
+        targetStatus: AnnotationStatus.PublishReview
     }, User.SystemAutomationUser, User.SystemAutomationUser, true);
 
-    await Reconstruction.fromSwcFile(
+    await Annotation.fromSwcFile(
         User.SystemAutomationUser,
         reconstruction.id,
         swcPath,
@@ -403,15 +403,15 @@ async function importAtlasReconstruction(neuronId: string, idString: string, swc
         User.SystemAutomationUser
     );
 
+    // Static rather than through the instance: requestReview and the upload have moved the row since it was read.
     if (doi?.trim()) {
-        const atlasReconstruction = await reconstruction.getAtlasReconstruction();
-        await atlasReconstruction.update({doi: doi.trim()});
+        await Annotation.update({doi: doi.trim()}, {where: {id: reconstruction.id}});
     }
 
     try {
-        reconstruction = await Reconstruction.approveReconstruction(
+        reconstruction = await Annotation.approveAnnotation(
             reconstruction.id,
-            ReconstructionStatus.Approved,
+            AnnotationStatus.Approved,
             User.SystemAutomationUser,
             User.SystemAutomationUser,
             true

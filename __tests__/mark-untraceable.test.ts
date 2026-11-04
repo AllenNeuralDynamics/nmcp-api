@@ -3,10 +3,11 @@ import {expect, test, vi, describe, afterEach} from "vitest";
 // require() rather than import: the .ts sources are compiled to .js in place, and an ESM import yields a
 // different module instance than the CJS one the model methods call into, so the spies would not apply.
 const {User, UserPermissions} = require("../src/models/user");
-const {Reconstruction, UntraceableSourceStatuses} = require("../src/models/reconstruction");
-const {ReconstructionStatus} = require("../src/models/reconstructionStatus");
+const {Annotation, UntraceableSourceStatuses} = require("../src/models/annotation");
+const {AnnotationStatus} = require("../src/models/annotationStatus");
 const {AtlasReconstruction} = require("../src/models/atlasReconstruction");
 const {SpecimenNode} = require("../src/models/specimenNode");
+const {SpecimenSpaceReconstruction} = require("../src/models/specimenSpaceReconstruction");
 const {EventLogItem, EventLogItemKind} = require("../src/models/eventLogItem");
 const {UnauthorizedError} = require("../src/graphql/secureResolvers");
 
@@ -17,49 +18,52 @@ function userWith(permissions: number, id: string = "user-1") {
     return user;
 }
 
-function reconstructionStub(status: number) {
-    const reconstruction = Object.create(Reconstruction.prototype);
-    reconstruction.id = "reconstruction-1";
-    reconstruction.neuronId = "neuron-1";
-    reconstruction.annotatorId = "annotator-1";
-    reconstruction.status = status;
-    reconstruction.update = vi.fn().mockImplementation(async (update: any) => {
-        Object.assign(reconstruction, update);
-        return reconstruction;
+function annotationStub(status: number) {
+    const annotation = Object.create(Annotation.prototype);
+    annotation.id = "annotation-1";
+    annotation.neuronId = "neuron-1";
+    annotation.annotatorId = "annotator-1";
+    annotation.status = status;
+    annotation.update = vi.fn().mockImplementation(async (update: any) => {
+        Object.assign(annotation, update);
+        return annotation;
     });
-    reconstruction.destroy = vi.fn();
-    return reconstruction;
+    annotation.destroy = vi.fn();
+    return annotation;
 }
 
-function stub(status: number, user: any) {
-    const reconstruction = reconstructionStub(status);
+const transaction = {sentinel: "t"};
 
-    vi.spyOn(Reconstruction, "findByPk").mockResolvedValue(reconstruction);
+function stub(status: number, user: any) {
+    const annotation = annotationStub(status);
+
+    vi.spyOn(Annotation, "findByPk").mockResolvedValue(annotation);
     vi.spyOn(User, "findUserOrId").mockResolvedValue(user);
 
     // markUntraceable uses the callback form of transaction(), so the stub has to invoke the callback.  Model.sequelize
     // is a readonly static assigned during init(), which never runs here, so define it rather than assign it.
-    Object.defineProperty(Reconstruction, "sequelize", {
-        value: {transaction: vi.fn().mockImplementation(async (callback: any) => callback({}))},
+    Object.defineProperty(Annotation, "sequelize", {
+        value: {transaction: vi.fn().mockImplementation(async (callback: any) => callback(transaction))},
         configurable: true,
         writable: true
     });
 
     return {
-        reconstruction: reconstruction,
-        discardForReconstruction: vi.spyOn(AtlasReconstruction, "discardForReconstruction").mockResolvedValue(undefined),
+        annotation: annotation,
+        discardAtlas: vi.spyOn(AtlasReconstruction, "discardForAnnotation").mockResolvedValue(undefined),
+        discardSpecimenSpace: vi.spyOn(SpecimenSpaceReconstruction, "discardForAnnotation").mockResolvedValue(undefined),
         destroyNodes: vi.spyOn(SpecimenNode, "destroy").mockResolvedValue(0),
         create: vi.spyOn(EventLogItem, "create").mockResolvedValue({id: "event-1"})
     };
 }
 
-const allStatuses = Object.keys(ReconstructionStatus)
+const allStatuses = Object.keys(AnnotationStatus)
     .filter(key => isNaN(Number(key)))
-    .map(key => ReconstructionStatus[key] as number);
+    .map(key => AnnotationStatus[key] as number);
 
 afterEach(() => {
     vi.restoreAllMocks();
-    delete (Reconstruction as any).sequelize;
+    delete (Annotation as any).sequelize;
 });
 
 describe("markUntraceable authorization", () => {
@@ -69,28 +73,28 @@ describe("markUntraceable authorization", () => {
         ["a peer reviewer", UserPermissions.PeerReview, "user-1"],
         ["a publish reviewer", UserPermissions.PublishReview, "user-1"]
     ])("allows %s", async (_label: string, permissions: number, id: string) => {
-        const stubs = stub(ReconstructionStatus.InProgress, userWith(permissions, id));
+        const stubs = stub(AnnotationStatus.InProgress, userWith(permissions, id));
 
-        const reconstruction = await Reconstruction.markUntraceable("reconstruction-1", "user-1");
+        const annotation = await Annotation.markUntraceable("annotation-1", "user-1");
 
-        expect(reconstruction.status).toBe(ReconstructionStatus.Untraceable);
-        expect(stubs.reconstruction.update).toHaveBeenCalledWith({status: ReconstructionStatus.Untraceable}, expect.anything());
+        expect(annotation.status).toBe(AnnotationStatus.Untraceable);
+        expect(stubs.annotation.update).toHaveBeenCalledWith({status: AnnotationStatus.Untraceable}, expect.anything());
     });
 
-    test("refuses an annotator who does not own the reconstruction", async () => {
-        const stubs = stub(ReconstructionStatus.InProgress, userWith(UserPermissions.AnnotateOne, "annotator-2"));
+    test("refuses an annotator who does not own the annotation", async () => {
+        const stubs = stub(AnnotationStatus.InProgress, userWith(UserPermissions.AnnotateOne, "annotator-2"));
 
-        await expect(Reconstruction.markUntraceable("reconstruction-1", "annotator-2")).rejects.toBeInstanceOf(UnauthorizedError);
+        await expect(Annotation.markUntraceable("annotation-1", "annotator-2")).rejects.toBeInstanceOf(UnauthorizedError);
 
-        expect(stubs.reconstruction.update).not.toHaveBeenCalled();
+        expect(stubs.annotation.update).not.toHaveBeenCalled();
     });
 
     test("refuses when there is no user", async () => {
-        const stubs = stub(ReconstructionStatus.InProgress, null);
+        const stubs = stub(AnnotationStatus.InProgress, null);
 
-        await expect(Reconstruction.markUntraceable("reconstruction-1", "user-1")).rejects.toBeInstanceOf(UnauthorizedError);
+        await expect(Annotation.markUntraceable("annotation-1", "user-1")).rejects.toBeInstanceOf(UnauthorizedError);
 
-        expect(stubs.reconstruction.update).not.toHaveBeenCalled();
+        expect(stubs.annotation.update).not.toHaveBeenCalled();
     });
 });
 
@@ -98,28 +102,28 @@ describe("markUntraceable source status", () => {
     test.each(UntraceableSourceStatuses as number[])("allows source status %s", async (status: number) => {
         const stubs = stub(status, userWith(UserPermissions.Admin));
 
-        await Reconstruction.markUntraceable("reconstruction-1", "user-1");
+        await Annotation.markUntraceable("annotation-1", "user-1");
 
-        expect(stubs.reconstruction.update).toHaveBeenCalledTimes(1);
+        expect(stubs.annotation.update).toHaveBeenCalledTimes(1);
     });
 
     test.each([
-        ReconstructionStatus.PeerReview,
-        ReconstructionStatus.PublishReview,
-        ReconstructionStatus.Approved,
-        ReconstructionStatus.WaitingForAtlasReconstruction,
-        ReconstructionStatus.ReadyToPublish,
-        ReconstructionStatus.Publishing,
-        ReconstructionStatus.Published,
-        ReconstructionStatus.Archived,
-        ReconstructionStatus.Untraceable,
-        ReconstructionStatus.Discarded
+        AnnotationStatus.PeerReview,
+        AnnotationStatus.PublishReview,
+        AnnotationStatus.Approved,
+        AnnotationStatus.WaitingForAtlasReconstruction,
+        AnnotationStatus.ReadyToPublish,
+        AnnotationStatus.Publishing,
+        AnnotationStatus.Published,
+        AnnotationStatus.Archived,
+        AnnotationStatus.Untraceable,
+        AnnotationStatus.Discarded
     ])("refuses source status %s even for an admin", async (status: number) => {
         const stubs = stub(status, userWith(UserPermissions.Admin));
 
-        await expect(Reconstruction.markUntraceable("reconstruction-1", "user-1")).rejects.toThrow(/as untraceable/);
+        await expect(Annotation.markUntraceable("annotation-1", "user-1")).rejects.toThrow(/as untraceable/);
 
-        expect(stubs.reconstruction.update).not.toHaveBeenCalled();
+        expect(stubs.annotation.update).not.toHaveBeenCalled();
     });
 
     // The teardown below destroys the child, the quality control row and both node tables, so the state rule matters
@@ -127,9 +131,9 @@ describe("markUntraceable source status", () => {
     test.each(UntraceableSourceStatuses as number[])("disregardAuth bypasses the predicate but not the source-status list, from %s", async (status: number) => {
         const stubs = stub(status, userWith(UserPermissions.None, "annotator-2"));
 
-        await Reconstruction.markUntraceable("reconstruction-1", "annotator-2", null, true);
+        await Annotation.markUntraceable("annotation-1", "annotator-2", null, true);
 
-        expect(stubs.reconstruction.update).toHaveBeenCalledTimes(1);
+        expect(stubs.annotation.update).toHaveBeenCalledTimes(1);
     });
 
     test.each(allStatuses.filter(status => !(UntraceableSourceStatuses as number[]).includes(status)))(
@@ -137,46 +141,48 @@ describe("markUntraceable source status", () => {
         async (status: number) => {
             const stubs = stub(status, userWith(UserPermissions.None, "annotator-2"));
 
-            await expect(Reconstruction.markUntraceable("reconstruction-1", "annotator-2", null, true)).rejects.toThrow(/as untraceable/);
+            await expect(Annotation.markUntraceable("annotation-1", "annotator-2", null, true)).rejects.toThrow(/as untraceable/);
 
-            expect(stubs.reconstruction.update).not.toHaveBeenCalled();
-            expect(stubs.reconstruction.destroy).not.toHaveBeenCalled();
-            expect(stubs.discardForReconstruction).not.toHaveBeenCalled();
+            expect(stubs.annotation.update).not.toHaveBeenCalled();
+            expect(stubs.annotation.destroy).not.toHaveBeenCalled();
+            expect(stubs.discardAtlas).not.toHaveBeenCalled();
             expect(stubs.destroyNodes).not.toHaveBeenCalled();
         });
 });
 
 describe("markUntraceable teardown", () => {
-    test("soft-deletes the reconstruction and everything downstream of it", async () => {
-        const stubs = stub(ReconstructionStatus.InProgress, userWith(UserPermissions.Admin));
+    test("soft-deletes the annotation and everything downstream of it", async () => {
+        const stubs = stub(AnnotationStatus.InProgress, userWith(UserPermissions.Admin));
 
-        await Reconstruction.markUntraceable("reconstruction-1", "user-1");
+        await Annotation.markUntraceable("annotation-1", "user-1");
 
-        expect(stubs.reconstruction.destroy).toHaveBeenCalledTimes(1);
-        expect(stubs.discardForReconstruction).toHaveBeenCalledTimes(1);
-        expect(stubs.destroyNodes).toHaveBeenCalledTimes(1);
-        expect((stubs.destroyNodes.mock.calls[0][0] as any).where).toEqual({reconstructionId: "reconstruction-1"});
+        expect(stubs.annotation.destroy).toHaveBeenCalledTimes(1);
+        expect(stubs.discardAtlas).toHaveBeenCalledTimes(1);
+        expect(stubs.discardSpecimenSpace).toHaveBeenCalledWith("annotation-1", transaction);
+        expect(stubs.discardAtlas.mock.invocationCallOrder[0]).toBeLessThan(stubs.discardSpecimenSpace.mock.invocationCallOrder[0]);
+        expect(stubs.discardSpecimenSpace.mock.invocationCallOrder[0]).toBeLessThan(stubs.annotation.destroy.mock.invocationCallOrder[0]);
+        expect(stubs.destroyNodes).not.toHaveBeenCalled();
     });
 
     test("records the event under its own kind", async () => {
-        const stubs = stub(ReconstructionStatus.InProgress, userWith(UserPermissions.Admin));
+        const stubs = stub(AnnotationStatus.InProgress, userWith(UserPermissions.Admin));
 
-        await Reconstruction.markUntraceable("reconstruction-1", "user-1");
+        await Annotation.markUntraceable("annotation-1", "user-1");
 
         expect(stubs.create).toHaveBeenCalledTimes(1);
         expect(stubs.create.mock.calls[0][0]).toMatchObject({
-            kind: EventLogItemKind.ReconstructionUntraceable,
-            name: "ReconstructionUntraceable",
-            targetId: "reconstruction-1"
+            kind: EventLogItemKind.AnnotationUntraceable,
+            name: "AnnotationUntraceable",
+            targetId: "annotation-1"
         });
     });
 
     test("sets the status before deleting, so the row is identifiable afterwards", async () => {
-        const stubs = stub(ReconstructionStatus.InProgress, userWith(UserPermissions.Admin));
+        const stubs = stub(AnnotationStatus.InProgress, userWith(UserPermissions.Admin));
 
-        await Reconstruction.markUntraceable("reconstruction-1", "user-1");
+        await Annotation.markUntraceable("annotation-1", "user-1");
 
-        expect(stubs.reconstruction.update.mock.invocationCallOrder[0])
-            .toBeLessThan(stubs.reconstruction.destroy.mock.invocationCallOrder[0]);
+        expect(stubs.annotation.update.mock.invocationCallOrder[0])
+            .toBeLessThan(stubs.annotation.destroy.mock.invocationCallOrder[0]);
     });
 });
