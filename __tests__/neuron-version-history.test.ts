@@ -44,25 +44,36 @@ const events = [
     event("atlas-create-2", EventLogItemKind.AtlasReconstructionCreate, "atlas-2", "annotation-2", 33),
     event("specimen-space-upload-2", EventLogItemKind.SpecimenSpaceReconstructionUpload, "specimen-space-2", "annotation-2", 34),
     event("precomputed-update-2", EventLogItemKind.PrecomputedUpdate, "precomputed-2", "specimen-space-2", 35),
-    event("quality-control-2", EventLogItemKind.QualityControlCreate, "qc-2", "atlas-2", 36)
+    event("quality-control-2", EventLogItemKind.QualityControlCreate, "qc-2", "atlas-2", 36),
+    event("raw-upload-2", EventLogItemKind.RawReconstructionUploadCreate, "raw-upload-attempt-2", "annotation-2", 37),
+    event("raw-create-2", EventLogItemKind.RawReconstructionCreate, "raw-2", "annotation-2", 38)
 ];
 
+// Every operator present on the condition must hold, as Sequelize ANDs the operators on one attribute.
 function matches(value: any, condition: any): boolean {
-    if (condition !== null && typeof condition === "object") {
-        if (condition[Op.in]) {
-            return condition[Op.in].includes(value);
-        }
-
-        if (condition[Op.between]) {
-            return value >= condition[Op.between][0] && value <= condition[Op.between][1];
-        }
-
-        if (condition[Op.gte] !== undefined) {
-            return value >= condition[Op.gte];
-        }
+    if (condition === null || typeof condition !== "object") {
+        return value === condition;
     }
 
-    return value === condition;
+    const checks: boolean[] = [];
+
+    if (condition[Op.in]) {
+        checks.push(condition[Op.in].includes(value));
+    }
+
+    if (condition[Op.between]) {
+        checks.push(value >= condition[Op.between][0] && value <= condition[Op.between][1]);
+    }
+
+    if (condition[Op.notBetween]) {
+        checks.push(value < condition[Op.notBetween][0] || value > condition[Op.notBetween][1]);
+    }
+
+    if (condition[Op.gte] !== undefined) {
+        checks.push(value >= condition[Op.gte]);
+    }
+
+    return checks.length > 0 ? checks.every(check => check) : value === condition;
 }
 
 let stubs: any;
@@ -162,5 +173,24 @@ describe("getNeuronVersionHistory", () => {
             attributes: ["id", "annotationId"],
             paranoid: false
         });
+    });
+});
+
+describe("raw reconstruction events", () => {
+    test("stay out of the annotation's branch", async () => {
+        const history = await getNeuronVersionHistory("neuron-1");
+
+        expect(eventIds(history, "annotation-2")).not.toContain("raw-upload-2");
+        expect(eventIds(history, "annotation-2")).not.toContain("raw-create-2");
+    });
+
+    test("are excluded by the annotation-child query's kind", async () => {
+        await getNeuronVersionHistory("neuron-1");
+
+        const childQuery = stubs.findEvents.mock.calls
+            .map((call: any[]) => call[0].where)
+            .find((where: any) => where.kind?.[Op.gte] === EventLogItemKind.AtlasReconstructionCreate);
+
+        expect(childQuery.kind[Op.notBetween]).toEqual([11000, 11499]);
     });
 });

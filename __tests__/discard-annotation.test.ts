@@ -10,6 +10,8 @@ const {AtlasReconstruction} = require("../src/models/atlasReconstruction");
 const {AtlasReconstructionStatus} = require("../src/models/atlasReconstructionStatus");
 const {SpecimenNode} = require("../src/models/specimenNode");
 const {SpecimenSpaceReconstruction} = require("../src/models/specimenSpaceReconstruction");
+const {RawReconstruction} = require("../src/models/rawReconstruction");
+const {RawReconstructionUpload} = require("../src/models/rawReconstructionUpload");
 const {EventLogItem} = require("../src/models/eventLogItem");
 const {UnauthorizedError} = require("../src/graphql/secureResolvers");
 
@@ -61,6 +63,8 @@ function stub(status: number, user: any, childStatus: number = AtlasReconstructi
         findAtlas: findAtlas,
         discardAtlas: vi.spyOn(AtlasReconstruction, "discardForAnnotation").mockResolvedValue(undefined),
         discardSpecimenSpace: vi.spyOn(SpecimenSpaceReconstruction, "discardForAnnotation").mockResolvedValue(undefined),
+        discardRaw: vi.spyOn(RawReconstruction, "discardForAnnotation").mockResolvedValue(undefined),
+        discardRawUploads: vi.spyOn(RawReconstructionUpload, "discardForAnnotation").mockResolvedValue(undefined),
         destroyNodes: vi.spyOn(SpecimenNode, "destroy").mockResolvedValue(0),
         create: vi.spyOn(EventLogItem, "create").mockResolvedValue({id: "event-1"})
     };
@@ -243,6 +247,20 @@ describe("discardAnnotation teardown", () => {
         expect(stubs.discardAtlas).toHaveBeenCalledTimes(1);
         expect(stubs.discardSpecimenSpace).toHaveBeenCalledWith("annotation-1", transaction);
         expect(stubs.annotation.destroy).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe("discardAnnotation raw teardown", () => {
+    test("tears down the raw reconstruction and its upload history after the specimen space, before the destroy", async () => {
+        const stubs = stub(AnnotationStatus.InProgress, userWith(UserPermissions.AnnotateOne, "annotator-1"));
+
+        await Annotation.discardAnnotation("annotation-1", "annotator-1");
+
+        expect(stubs.discardRaw).toHaveBeenCalledWith("annotation-1", transaction);
+        expect(stubs.discardRawUploads).toHaveBeenCalledWith("annotation-1", transaction);
+        expect(stubs.discardSpecimenSpace.mock.invocationCallOrder[0]).toBeLessThan(stubs.discardRaw.mock.invocationCallOrder[0]);
+        expect(stubs.discardRaw.mock.invocationCallOrder[0]).toBeLessThan(stubs.discardRawUploads.mock.invocationCallOrder[0]);
+        expect(stubs.discardRawUploads.mock.invocationCallOrder[0]).toBeLessThan(stubs.annotation.destroy.mock.invocationCallOrder[0]);
     });
 });
 

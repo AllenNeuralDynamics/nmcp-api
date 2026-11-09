@@ -13,6 +13,8 @@ const {Specimen} = require("../src/models/specimen");
 const {Atlas} = require("../src/models/atlas");
 const {SpecimenSpacePrecomputed} = require("../src/models/specimenSpacePrecomputed");
 const {SpecimenSpaceReconstruction} = require("../src/models/specimenSpaceReconstruction");
+const {RawReconstruction} = require("../src/models/rawReconstruction");
+const {RawReconstructionUpload} = require("../src/models/rawReconstructionUpload");
 const {SearchIndex} = require("../src/models/searchIndex");
 const {EventLogItem} = require("../src/models/eventLogItem");
 const {UnauthorizedError} = require("../src/graphql/secureResolvers");
@@ -350,37 +352,30 @@ describe("the actor changes with the status", () => {
         expect(replaceNodeData).not.toHaveBeenCalled();
     });
 
-    // The annotator's own upload source ends with their request: PeerReview admits the peer reviewer, not them.
-    test("requestReview versus owning-annotator specimen upload", async () => {
+    // The case section 3 decision 5 of the publish workflow used to accept: markUntraceable now re-decides under the
+    // lock, so a peer reviewer who could mark the eager InProgress row untraceable is refused at the locked PeerReview.
+    test("requestReview versus markUntraceable", async () => {
         const stubs = interleaved({
             eagerParent: AnnotationStatus.InProgress,
             lockedParent: AnnotationStatus.PeerReview,
-            user: userWith(UserPermissions.AnnotateOne, "annotator-1")
+            user: userWith(UserPermissions.PeerReview)
         });
 
-        stubSpecimenSpace();
-        const replaceNodeData = vi.spyOn(SpecimenSpaceReconstruction.prototype as any, "replaceNodeData").mockResolvedValue(undefined);
+        const teardowns = [
+            vi.spyOn(AtlasReconstruction, "discardForAnnotation").mockResolvedValue(undefined),
+            vi.spyOn(SpecimenSpaceReconstruction, "discardForAnnotation").mockResolvedValue(undefined),
+            vi.spyOn(RawReconstruction, "discardForAnnotation").mockResolvedValue(undefined),
+            vi.spyOn(RawReconstructionUpload, "discardForAnnotation").mockResolvedValue(undefined)
+        ];
 
-        await expect(stubs.eager.fromParsedStructures(userWith(UserPermissions.AnnotateOne, "annotator-1"), ReconstructionSpace.Specimen, reconstructionData()))
-            .rejects.toBeInstanceOf(UnauthorizedError);
+        await expect(Annotation.markUntraceable("annotation-1", "user-1"))
+            .rejects.toThrow("Cannot mark a reconstruction with status PeerReview as untraceable.");
 
-        expect(replaceNodeData).not.toHaveBeenCalled();
-    });
+        for (const teardown of teardowns) {
+            expect(teardown).not.toHaveBeenCalled();
+        }
 
-    test("hold versus owning-annotator specimen upload", async () => {
-        const stubs = interleaved({
-            eagerParent: AnnotationStatus.InProgress,
-            lockedParent: AnnotationStatus.OnHold,
-            user: userWith(UserPermissions.AnnotateOne, "annotator-1")
-        });
-
-        stubSpecimenSpace();
-        const replaceNodeData = vi.spyOn(SpecimenSpaceReconstruction.prototype as any, "replaceNodeData").mockResolvedValue(undefined);
-
-        await expect(stubs.eager.fromParsedStructures(userWith(UserPermissions.AnnotateOne, "annotator-1"), ReconstructionSpace.Specimen, reconstructionData()))
-            .rejects.toMatchObject({message: "Uploading the specimen-space reconstruction is not allowed while in OnHold.", extensions: {code: 1009}});
-
-        expect(replaceNodeData).not.toHaveBeenCalled();
+        expect(stubs.locked.update).not.toHaveBeenCalled();
     });
 
     test("the same upload under disregardAuth succeeds, so the import path is unaffected", async () => {
@@ -455,6 +450,13 @@ describe("lock order", () => {
         return {parent: parent, child: child, callOrder: callOrder};
     }
 
+    function stubTeardowns() {
+        vi.spyOn(AtlasReconstruction, "discardForAnnotation").mockResolvedValue(undefined);
+        vi.spyOn(SpecimenSpaceReconstruction, "discardForAnnotation").mockResolvedValue(undefined);
+        vi.spyOn(RawReconstruction, "discardForAnnotation").mockResolvedValue(undefined);
+        vi.spyOn(RawReconstructionUpload, "discardForAnnotation").mockResolvedValue(undefined);
+    }
+
     test("approve takes the child before the parent", async () => {
         const stubs = ordered(AnnotationStatus.PublishReview, AtlasReconstructionStatus.ReadyToProcess, userWith(UserPermissions.Admin));
 
@@ -474,10 +476,19 @@ describe("lock order", () => {
     test("discard takes the child before the parent", async () => {
         const stubs = ordered(AnnotationStatus.PublishReview, AtlasReconstructionStatus.ReadyToPublish, userWith(UserPermissions.Admin));
 
-        vi.spyOn(AtlasReconstruction, "discardForAnnotation").mockResolvedValue(undefined);
-        vi.spyOn(SpecimenSpaceReconstruction, "discardForAnnotation").mockResolvedValue(undefined);
+        stubTeardowns();
 
         await Annotation.discardAnnotation("annotation-1", "user-1");
+
+        expect(stubs.callOrder).toEqual(["child", "parent"]);
+    });
+
+    test("markUntraceable takes the child before the parent", async () => {
+        const stubs = ordered(AnnotationStatus.InProgress, AtlasReconstructionStatus.Initialized, userWith(UserPermissions.Admin));
+
+        stubTeardowns();
+
+        await Annotation.markUntraceable("annotation-1", "user-1");
 
         expect(stubs.callOrder).toEqual(["child", "parent"]);
     });

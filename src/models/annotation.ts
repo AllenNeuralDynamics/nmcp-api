@@ -20,7 +20,7 @@ import {SpecimenSpacePrecomputed} from "./specimenSpacePrecomputed";
 import {SpecimenSpaceReconstruction} from "./specimenSpaceReconstruction";
 import {SpecimenSpaceReconstructionStatus} from "./specimenSpaceReconstructionStatus";
 import {Neuron} from "./neuron";
-import {UploadSourceStatuses, User} from "./user";
+import {isImportOnlyUploadStatus, UploadSourceStatuses, User} from "./user";
 import {GqlFile, UnauthorizedError} from "../graphql/secureResolvers";
 import {AnnotationTableName, AtlasReconstructionTableName, NeuronTableName} from "./tableNames";
 import {ReconstructionSpace} from "./reconstructionSpace";
@@ -37,6 +37,8 @@ import {GraphQLError} from "graphql/error";
 import {SearchIndex} from "./searchIndex";
 import {Precomputed} from "./precomputed";
 import {Atlas} from "./atlas";
+import {RawReconstruction} from "./rawReconstruction";
+import {RawReconstructionUpload} from "./rawReconstructionUpload";
 
 const debug = require("debug")("nmcp:nmcp-api:reconstruction");
 
@@ -279,23 +281,25 @@ class UploadError extends Error {
 
 /**
  * The upload gate, for the eager check and the locked re-check alike.  The order is the point: a caller who could not
- * upload this annotation in this space at any status is refused as unauthorized before the status is looked at, so the
- * refusal does not disclose where the reconstruction is; one who could is told the status is the problem (code 1009)
- * rather than handed the same 401, which read as a permissions fault to an admin.  disregardAuth skips both permission
- * tests and keeps the status test.
+ * upload in this space at any status is refused as unauthorized before the status is looked at, so the refusal does not
+ * disclose where the reconstruction is; one who could is told the status is the problem (code 1009) rather than handed
+ * the same 401, which read as a permissions fault to an admin.  disregardAuth is the import tools' flag: it skips both
+ * permission tests and admits ImportOnlyUploadSourceStatuses besides the map.
  */
-function assertUploadAllowed(user: User, space: ReconstructionSpace, status: AnnotationStatus, annotatorId: string, disregardAuth: boolean = false): void {
-    if (!disregardAuth && !user.canUploadReconstructionDataInSpace(space, annotatorId)) {
+function assertUploadAllowed(user: User, space: ReconstructionSpace, status: AnnotationStatus, disregardAuth: boolean = false): void {
+    if (!disregardAuth && !user.canUploadReconstructionDataInSpace(space)) {
         throw new UnauthorizedError();
     }
 
-    if (!UploadSourceStatuses.get(space)?.has(status)) {
+    const admitted = UploadSourceStatuses.get(space)?.has(status) || (disregardAuth && isImportOnlyUploadStatus(space, status));
+
+    if (!admitted) {
         const spaceName = space == ReconstructionSpace.Atlas ? "atlas-space" : "specimen-space";
 
         throw new GraphQLError(`Uploading the ${spaceName} reconstruction is not allowed while in ${AnnotationStatus[status]}.`, {extensions: {code: 1009}});
     }
 
-    if (!disregardAuth && !user.canUploadReconstructionData(space, status, annotatorId)) {
+    if (!disregardAuth && !user.canUploadReconstructionData(space, status)) {
         throw new UnauthorizedError();
     }
 }
@@ -348,6 +352,7 @@ export class Annotation extends BaseModel {
     public getTeamReviewer!: BelongsToGetAssociationMixin<User>;
     public getAtlasReconstruction!: HasOneGetAssociationMixin<AtlasReconstruction>;
     public getSpecimenSpaceReconstruction!: HasOneGetAssociationMixin<SpecimenSpaceReconstruction>;
+    public getRawReconstruction!: HasOneGetAssociationMixin<RawReconstruction>;
 
     public Neuron?: Neuron;
     public Annotator?: User;
@@ -355,6 +360,7 @@ export class Annotation extends BaseModel {
     public TeamReviewer?: User;
     public AtlasReconstruction?: AtlasReconstruction;
     public SpecimenSpaceReconstruction?: SpecimenSpaceReconstruction;
+    public RawReconstruction?: RawReconstruction;
 
     protected static override defaultSort(): OrderItem[] {
         return [["Neuron", "Specimen", "label", "ASC"], ["Neuron", "label", "ASC"]];
@@ -1290,6 +1296,10 @@ export class Annotation extends BaseModel {
 
             await SpecimenSpaceReconstruction.discardForAnnotation(annotation.id, t);
 
+            await RawReconstruction.discardForAnnotation(annotation.id, t);
+
+            await RawReconstructionUpload.discardForAnnotation(annotation.id, t);
+
             const update = {status: AnnotationStatus.Discarded};
 
             await locked.update(update, {transaction: t});
@@ -1324,19 +1334,46 @@ export class Annotation extends BaseModel {
         // out of every ordinary query.  Neuron.untraceableByNeuron is the sole reader that needs it back and overrides
         // paranoid to find it.
         return await Annotation.sequelize.transaction(async (t) => {
+            // Child, then parent - discard's order.  A raw upload at InProgress or Rejected writes its rows under the
+            // annotation's lock, so the teardown must hold the same lock, or an upload committing after the teardown
+            // would leave a live raw reconstruction on an untraceable annotation.
+            await AtlasReconstruction.findOne({
+                where: {annotationId: annotation.id},
+                lock: Transaction.LOCK.UPDATE,
+                transaction: t
+            });
+
+            const locked = await Annotation.findByPk(annotation.id, {transaction: t, lock: Transaction.LOCK.UPDATE});
+
+            if (!locked) {
+                throw new NotFoundError(`Reconstruction ${id} does not exist`);
+            }
+
+            if (!disregardAuth && !user?.canMarkAnnotationUntraceable(locked.annotatorId)) {
+                throw new UnauthorizedError();
+            }
+
+            if (!UntraceableSourceStatuses.includes(locked.status)) {
+                throw new Error(`Cannot mark a reconstruction with status ${AnnotationStatus[locked.status]} as untraceable.`);
+            }
+
             await AtlasReconstruction.discardForAnnotation(user, annotation.id, t);
 
             await SpecimenSpaceReconstruction.discardForAnnotation(annotation.id, t);
 
+            await RawReconstruction.discardForAnnotation(annotation.id, t);
+
+            await RawReconstructionUpload.discardForAnnotation(annotation.id, t);
+
             const update = {status: AnnotationStatus.Untraceable};
 
-            await annotation.update(update, {transaction: t});
+            await locked.update(update, {transaction: t});
 
-            await annotation.destroy({transaction: t});
+            await locked.destroy({transaction: t});
 
-            await annotation.recordEvent(EventLogItemKind.AnnotationUntraceable, update, user, t, substituteUser);
+            await locked.recordEvent(EventLogItemKind.AnnotationUntraceable, update, user, t, substituteUser);
 
-            return annotation;
+            return locked;
         });
     }
 
@@ -1353,7 +1390,7 @@ export class Annotation extends BaseModel {
 
         const [annotation, user] = await Annotation.findAnnotationAndUser(args.annotationId, userOrId);
 
-        assertUploadAllowed(user, args.reconstructionSpace, annotation.status, annotation.annotatorId);
+        assertUploadAllowed(user, args.reconstructionSpace, annotation.status);
 
         const file: any = await args.file;
 
@@ -1381,7 +1418,7 @@ export class Annotation extends BaseModel {
 
         const [annotation, user] = await Annotation.findAnnotationAndUser(args.annotationId, userOrId);
 
-        assertUploadAllowed(user, args.reconstructionSpace, annotation.status, annotation.annotatorId);
+        assertUploadAllowed(user, args.reconstructionSpace, annotation.status);
 
         const file: any = await args.file;
 
@@ -1423,9 +1460,10 @@ export class Annotation extends BaseModel {
     }
 
     /*
-     * Copies the specimen-space properties from the source annotation to this annotation instance.  This is primarily for creating revisions to
-     * neuron reconstructions that will only change the atlas-space reconstruction information and saves the user the step of re-uploading or applying
-     * specimen-space metadata and reconstruction data.
+     * Copies the specimen-space properties from the source annotation to this annotation instance, along with the raw
+     * reconstruction and its full upload history.  This is primarily for creating revisions to neuron reconstructions
+     * that will only change the atlas-space reconstruction information and saves the user the step of re-uploading or
+     * applying specimen-space metadata and reconstruction data.  The source keeps its own raw reconstruction and history.
      */
     private async copyFrom(source: Annotation, user: User, t: Transaction): Promise<void> {
         await this.update({status: AnnotationStatus.InProgress, notes: source.notes, durationHours: source.durationHours}, {transaction: t});
@@ -1438,6 +1476,10 @@ export class Annotation extends BaseModel {
         }
 
         await revisionData.copyFrom(sourceData, user, t);
+
+        await RawReconstruction.copyForRevision(source.id, this.id, t);
+
+        await RawReconstructionUpload.copyForRevision(source.id, this.id, t);
     }
 
     private async fromParsedStructures(user: User, space: ReconstructionSpace, reconstructionData: SimpleReconstruction, substituteUser: User = null, disregardAuth: boolean = false): Promise<void> {
@@ -1459,7 +1501,7 @@ export class Annotation extends BaseModel {
                 // Re-checked under the lock.  The caller's check ran before the file was parsed, which is the slow
                 // part - an approval can easily have committed in between, and both the status and who is allowed to
                 // write at that status change with it.
-                assertUploadAllowed(user, space, locked.status, locked.annotatorId, disregardAuth);
+                assertUploadAllowed(user, space, locked.status, disregardAuth);
 
                 // No lock of its own: every write to this row holds the annotation's lock, taken above.
                 const specimenSpaceReconstruction = await SpecimenSpaceReconstruction.findOne({where: {annotationId: this.id}, transaction: t});
@@ -1502,7 +1544,7 @@ export class Annotation extends BaseModel {
             // Approved is gone as a source: the approval now requires the data, so an upload arriving after one has
             // committed is a lost race, not a deferred step, and replaceNodeData would otherwise rewind the child out
             // of the pipeline and strand the parent at WaitingForAtlasReconstruction.
-            assertUploadAllowed(user, space, locked.status, locked.annotatorId, disregardAuth);
+            assertUploadAllowed(user, space, locked.status, disregardAuth);
 
             // The upload's integer structure ids name no atlas of their own; they are read in the specimen's.
             const atlasId = await Specimen.findAtlasId(neuron.specimenId, t);
@@ -1571,5 +1613,7 @@ export const modelAssociate = () => {
     Annotation.belongsTo(User, {foreignKey: "reviewerId", as: "Reviewer"});
     Annotation.belongsTo(User, {foreignKey: "teamReviewerId", as: "TeamReviewer"});
     Annotation.hasOne(SpecimenSpaceReconstruction, {foreignKey: "annotationId"});
+    Annotation.hasOne(RawReconstruction, {foreignKey: "annotationId"});
+    Annotation.hasMany(RawReconstructionUpload, {foreignKey: "annotationId"});
     Annotation.hasOne(AtlasReconstruction, {foreignKey: {name: "annotationId", allowNull: false}});
 };

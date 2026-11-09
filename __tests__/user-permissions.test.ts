@@ -2,7 +2,7 @@ import {expect, test, describe, vi, afterEach} from "vitest";
 
 // Use require() to get the CJS module instance the compiled sources use (a plain ESM import yields a separate
 // instance under vitest).
-const {User, UserPermissions, isAnnotatorUploadStatus, UserPermissionsAll, UserPermissionsMultipleAnnotationsAll, UserPermissionsSingleAnnotationAll} = require("../src/models/user");
+const {User, UserPermissions, isImportOnlyUploadStatus, isImportUploadSourceStatus, UserPermissionsAll, UserPermissionsMultipleAnnotationsAll, UserPermissionsSingleAnnotationAll} = require("../src/models/user");
 const {DiscardableSourceStatuses, AdminDiscardableSourceStatuses} = require("../src/models/annotation");
 const {AnnotationStatus} = require("../src/models/annotationStatus");
 const {AbandonableFailureStatuses, AtlasReconstructionStatus} = require("../src/models/atlasReconstructionStatus");
@@ -312,28 +312,28 @@ describe("canOperateReconstructionPipeline", () => {
 describe("canUploadReconstructionData", () => {
     test("specimen space requires the bit matching the review the reconstruction is in", () => {
         expect(userWithPermissions(UserPermissions.PeerReview)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.PeerReview, "annotator-1")).toBe(true);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.PeerReview)).toBe(true);
         expect(userWithPermissions(UserPermissions.TeamReview)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.TeamReview, "annotator-1")).toBe(true);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.TeamReview)).toBe(true);
         expect(userWithPermissions(UserPermissions.PublishReview)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.PublishReview, "annotator-1")).toBe(true);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.PublishReview)).toBe(true);
     });
 
     test("specimen space denies the bit for the other review", () => {
         expect(userWithPermissions(UserPermissions.PublishReview)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.PeerReview, "annotator-1")).toBe(false);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.PeerReview)).toBe(false);
         expect(userWithPermissions(UserPermissions.PeerReview)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.PublishReview, "annotator-1")).toBe(false);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.PublishReview)).toBe(false);
     });
 
     // The admin bypass now applies in both spaces, which is what lets one status-to-bit map serve them both.
     test("specimen space exempts an admin who holds no review bit", () => {
         expect(userWithPermissions(UserPermissions.Admin)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.PeerReview, "annotator-1")).toBe(true);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.PeerReview)).toBe(true);
         expect(userWithPermissions(UserPermissions.Admin)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.TeamReview, "annotator-1")).toBe(true);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.TeamReview)).toBe(true);
         expect(userWithPermissions(UserPermissions.Admin)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.PublishReview, "annotator-1")).toBe(true);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.PublishReview)).toBe(true);
     });
 
     test.each([
@@ -348,56 +348,42 @@ describe("canUploadReconstructionData", () => {
         AnnotationStatus.Archived
     ])("specimen space denies status %s outright", (status: number) => {
         expect(userWithPermissions(UserPermissions.Admin | UserPermissions.ReviewAll)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, status, "annotator-1")).toBe(false);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, status)).toBe(false);
     });
 
-    test.each([AnnotationStatus.InProgress, AnnotationStatus.Rejected])("specimen space admits the owning annotator at %s", (status: number) => {
-        expect(userWithPermissionsAndId(UserPermissions.AnnotateOne, "annotator-1")
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, status, "annotator-1")).toBe(true);
-    });
-
-    test.each([AnnotationStatus.InProgress, AnnotationStatus.Rejected])("specimen space refuses %s to anyone but the annotator, an admin included", (status: number) => {
+    // InProgress and Rejected are import-only sources: no portal caller uploads specimen data there, an admin included.
+    test.each([AnnotationStatus.InProgress, AnnotationStatus.Rejected])("specimen space refuses %s to every portal caller", (status: number) => {
         expect(userWithPermissionsAndId(UserPermissions.Admin | UserPermissions.ReviewAll, "admin-1")
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, status, "annotator-1")).toBe(false);
-        expect(userWithPermissionsAndId(UserPermissions.AnnotateOne, "annotator-2")
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, status, "annotator-1")).toBe(false);
-    });
-
-    test.each([AnnotationStatus.InProgress, AnnotationStatus.Rejected])("specimen space admits an admin who is the annotator at %s", (status: number) => {
-        expect(userWithPermissionsAndId(UserPermissions.Admin, "annotator-1")
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, status, "annotator-1")).toBe(true);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, status)).toBe(false);
+        expect(userWithPermissionsAndId(UserPermissions.AnnotateOne, "annotator-1")
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, status)).toBe(false);
     });
 
     test.each([AnnotationStatus.PeerReview, AnnotationStatus.TeamReview, AnnotationStatus.PublishReview])(
-        "specimen space refuses the owning annotator with no review bit at %s",
+        "specimen space refuses an annotator with no review bit at %s",
         (status: number) => {
             expect(userWithPermissionsAndId(UserPermissions.AnnotateOne, "annotator-1")
-                .canUploadReconstructionData(ReconstructionSpace.Specimen, status, "annotator-1")).toBe(false);
+                .canUploadReconstructionData(ReconstructionSpace.Specimen, status)).toBe(false);
         });
 
-    test.each(allStatuses)("atlas space refuses the owning annotator at %s", (status: number) => {
+    test.each(allStatuses)("atlas space refuses an annotator at %s", (status: number) => {
         expect(userWithPermissionsAndId(UserPermissions.AnnotateOne, "annotator-1")
-            .canUploadReconstructionData(ReconstructionSpace.Atlas, status, "annotator-1")).toBe(false);
-    });
-
-    test("a user with no id does not own an annotation with no annotator", () => {
-        expect(userWithPermissions(UserPermissions.AnnotateOne)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.InProgress, undefined)).toBe(false);
+            .canUploadReconstructionData(ReconstructionSpace.Atlas, status)).toBe(false);
     });
 
     test("atlas space allows an admin or the publish-review bit, at publish review", () => {
         expect(userWithPermissions(UserPermissions.Admin)
-            .canUploadReconstructionData(ReconstructionSpace.Atlas, AnnotationStatus.PublishReview, "annotator-1")).toBe(true);
+            .canUploadReconstructionData(ReconstructionSpace.Atlas, AnnotationStatus.PublishReview)).toBe(true);
         expect(userWithPermissions(UserPermissions.PublishReview)
-            .canUploadReconstructionData(ReconstructionSpace.Atlas, AnnotationStatus.PublishReview, "annotator-1")).toBe(true);
+            .canUploadReconstructionData(ReconstructionSpace.Atlas, AnnotationStatus.PublishReview)).toBe(true);
     });
 
     // A team reviewer uploads in both spaces, so atlas space is no longer publish review's alone.
     test("atlas space allows an admin or the team-review bit, at team review", () => {
         expect(userWithPermissions(UserPermissions.Admin)
-            .canUploadReconstructionData(ReconstructionSpace.Atlas, AnnotationStatus.TeamReview, "annotator-1")).toBe(true);
+            .canUploadReconstructionData(ReconstructionSpace.Atlas, AnnotationStatus.TeamReview)).toBe(true);
         expect(userWithPermissions(UserPermissions.TeamReview)
-            .canUploadReconstructionData(ReconstructionSpace.Atlas, AnnotationStatus.TeamReview, "annotator-1")).toBe(true);
+            .canUploadReconstructionData(ReconstructionSpace.Atlas, AnnotationStatus.TeamReview)).toBe(true);
     });
 
     // The status rule the model's locked check used to carry alone: the eager predicate now refuses an atlas upload at
@@ -406,60 +392,57 @@ describe("canUploadReconstructionData", () => {
         "atlas space denies status %s, for an admin as well",
         (status: number) => {
             expect(userWithPermissions(UserPermissions.Admin | UserPermissions.ReviewAll)
-                .canUploadReconstructionData(ReconstructionSpace.Atlas, status, "annotator-1")).toBe(false);
+                .canUploadReconstructionData(ReconstructionSpace.Atlas, status)).toBe(false);
         });
 
-    // The user is "annotator-1" throughout, so the annotatorId column decides ownership.
     test.each([
-        [ReconstructionSpace.Specimen, UserPermissions.Admin, "annotator-2", true],
-        [ReconstructionSpace.Specimen, UserPermissions.PeerReview, "annotator-2", true],
-        [ReconstructionSpace.Specimen, UserPermissions.TeamReview, "annotator-2", true],
-        [ReconstructionSpace.Specimen, UserPermissions.PublishReview, "annotator-2", true],
-        [ReconstructionSpace.Specimen, UserPermissions.AnnotateMany | UserPermissions.Edit, "annotator-2", false],
-        [ReconstructionSpace.Specimen, UserPermissions.AnnotateOne, "annotator-1", true],
-        [ReconstructionSpace.Specimen, UserPermissions.AnnotateOne, "annotator-2", false],
-        [ReconstructionSpace.Atlas, UserPermissions.Admin, "annotator-2", true],
-        [ReconstructionSpace.Atlas, UserPermissions.TeamReview, "annotator-2", true],
-        [ReconstructionSpace.Atlas, UserPermissions.PublishReview, "annotator-2", true],
-        [ReconstructionSpace.Atlas, UserPermissions.PeerReview, "annotator-2", false],
-        [ReconstructionSpace.Atlas, UserPermissions.AnnotateOne, "annotator-2", false],
-        [ReconstructionSpace.Atlas, UserPermissions.AnnotateOne, "annotator-1", false]
-    ])("canUploadReconstructionDataInSpace(%i) for permissions %i on %s's annotation is %s", (space: number, permissions: number, annotatorId: string, expected: boolean) => {
-        expect(userWithPermissionsAndId(permissions, "annotator-1").canUploadReconstructionDataInSpace(space, annotatorId)).toBe(expected);
+        [ReconstructionSpace.Specimen, UserPermissions.Admin, true],
+        [ReconstructionSpace.Specimen, UserPermissions.PeerReview, true],
+        [ReconstructionSpace.Specimen, UserPermissions.TeamReview, true],
+        [ReconstructionSpace.Specimen, UserPermissions.PublishReview, true],
+        [ReconstructionSpace.Specimen, UserPermissions.AnnotateMany | UserPermissions.Edit, false],
+        [ReconstructionSpace.Specimen, UserPermissions.AnnotateOne, false],
+        [ReconstructionSpace.Atlas, UserPermissions.Admin, true],
+        [ReconstructionSpace.Atlas, UserPermissions.TeamReview, true],
+        [ReconstructionSpace.Atlas, UserPermissions.PublishReview, true],
+        [ReconstructionSpace.Atlas, UserPermissions.PeerReview, false],
+        [ReconstructionSpace.Atlas, UserPermissions.AnnotateOne, false]
+    ])("canUploadReconstructionDataInSpace(%i) for permissions %i is %s", (space: number, permissions: number, expected: boolean) => {
+        expect(userWithPermissionsAndId(permissions, "annotator-1").canUploadReconstructionDataInSpace(space)).toBe(expected);
     });
 
     test("atlas space denies a peer reviewer and an annotator", () => {
         expect(userWithPermissions(UserPermissions.PeerReview)
-            .canUploadReconstructionData(ReconstructionSpace.Atlas, AnnotationStatus.PublishReview, "annotator-1")).toBe(false);
+            .canUploadReconstructionData(ReconstructionSpace.Atlas, AnnotationStatus.PublishReview)).toBe(false);
         expect(userWithPermissions(UserPermissions.PeerReview)
-            .canUploadReconstructionData(ReconstructionSpace.Atlas, AnnotationStatus.TeamReview, "annotator-1")).toBe(false);
+            .canUploadReconstructionData(ReconstructionSpace.Atlas, AnnotationStatus.TeamReview)).toBe(false);
         expect(userWithPermissions(UserPermissions.AnnotateOne)
-            .canUploadReconstructionData(ReconstructionSpace.Atlas, AnnotationStatus.PublishReview, "annotator-1")).toBe(false);
+            .canUploadReconstructionData(ReconstructionSpace.Atlas, AnnotationStatus.PublishReview)).toBe(false);
     });
 
-    // The bit tracks the status, not the space: holding TeamReview is no licence to write atlas data at publish review.
+    // The bit tracks the status, not the space: holding TeamReview is no license to write atlas data at publish review.
     test("atlas space still pairs each review status with its own bit", () => {
         expect(userWithPermissions(UserPermissions.TeamReview)
-            .canUploadReconstructionData(ReconstructionSpace.Atlas, AnnotationStatus.PublishReview, "annotator-1")).toBe(false);
+            .canUploadReconstructionData(ReconstructionSpace.Atlas, AnnotationStatus.PublishReview)).toBe(false);
         expect(userWithPermissions(UserPermissions.PublishReview)
-            .canUploadReconstructionData(ReconstructionSpace.Atlas, AnnotationStatus.TeamReview, "annotator-1")).toBe(false);
+            .canUploadReconstructionData(ReconstructionSpace.Atlas, AnnotationStatus.TeamReview)).toBe(false);
     });
 
     // Specimen space keeps the bit tracking the status even with the bypass in place: the peer reviewer is not admitted
     // at publish review, and vice versa.
     test("specimen space still pairs each review status with its own bit", () => {
         expect(userWithPermissions(UserPermissions.PeerReview)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.PublishReview, "annotator-1")).toBe(false);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.PublishReview)).toBe(false);
         expect(userWithPermissions(UserPermissions.PeerReview)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.TeamReview, "annotator-1")).toBe(false);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.TeamReview)).toBe(false);
         expect(userWithPermissions(UserPermissions.TeamReview)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.PeerReview, "annotator-1")).toBe(false);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.PeerReview)).toBe(false);
         expect(userWithPermissions(UserPermissions.TeamReview)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.PublishReview, "annotator-1")).toBe(false);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.PublishReview)).toBe(false);
         expect(userWithPermissions(UserPermissions.PublishReview)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.PeerReview, "annotator-1")).toBe(false);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.PeerReview)).toBe(false);
         expect(userWithPermissions(UserPermissions.PublishReview)
-            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.TeamReview, "annotator-1")).toBe(false);
+            .canUploadReconstructionData(ReconstructionSpace.Specimen, AnnotationStatus.TeamReview)).toBe(false);
     });
 });
 
@@ -863,14 +846,55 @@ describe("updateForShape transaction", () => {
     });
 });
 
-describe("isAnnotatorUploadStatus", () => {
+describe("isImportOnlyUploadStatus", () => {
     test.each(allStatuses)("specimen space status %s", (status: number) => {
         const expected = status == AnnotationStatus.InProgress || status == AnnotationStatus.Rejected;
 
-        expect(isAnnotatorUploadStatus(ReconstructionSpace.Specimen, status)).toBe(expected);
+        expect(isImportOnlyUploadStatus(ReconstructionSpace.Specimen, status)).toBe(expected);
     });
 
-    test.each(allStatuses)("atlas space status %s is never the annotator's", (status: number) => {
-        expect(isAnnotatorUploadStatus(ReconstructionSpace.Atlas, status)).toBe(false);
+    test.each(allStatuses)("atlas space status %s is never import-only", (status: number) => {
+        expect(isImportOnlyUploadStatus(ReconstructionSpace.Atlas, status)).toBe(false);
+    });
+});
+
+describe("isImportUploadSourceStatus", () => {
+    const specimenSources = [AnnotationStatus.InProgress, AnnotationStatus.Rejected, AnnotationStatus.PeerReview, AnnotationStatus.TeamReview, AnnotationStatus.PublishReview];
+    const atlasSources = [AnnotationStatus.TeamReview, AnnotationStatus.PublishReview];
+
+    test.each(allStatuses)("specimen space status %s", (status: number) => {
+        expect(isImportUploadSourceStatus(ReconstructionSpace.Specimen, status)).toBe(specimenSources.includes(status));
+    });
+
+    test.each(allStatuses)("atlas space status %s", (status: number) => {
+        expect(isImportUploadSourceStatus(ReconstructionSpace.Atlas, status)).toBe(atlasSources.includes(status));
+    });
+});
+
+describe("canUploadRawReconstruction", () => {
+    test.each([
+        UserPermissions.Admin,
+        UserPermissions.PeerReview,
+        UserPermissions.TeamReview,
+        UserPermissions.PublishReview
+    ])("admits permissions %i on someone else's annotation", (permissions: number) => {
+        expect(userWithPermissionsAndId(permissions, "reviewer-1").canUploadRawReconstruction("annotator-1")).toBe(true);
+    });
+
+    test("admits the owning annotator", () => {
+        expect(userWithPermissionsAndId(UserPermissions.AnnotateOne, "annotator-1").canUploadRawReconstruction("annotator-1")).toBe(true);
+    });
+
+    test.each([
+        UserPermissions.AnnotateOne,
+        UserPermissions.AnnotateMany,
+        UserPermissions.Edit
+    ])("refuses permissions %i on someone else's annotation", (permissions: number) => {
+        expect(userWithPermissionsAndId(permissions, "annotator-2").canUploadRawReconstruction("annotator-1")).toBe(false);
+    });
+
+    test("a user with no id does not own an annotation with no annotator", () => {
+        expect(userWithPermissions(UserPermissions.AnnotateOne).canUploadRawReconstruction(null)).toBe(false);
+        expect(userWithPermissions(UserPermissions.AnnotateOne).canUploadRawReconstruction(undefined)).toBe(false);
     });
 });

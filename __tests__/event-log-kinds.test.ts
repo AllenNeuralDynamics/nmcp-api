@@ -2,7 +2,7 @@ import {expect, test, describe} from "vitest";
 
 // Use require() to get the CJS module instance the compiled sources use (a plain ESM import yields a separate
 // instance under vitest).
-const {EventLogItemKind, ReviewRequestEventKinds} = require("../src/models/eventLogItem");
+const {EventLogItemKind, RawReconstructionEventKindRange, ReviewRequestEventKinds} = require("../src/models/eventLogItem");
 const {AnnotationStatus} = require("../src/models/annotationStatus");
 
 // The forward members only: a numeric enum's reverse mapping keeps one name per value, so a collision disappears from
@@ -76,5 +76,30 @@ describe("ReviewRequestEventKinds", () => {
             [AnnotationStatus.TeamReview, EventLogItemKind.AnnotationRequestTeamReview],
             [AnnotationStatus.PublishReview, EventLogItemKind.AnnotationRequestPublishReview]
         ]);
+    });
+});
+
+describe("raw reconstruction event kinds", () => {
+    test.each([
+        ["RawReconstructionUploadCreate", 11000],
+        ["RawReconstructionUploadAccept", 11010],
+        ["RawReconstructionUploadFail", 11020],
+        ["RawReconstructionCreate", 11100]
+    ])("%s is %i", (name: string, value: number) => {
+        expect(EventLogItemKind[name]).toBe(value);
+    });
+
+    test("the range is 11000-11499", () => {
+        expect(RawReconstructionEventKindRange).toEqual([11000, 11499]);
+    });
+
+    test("every Raw member lies in the range and no other member does", () => {
+        const [low, high] = RawReconstructionEventKindRange;
+
+        for (const name of memberNames) {
+            const value = EventLogItemKind[name];
+
+            expect(value >= low && value <= high, name).toBe(name.startsWith("Raw"));
+        }
     });
 });

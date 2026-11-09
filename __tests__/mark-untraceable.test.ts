@@ -5,9 +5,12 @@ import {expect, test, vi, describe, afterEach} from "vitest";
 const {User, UserPermissions} = require("../src/models/user");
 const {Annotation, UntraceableSourceStatuses} = require("../src/models/annotation");
 const {AnnotationStatus} = require("../src/models/annotationStatus");
+const {Transaction} = require("sequelize");
 const {AtlasReconstruction} = require("../src/models/atlasReconstruction");
 const {SpecimenNode} = require("../src/models/specimenNode");
 const {SpecimenSpaceReconstruction} = require("../src/models/specimenSpaceReconstruction");
+const {RawReconstruction} = require("../src/models/rawReconstruction");
+const {RawReconstructionUpload} = require("../src/models/rawReconstructionUpload");
 const {EventLogItem, EventLogItemKind} = require("../src/models/eventLogItem");
 const {UnauthorizedError} = require("../src/graphql/secureResolvers");
 
@@ -52,6 +55,9 @@ function stub(status: number, user: any) {
         annotation: annotation,
         discardAtlas: vi.spyOn(AtlasReconstruction, "discardForAnnotation").mockResolvedValue(undefined),
         discardSpecimenSpace: vi.spyOn(SpecimenSpaceReconstruction, "discardForAnnotation").mockResolvedValue(undefined),
+        discardRaw: vi.spyOn(RawReconstruction, "discardForAnnotation").mockResolvedValue(undefined),
+        discardRawUploads: vi.spyOn(RawReconstructionUpload, "discardForAnnotation").mockResolvedValue(undefined),
+        findAtlas: vi.spyOn(AtlasReconstruction, "findOne").mockResolvedValue({id: "atlas-1"}),
         destroyNodes: vi.spyOn(SpecimenNode, "destroy").mockResolvedValue(0),
         create: vi.spyOn(EventLogItem, "create").mockResolvedValue({id: "event-1"})
     };
@@ -184,5 +190,111 @@ describe("markUntraceable teardown", () => {
 
         expect(stubs.annotation.update.mock.invocationCallOrder[0])
             .toBeLessThan(stubs.annotation.destroy.mock.invocationCallOrder[0]);
+    });
+});
+
+describe("markUntraceable raw teardown", () => {
+    test("tears down the raw reconstruction and its upload history after the specimen space, before the destroy", async () => {
+        const stubs = stub(AnnotationStatus.InProgress, userWith(UserPermissions.Admin));
+
+        await Annotation.markUntraceable("annotation-1", "user-1");
+
+        expect(stubs.discardRaw).toHaveBeenCalledWith("annotation-1", transaction);
+        expect(stubs.discardRawUploads).toHaveBeenCalledWith("annotation-1", transaction);
+        expect(stubs.discardSpecimenSpace.mock.invocationCallOrder[0]).toBeLessThan(stubs.discardRaw.mock.invocationCallOrder[0]);
+        expect(stubs.discardRaw.mock.invocationCallOrder[0]).toBeLessThan(stubs.discardRawUploads.mock.invocationCallOrder[0]);
+        expect(stubs.discardRawUploads.mock.invocationCallOrder[0]).toBeLessThan(stubs.annotation.destroy.mock.invocationCallOrder[0]);
+    });
+});
+
+// A raw upload at InProgress or Rejected writes under the annotation's lock, so the teardown takes discard's locks and
+// decides again on what it reads under them.
+describe("markUntraceable locking", () => {
+    test("locks the child, then the annotation, before any teardown", async () => {
+        const stubs = stub(AnnotationStatus.InProgress, userWith(UserPermissions.Admin));
+
+        await Annotation.markUntraceable("annotation-1", "user-1");
+
+        expect(stubs.findAtlas).toHaveBeenCalledWith({where: {annotationId: "annotation-1"}, lock: Transaction.LOCK.UPDATE, transaction});
+        expect(Annotation.findByPk).toHaveBeenCalledWith("annotation-1", {transaction, lock: Transaction.LOCK.UPDATE});
+
+        const lockedRead = (Annotation.findByPk as any).mock.calls.findIndex((call: any[]) => call[1]?.lock == Transaction.LOCK.UPDATE);
+        const lockedOrder = (Annotation.findByPk as any).mock.invocationCallOrder[lockedRead];
+
+        expect(stubs.findAtlas.mock.invocationCallOrder[0]).toBeLessThan(lockedOrder);
+
+        for (const teardown of [stubs.discardAtlas, stubs.discardSpecimenSpace, stubs.discardRaw, stubs.discardRawUploads]) {
+            expect(lockedOrder).toBeLessThan(teardown.mock.invocationCallOrder[0]);
+        }
+    });
+
+    test("refuses a status that moved under the lock", async () => {
+        const stubs = stub(AnnotationStatus.InProgress, userWith(UserPermissions.Admin));
+        const locked = annotationStub(AnnotationStatus.PeerReview);
+
+        (Annotation.findByPk as any).mockResolvedValueOnce(stubs.annotation).mockResolvedValueOnce(locked);
+
+        await expect(Annotation.markUntraceable("annotation-1", "user-1"))
+            .rejects.toThrow("Cannot mark a reconstruction with status PeerReview as untraceable.");
+
+        for (const teardown of [stubs.discardAtlas, stubs.discardSpecimenSpace, stubs.discardRaw, stubs.discardRawUploads]) {
+            expect(teardown).not.toHaveBeenCalled();
+        }
+
+        expect(locked.update).not.toHaveBeenCalled();
+        expect(locked.destroy).not.toHaveBeenCalled();
+    });
+
+    test("refuses an annotation that is gone under the lock", async () => {
+        const stubs = stub(AnnotationStatus.InProgress, userWith(UserPermissions.Admin));
+
+        (Annotation.findByPk as any).mockResolvedValueOnce(stubs.annotation).mockResolvedValueOnce(null);
+
+        await expect(Annotation.markUntraceable("annotation-1", "user-1")).rejects.toThrow(/does not exist/);
+
+        for (const teardown of [stubs.discardAtlas, stubs.discardSpecimenSpace, stubs.discardRaw, stubs.discardRawUploads]) {
+            expect(teardown).not.toHaveBeenCalled();
+        }
+
+        expect(stubs.annotation.update).not.toHaveBeenCalled();
+        expect(stubs.annotation.destroy).not.toHaveBeenCalled();
+    });
+
+    test("writes and returns the locked instance", async () => {
+        const stubs = stub(AnnotationStatus.InProgress, userWith(UserPermissions.Admin));
+        const locked = annotationStub(AnnotationStatus.InProgress);
+
+        (Annotation.findByPk as any).mockResolvedValueOnce(stubs.annotation).mockResolvedValueOnce(locked);
+
+        const result = await Annotation.markUntraceable("annotation-1", "user-1");
+
+        expect(result).toBe(locked);
+        expect(locked.update).toHaveBeenCalledWith({status: AnnotationStatus.Untraceable}, {transaction});
+        expect(locked.destroy).toHaveBeenCalledTimes(1);
+        expect(stubs.annotation.update).not.toHaveBeenCalled();
+        expect(stubs.annotation.destroy).not.toHaveBeenCalled();
+    });
+
+    test("disregardAuth still refuses a locked status outside the source list", async () => {
+        const stubs = stub(AnnotationStatus.InProgress, userWith(UserPermissions.None, "annotator-2"));
+        const locked = annotationStub(AnnotationStatus.PublishReview);
+
+        (Annotation.findByPk as any).mockResolvedValueOnce(stubs.annotation).mockResolvedValueOnce(locked);
+
+        await expect(Annotation.markUntraceable("annotation-1", "annotator-2", null, true)).rejects.toThrow(/as untraceable/);
+
+        expect(locked.update).not.toHaveBeenCalled();
+    });
+
+    test("refuses a caller who lost the permission under the lock", async () => {
+        const stubs = stub(AnnotationStatus.InProgress, userWith(UserPermissions.AnnotateOne, "annotator-1"));
+        const locked = annotationStub(AnnotationStatus.InProgress);
+        locked.annotatorId = "annotator-2";
+
+        (Annotation.findByPk as any).mockResolvedValueOnce(stubs.annotation).mockResolvedValueOnce(locked);
+
+        await expect(Annotation.markUntraceable("annotation-1", "annotator-1")).rejects.toBeInstanceOf(UnauthorizedError);
+
+        expect(locked.update).not.toHaveBeenCalled();
     });
 });

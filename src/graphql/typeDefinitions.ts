@@ -134,6 +134,8 @@ export const typeDefinitions = gql`
 
         exportedAtlasReconstruction(id: String!): PortalReconstruction
 
+        exportedRawReconstruction(id: String!): PortalReconstruction
+
         #
         # Internal queries that require system authentication.
         #
@@ -234,6 +236,13 @@ ReadyToPublish.  Registered DOIs are kept.  Errors with code 1004 from any other
         updateAnnotation(annotationId: String!, duration: Float, notes: String, started: Date, completed: Date): Annotation
         uploadSwcData(uploadArgs: ReconstructionUploadArgs!): Annotation
         uploadParquetData(uploadArgs: ReconstructionUploadArgs!): Annotation
+        """Uploads a raw reconstruction while the annotation is InProgress or Rejected.  The annotation's annotator, a peer,
+team or publish reviewer, or an admin may upload; any other caller gets a 401, any other status gets code 1009, and an
+annotation whose specimen-space reconstruction already has nodes gets code 1010, all before the file is read and none
+recording an attempt.  Past that check every attempt is recorded, and a failure is
+recorded before its error is returned.  The current raw reconstruction is replaced only by a complete upload."""
+        uploadRawSwcData(uploadArgs: RawReconstructionUploadArgs!): RawReconstructionUpload
+        uploadRawParquetData(uploadArgs: RawReconstructionUploadArgs!): RawReconstructionUpload
 
         createApiKey(key: String!, description: String, durationDays: Int, permissions: Int): ApiKey!
         deleteApiKey(id: String!): Boolean!

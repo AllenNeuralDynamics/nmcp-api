@@ -125,17 +125,19 @@ describe("fromParsedStructures in specimen space", () => {
         expect(stubs.specimenSpace.replaceNodeData).toHaveBeenCalledTimes(1);
     });
 
-    test.each([AnnotationStatus.InProgress, AnnotationStatus.Rejected])("accepts the owning annotator at %s", async (status: number) => {
+    test.each([AnnotationStatus.InProgress, AnnotationStatus.Rejected])("refuses the owning annotator at %s as unauthorized", async (status: number) => {
         const stubs = specimenStubs(status);
 
-        await stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.AnnotateOne, "annotator-1"), ReconstructionSpace.Specimen, reconstructionData());
+        await expect(stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.AnnotateOne, "annotator-1"), ReconstructionSpace.Specimen, reconstructionData()))
+            .rejects.toBeInstanceOf(UnauthorizedError);
 
-        expect(stubs.specimenSpace.replaceNodeData).toHaveBeenCalledTimes(1);
+        expect(stubs.specimenSpace.replaceNodeData).not.toHaveBeenCalled();
     });
 
-    // The admin bypass does not reach these: a status absent from UploadSourceStatuses is not an upload source at all,
-    // for anyone, and this is the locked check rather than the permission in any case.
-    test.each(allStatuses.filter(status => ![AnnotationStatus.InProgress, AnnotationStatus.Rejected, AnnotationStatus.PeerReview, AnnotationStatus.TeamReview, AnnotationStatus.PublishReview].includes(status)))(
+    // The admin bypass does not reach these: a status absent from UploadSourceStatuses is not a portal upload source at
+    // all, for anyone - InProgress and Rejected are the import's alone - and this is the locked check rather than the
+    // permission in any case.
+    test.each(allStatuses.filter(status => ![AnnotationStatus.PeerReview, AnnotationStatus.TeamReview, AnnotationStatus.PublishReview].includes(status)))(
         "refuses %s even for an admin",
         async (status: number) => {
             const stubs = specimenStubs(status);
@@ -175,26 +177,26 @@ describe("fromParsedStructures in specimen space", () => {
         expect(stubs.specimenSpace.replaceNodeData).not.toHaveBeenCalled();
     });
 
-    // The annotator's statuses carry no admin bypass, so an admin is refused there as for any status not theirs.
+    // A caller who can upload in specimen space at some status is told the status is the problem.
     test.each([
         [UserPermissions.Admin, AnnotationStatus.InProgress],
         [UserPermissions.Admin, AnnotationStatus.Rejected],
         [UserPermissions.ReviewAll, AnnotationStatus.InProgress],
         [UserPermissions.ReviewAll, AnnotationStatus.Rejected]
-    ])("refuses permission %i who is not the annotator at status %i as unauthorized", async (permissions: number, status: number) => {
+    ])("names status %i to permission %i", async (permissions: number, status: number) => {
         const stubs = specimenStubs(status);
 
         await expect(stubs.reconstruction.fromParsedStructures(userWith(permissions), ReconstructionSpace.Specimen, reconstructionData()))
-            .rejects.toBeInstanceOf(UnauthorizedError);
+            .rejects.toMatchObject({extensions: {code: 1009}});
 
         expect(stubs.specimenSpace.replaceNodeData).not.toHaveBeenCalled();
     });
 
-    test("names the status to the owning annotator", async () => {
+    test("refuses the owning annotator at OnHold as unauthorized", async () => {
         const stubs = specimenStubs(AnnotationStatus.OnHold);
 
         await expect(stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.AnnotateOne, "annotator-1"), ReconstructionSpace.Specimen, reconstructionData()))
-            .rejects.toMatchObject({message: "Uploading the specimen-space reconstruction is not allowed while in OnHold.", extensions: {code: 1009}});
+            .rejects.toBeInstanceOf(UnauthorizedError);
     });
 
     test("refuses the owning annotator at a review status as unauthorized", async () => {
@@ -215,12 +217,21 @@ describe("fromParsedStructures in specimen space", () => {
         expect(stubs.specimenSpace.replaceNodeData).not.toHaveBeenCalled();
     });
 
-    test.each([AnnotationStatus.InProgress, AnnotationStatus.Rejected])("disregardAuth admits %s", async (status: number) => {
+    test.each([AnnotationStatus.InProgress, AnnotationStatus.Rejected])("disregardAuth admits the import-only status %s", async (status: number) => {
         const stubs = specimenStubs(status);
 
         await stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.None), ReconstructionSpace.Specimen, reconstructionData(), null, true);
 
         expect(stubs.specimenSpace.replaceNodeData).toHaveBeenCalledTimes(1);
+    });
+
+    test("disregardAuth still refuses OnHold", async () => {
+        const stubs = specimenStubs(AnnotationStatus.OnHold);
+
+        await expect(stubs.reconstruction.fromParsedStructures(userWith(UserPermissions.None), ReconstructionSpace.Specimen, reconstructionData(), null, true))
+            .rejects.toMatchObject({message: "Uploading the specimen-space reconstruction is not allowed while in OnHold.", extensions: {code: 1009}});
+
+        expect(stubs.specimenSpace.replaceNodeData).not.toHaveBeenCalled();
     });
 
     test("names the status to a reviewer at a status that is not an upload source", async () => {
@@ -503,11 +514,11 @@ describe.each([
             .rejects.toMatchObject({message: `Uploading the ${spaceName} reconstruction is not allowed while in ${statusName}.`, extensions: {code: 1009}});
     });
 
-    test("names the status to the owning annotator in specimen space", async () => {
+    test("refuses the owning annotator in specimen space as unauthorized", async () => {
         reconstructionStub(AnnotationStatus.OnHold);
 
         await expect(Annotation[method](userWith(UserPermissions.AnnotateOne, "annotator-1"), uploadArgs(ReconstructionSpace.Specimen)))
-            .rejects.toMatchObject({message: "Uploading the specimen-space reconstruction is not allowed while in OnHold.", extensions: {code: 1009}});
+            .rejects.toBeInstanceOf(UnauthorizedError);
     });
 
     test("refuses another annotator at InProgress as unauthorized", async () => {

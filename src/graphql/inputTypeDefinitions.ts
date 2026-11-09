@@ -203,6 +203,12 @@ export const inputTypeDefinitions = gql`
         file: Upload!
     }
 
+    input RawReconstructionUploadArgs {
+        annotationId: String!
+        notes: String
+        file: Upload!
+    }
+
     input InputPosition {
         x: Float
         y: Float

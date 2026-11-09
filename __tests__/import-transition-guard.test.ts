@@ -192,6 +192,12 @@ describe("the SmartSheet In Progress row", () => {
         expect(source).toContain("reconstructionDirectories.exists(subjectId, expectData)");
         expect(source).not.toContain("specimensMissingReconstructionDirectory");
     });
+
+    // InProgress and Rejected are import-only sources, absent from the portal's map.
+    test("admits an upload through the import's own source statuses", () => {
+        expect(source).toContain("isImportUploadSourceStatus(space, reconstruction.status)");
+        expect(source).not.toMatch(/import \{[^}]*\bUploadSourceStatuses\b[^}]*\} from "\.\.\/models\/user"/);
+    });
 });
 
 describe("the SmartSheet hold mapping", () => {

@@ -8,7 +8,7 @@ import {AtlasStructure} from "../models/atlasStructure";
 import {Neuron, NeuronShape} from "../models/neuron";
 import {ReferenceDataset, Specimen, SpecimenShape, SpecimenTomography} from "../models/specimen";
 import {Collection} from "../models/collection";
-import {UploadSourceStatuses, User} from "../models/user";
+import {isImportUploadSourceStatus, User} from "../models/user";
 import {Annotation} from "../models/annotation";
 import {importLoadsExistingReconstruction, importMayTransition, sheetExpectsReconstructionData} from "./importTransitionGuard";
 import {ReconstructionDirectoryCache} from "./reconstructionDirectoryCache";
@@ -590,7 +590,7 @@ async function loadReconstructionData(reconstruction: Annotation, subjectId: str
 // Checked before the file is looked for so that a status the model refuses is not attempted and then reported as a
 // parse error, which is where fromSwcFile's refusal would otherwise land.
 function uploadAdmitted(reconstruction: Annotation, space: ReconstructionSpace, subjectId: string, neuronLabel: string): boolean {
-    if (UploadSourceStatuses.get(space)?.has(reconstruction.status)) {
+    if (isImportUploadSourceStatus(space, reconstruction.status)) {
         return true;
     }
 

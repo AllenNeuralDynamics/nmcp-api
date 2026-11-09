@@ -19,6 +19,8 @@ import {
     AnnotationMetadataArgs, ReconstructionRevisionKind
 } from "../models/annotation";
 import {SpecimenSpaceReconstruction} from "../models/specimenSpaceReconstruction";
+import {RawReconstruction} from "../models/rawReconstruction";
+import {RawReconstructionUpload, RawReconstructionUploadArgs} from "../models/rawReconstructionUpload";
 import GraphQLUpload = require("graphql-upload/GraphQLUpload.js");
 import {QualityControl} from "../models/qualityControl";
 import {AtlasNode} from "../models/atlasNode";
@@ -297,6 +299,14 @@ export const secureResolvers = {
             return Annotation.fromParquetUpload(user, uploadArgs);
         },
 
+        uploadRawSwcData(_: any, {uploadArgs}: { uploadArgs: RawReconstructionUploadArgs }, {user}: RequestContext): Promise<RawReconstructionUpload> {
+            return RawReconstructionUpload.fromSwcUpload(user, uploadArgs);
+        },
+
+        uploadRawParquetData(_: any, {uploadArgs}: { uploadArgs: RawReconstructionUploadArgs }, {user}: RequestContext): Promise<RawReconstructionUpload> {
+            return RawReconstructionUpload.fromParquetUpload(user, uploadArgs);
+        },
+
         createApiKey(_: any, args: { key: string, description: string, durationDays?: number, permissions?: number }, {user}: RequestContext): Promise<ApiKey> {
             if (!(user.permissions & UserPermissions.Admin)) {
                 throw new UnauthorizedError();
@@ -348,6 +358,12 @@ export const secureResolvers = {
             // it, and the field is non-null.
             return Promise.resolve(annotation.SpecimenSpaceReconstruction ?? annotation.getSpecimenSpaceReconstruction({paranoid: false}));
         },
+        rawReconstruction(annotation: Annotation): Promise<RawReconstruction> {
+            return Promise.resolve(annotation.RawReconstruction ?? annotation.getRawReconstruction());
+        },
+        latestRawReconstructionUpload(annotation: Annotation): Promise<RawReconstructionUpload> {
+            return RawReconstructionUpload.findLatestForAnnotation(annotation.id);
+        },
         /**
          * Which phase is blocked and why, composed on the server so each client does not have to know which parent
          * statuses are worth pairing with which child status.  Null unless the child sits at a Failed... status.
@@ -371,6 +387,11 @@ export const secureResolvers = {
         async teamReviewer(annotation: Annotation): Promise<User> {
             const user = await annotation.getTeamReviewer({attributes: ["id", "firstName", "lastName", "isSystemUser"]});
             return user?.isSystemUser ? null : user;
+        },
+    } satisfies FieldResolvers,
+    RawReconstructionUpload: {
+        user(upload: RawReconstructionUpload): Promise<User> {
+            return upload.getUser({attributes: ["id", "firstName", "lastName"]});
         },
     } satisfies FieldResolvers,
     SpecimenSpaceReconstruction: {

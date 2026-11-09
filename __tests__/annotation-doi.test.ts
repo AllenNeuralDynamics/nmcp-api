@@ -6,6 +6,8 @@ const {User, UserPermissions} = require("../src/models/user");
 const {Annotation} = require("../src/models/annotation");
 const {AnnotationStatus} = require("../src/models/annotationStatus");
 const {SpecimenSpaceReconstruction} = require("../src/models/specimenSpaceReconstruction");
+const {RawReconstruction} = require("../src/models/rawReconstruction");
+const {RawReconstructionUpload} = require("../src/models/rawReconstructionUpload");
 
 const transaction = {sentinel: "t"} as any;
 
@@ -41,12 +43,31 @@ describe("revision copy", () => {
 
         const copyFrom = vi.fn().mockResolvedValue(undefined);
         vi.spyOn(SpecimenSpaceReconstruction, "findOne").mockResolvedValue({copyFrom: copyFrom});
+        vi.spyOn(RawReconstruction, "copyForRevision").mockResolvedValue(null);
+        vi.spyOn(RawReconstructionUpload, "copyForRevision").mockResolvedValue(undefined);
 
         await (revision as any).copyFrom(source, userWith(UserPermissions.Admin), transaction);
 
         expect(revision.update).toHaveBeenCalledTimes(1);
         expect(revision.update.mock.calls[0][0]).toEqual({status: AnnotationStatus.InProgress, notes: "the notes", durationHours: 3.5});
         expect(revision.doi).toBe("");
+    });
+
+    test("copies the raw reconstruction and its upload history after the specimen-space copy", async () => {
+        const source = annotationStub({id: "annotation-1", notes: "", durationHours: 0});
+        const revision = annotationStub({id: "annotation-2"});
+
+        const copyFrom = vi.fn().mockResolvedValue(undefined);
+        vi.spyOn(SpecimenSpaceReconstruction, "findOne").mockResolvedValue({copyFrom: copyFrom});
+        const copyRaw = vi.spyOn(RawReconstruction, "copyForRevision").mockResolvedValue(null);
+        const copyUploads = vi.spyOn(RawReconstructionUpload, "copyForRevision").mockResolvedValue(undefined);
+
+        await (revision as any).copyFrom(source, userWith(UserPermissions.Admin), transaction);
+
+        expect(copyRaw).toHaveBeenCalledWith("annotation-1", "annotation-2", transaction);
+        expect(copyUploads).toHaveBeenCalledWith("annotation-1", "annotation-2", transaction);
+        expect(copyFrom.mock.invocationCallOrder[0]).toBeLessThan(copyRaw.mock.invocationCallOrder[0]);
+        expect(copyRaw.mock.invocationCallOrder[0]).toBeLessThan(copyUploads.mock.invocationCallOrder[0]);
     });
 });
 

@@ -6,7 +6,7 @@ import {
 } from "../models/annotation";
 import {AnnotationStatus} from "../models/annotationStatus";
 import {ReconstructionSpace} from "../models/reconstructionSpace";
-import {isAnnotatorUploadStatus} from "../models/user";
+import {isImportOnlyUploadStatus} from "../models/user";
 
 /**
  * The model list each import target is held to.  InProgress is absent because that target makes no transition at all;
@@ -76,8 +76,8 @@ export function sheetExpectsReconstructionData(targetStatus: AnnotationStatus): 
 
 /**
  * An existing reconstruction's status belongs to the portal, so beyond what the sheet promises, the run looks for
- * specimen data the annotator may have delivered while the portal still has the reconstruction with them.
+ * specimen data the annotator may have delivered at the statuses only the import may load (ImportOnlyUploadSourceStatuses).
  */
 export function importLoadsExistingReconstruction(currentStatus: AnnotationStatus, targetStatus: AnnotationStatus): boolean {
-    return sheetExpectsReconstructionData(targetStatus) || isAnnotatorUploadStatus(ReconstructionSpace.Specimen, currentStatus);
+    return sheetExpectsReconstructionData(targetStatus) || isImportOnlyUploadStatus(ReconstructionSpace.Specimen, currentStatus);
 }

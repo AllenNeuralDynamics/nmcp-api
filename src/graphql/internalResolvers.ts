@@ -3,6 +3,7 @@ import {Precomputed, PrecomputedUpdateShape} from "../models/precomputed";
 import {SpecimenSpacePrecomputed} from "../models/specimenSpacePrecomputed";
 import {SpecimenSpaceReconstruction} from "../models/specimenSpaceReconstruction";
 import {AtlasReconstruction} from "../models/atlasReconstruction";
+import {RawReconstruction} from "../models/rawReconstruction";
 import {PortalReconstruction} from "../io/portalFormat";
 import {RecentRequest, recentRequestLog} from "../util/recentRequestLog";
 
@@ -19,6 +20,10 @@ export const internalResolvers = {
 
         exportedAtlasReconstruction(_: any, args: { id: string }, {user}: RequestContext): Promise<PortalReconstruction | null> {
             return AtlasReconstruction.toPortalFormat(user, args.id);
+        },
+
+        exportedRawReconstruction(_: any, args: { id: string }, {user}: RequestContext): Promise<PortalReconstruction | null> {
+            return RawReconstruction.toPortalFormat(user, args.id);
         },
 
         // Used by precomputed worker service

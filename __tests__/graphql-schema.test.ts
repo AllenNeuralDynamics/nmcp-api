@@ -11,6 +11,8 @@ const {createRequestContext} = require("../src/graphql/requestContext");
 const {Annotation} = require("../src/models/annotation");
 const {AtlasReconstruction} = require("../src/models/atlasReconstruction");
 const {SpecimenSpaceReconstruction} = require("../src/models/specimenSpaceReconstruction");
+const {RawReconstruction} = require("../src/models/rawReconstruction");
+const {RawReconstructionUpload} = require("../src/models/rawReconstructionUpload");
 const {SpecimenSpacePrecomputed} = require("../src/models/specimenSpacePrecomputed");
 const {Neuron} = require("../src/models/neuron");
 const {Atlas} = require("../src/models/atlas");
@@ -456,5 +458,126 @@ describe("the DOI on Annotation in the schema", () => {
 
         expect(await openResolvers.AtlasReconstruction.annotation(reconstruction)).toBe(annotation);
         expect(reconstruction.getAnnotation).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe("raw reconstructions in the schema", () => {
+    const schema = createSchema();
+    const mutation = schema.getMutationType();
+
+    test.each(["uploadRawSwcData", "uploadRawParquetData"])("%s takes RawReconstructionUploadArgs and returns RawReconstructionUpload", (name: string) => {
+        const field = mutation.getFields()[name];
+
+        expect(field).toBeDefined();
+        expect(field.args.map((arg: any) => arg.name)).toEqual(["uploadArgs"]);
+        expect(field.args[0].type).toBeInstanceOf(GraphQLNonNull);
+        expect(field.args[0].type.ofType.name).toBe("RawReconstructionUploadArgs");
+        expect(field.type.name).toBe("RawReconstructionUpload");
+    });
+
+    test("RawReconstructionUploadArgs takes a required annotation id and file, and optional notes", () => {
+        const fields = schema.getType("RawReconstructionUploadArgs").getFields();
+
+        expect(Object.keys(fields).sort()).toEqual(["annotationId", "file", "notes"]);
+        expect(fields.annotationId.type).toBeInstanceOf(GraphQLNonNull);
+        expect(fields.annotationId.type.ofType).toBe(GraphQLString);
+        expect(fields.notes.type).toBe(GraphQLString);
+        expect(fields.file.type).toBeInstanceOf(GraphQLNonNull);
+        expect(fields.file.type.ofType.name).toBe("Upload");
+    });
+
+    test("Annotation exposes a nullable rawReconstruction and latestRawReconstructionUpload", () => {
+        const fields = schema.getType("Annotation").getFields();
+
+        expect(fields.rawReconstruction.type.name).toBe("RawReconstruction");
+        expect(fields.latestRawReconstructionUpload.type.name).toBe("RawReconstructionUpload");
+    });
+
+    test("RawReconstruction exposes no node data", () => {
+        const fields = schema.getType("RawReconstruction").getFields();
+
+        expect(fields.nodes).toBeUndefined();
+        expect(fields.soma).toBeUndefined();
+        expect(fields.nodeCounts).toBeDefined();
+    });
+
+    test("RawReconstructionUpload exposes its attempt number and uploader", () => {
+        const fields = schema.getType("RawReconstructionUpload").getFields();
+
+        expect(fields.attemptNumber.type).toBe(GraphQLInt);
+        expect(fields.user.type.name).toBe("User");
+    });
+
+    test("exportedRawReconstruction takes a required id and returns a PortalReconstruction", () => {
+        const field = schema.getQueryType().getFields().exportedRawReconstruction;
+
+        expect(field.args.map((arg: any) => arg.name)).toEqual(["id"]);
+        expect(field.args[0].type).toBeInstanceOf(GraphQLNonNull);
+        expect(field.type.name).toBe("PortalReconstruction");
+    });
+});
+
+describe("raw reconstruction resolvers", () => {
+    test("exportedRawReconstruction serializes publishedAt as epoch milliseconds", async () => {
+        const publishedAt = new Date("2026-03-01T12:00:00Z");
+
+        vi.spyOn(RawReconstruction, "toPortalFormat").mockResolvedValue({
+            id: "raw-1",
+            annotationSpace: 0,
+            doi: null,
+            publishedAt,
+            neuron: {id: "neuron-1", label: "N1", canonicalDoi: null, specimen: null},
+            annotator: null,
+            peerReviewer: null,
+            teamReviewer: null,
+            proofreader: null,
+            nodes: []
+        });
+
+        const result: any = await graphql({
+            schema: createSchema(),
+            source: "{ exportedRawReconstruction(id: \"raw-1\") { id publishedAt } }",
+            contextValue: createRequestContext(Object.create(User.prototype))
+        });
+
+        expect(result.errors).toBeUndefined();
+        expect(result.data.exportedRawReconstruction.id).toBe("raw-1");
+        expect(result.data.exportedRawReconstruction.publishedAt).toBe(publishedAt.getTime());
+    });
+
+    test("Annotation.rawReconstruction prefers an eager-loaded row", async () => {
+        const raw = {id: "raw-1"};
+        const annotation = {RawReconstruction: raw, getRawReconstruction: vi.fn()};
+
+        expect(await secureResolvers.Annotation.rawReconstruction(annotation)).toBe(raw);
+        expect(annotation.getRawReconstruction).not.toHaveBeenCalled();
+    });
+
+    test("Annotation.rawReconstruction fetches when nothing was eager-loaded", async () => {
+        const raw = {id: "raw-1"};
+        const annotation = {getRawReconstruction: vi.fn().mockResolvedValue(raw)};
+
+        expect(await secureResolvers.Annotation.rawReconstruction(annotation)).toBe(raw);
+    });
+
+    test("Annotation.latestRawReconstructionUpload delegates to findLatestForAnnotation", async () => {
+        const latest = {id: "attempt-2"};
+        const spy = vi.spyOn(RawReconstructionUpload, "findLatestForAnnotation").mockResolvedValue(latest);
+
+        expect(await secureResolvers.Annotation.latestRawReconstructionUpload({id: "annotation-1"})).toBe(latest);
+        expect(spy).toHaveBeenCalledWith("annotation-1");
+    });
+
+    test.each([
+        ["uploadRawSwcData", "fromSwcUpload"],
+        ["uploadRawParquetData", "fromParquetUpload"]
+    ])("%s delegates to RawReconstructionUpload.%s", async (resolver: string, method: string) => {
+        const user = Object.create(User.prototype);
+        const uploadArgs = {annotationId: "annotation-1", file: Promise.resolve({})};
+        const attempt = {id: "attempt-1"};
+        const spy = vi.spyOn(RawReconstructionUpload, method).mockResolvedValue(attempt);
+
+        expect(await secureResolvers.Mutation[resolver](null, {uploadArgs}, {user})).toBe(attempt);
+        expect(spy).toHaveBeenCalledWith(user, uploadArgs);
     });
 });

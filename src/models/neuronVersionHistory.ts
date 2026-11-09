@@ -1,6 +1,6 @@
 import {Op} from "sequelize";
 
-import {EventLogItem, EventLogItemKind} from "./eventLogItem";
+import {EventLogItem, EventLogItemKind, RawReconstructionEventKindRange} from "./eventLogItem";
 import {Neuron} from "./neuron";
 import {Annotation} from "./annotation";
 import {AtlasReconstruction} from "./atlasReconstruction";
@@ -104,12 +104,13 @@ export async function getNeuronVersionHistory(neuronId: string): Promise<NeuronV
             : [],
 
         // One query for the atlas, specimen-space and specimen precomputed events: the first two are parented by the
-        // annotation, the last by the specimen-space row.
+        // annotation, the last by the specimen-space row.  Raw reconstruction events are parented by the annotation too
+        // and excluded by design: a raw reconstruction is supporting data, not a version of the neuron.
         annotationIds.length > 0
             ? EventLogItem.findAll({
                 where: {
                     parentId: {[Op.in]: [...branchByParentId.keys()]},
-                    kind: {[Op.gte]: EventLogItemKind.AtlasReconstructionCreate}
+                    kind: {[Op.gte]: EventLogItemKind.AtlasReconstructionCreate, [Op.notBetween]: [...RawReconstructionEventKindRange]}
                 },
                 order: [["createdAt", "ASC"]]
             })

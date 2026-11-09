@@ -125,8 +125,19 @@ export enum EventLogItemKind {
     SpecimenPrecomputedError = 9120,
 
     SpecimenSpaceReconstructionCreate = 10000,
-    SpecimenSpaceReconstructionUpload = 10020
+    SpecimenSpaceReconstructionUpload = 10020,
+
+    RawReconstructionUploadCreate = 11000,
+    RawReconstructionUploadAccept = 11010,
+    RawReconstructionUploadFail = 11020,
+    RawReconstructionCreate = 11100
 }
+
+/**
+ * The block raw reconstruction events are allocated from.  getNeuronVersionHistory excludes it: a raw reconstruction is
+ * supporting data off the annotation, not a version of the neuron.
+ */
+export const RawReconstructionEventKindRange: readonly [number, number] = [11000, 11499];
 
 /**
  * The event recorded for each review request target, and the set of targets requestReview admits: a status absent here

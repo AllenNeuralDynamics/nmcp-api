@@ -95,41 +95,43 @@ export function losesCapability(previous: number, next: number): boolean {
 }
 
 /**
- * Stands in for a review bit at a status where the upload is the annotation's own annotator's alone.  Admin does not
- * satisfy it.
- */
-export const OwningAnnotator = "owning-annotator";
-
-export type UploadAuthority = UserPermissions | typeof OwningAnnotator;
-
-/**
- * The source statuses an upload may arrive at, per space, and the authority each one requires.  A status absent for a
+ * The source statuses an upload may arrive at, per space, and the review bit each one requires.  A status absent for a
  * space is not an upload source there at all.  The bit tracks the status rather than the space: specimen-space nodes
- * are rewritten by whichever review the annotation is actually in, and holding TeamReview is no licence to rewrite
- * specimen data at peer review or atlas data at publish review.  An admin qualifies at every review status in the map
- * without holding the bit, but not at an OwningAnnotator status, which is the annotator's alone while they are still
- * working the reconstruction.
+ * are rewritten by whichever review the annotation is actually in, and holding TeamReview is no license to rewrite
+ * specimen data at peer review or atlas data at publish review.  An admin qualifies at any status in the map without
+ * holding the bit.
  *
  * Declared here rather than beside the other source-status lists in annotation.ts because the values are
  * UserPermissions bits: annotation.ts and user.ts form a require cycle, and dereferencing the enum at module scope
  * from that side throws whenever user.js is the entry into it.
  */
-export const UploadSourceStatuses: ReadonlyMap<ReconstructionSpace, ReadonlyMap<AnnotationStatus, UploadAuthority>> = new Map([
-    [ReconstructionSpace.Specimen, new Map<AnnotationStatus, UploadAuthority>([
-        [AnnotationStatus.InProgress, OwningAnnotator],
-        [AnnotationStatus.Rejected, OwningAnnotator],
+export const UploadSourceStatuses: ReadonlyMap<ReconstructionSpace, ReadonlyMap<AnnotationStatus, UserPermissions>> = new Map([
+    [ReconstructionSpace.Specimen, new Map([
         [AnnotationStatus.PeerReview, UserPermissions.PeerReview],
         [AnnotationStatus.TeamReview, UserPermissions.TeamReview],
         [AnnotationStatus.PublishReview, UserPermissions.PublishReview]
     ])],
-    [ReconstructionSpace.Atlas, new Map<AnnotationStatus, UploadAuthority>([
+    [ReconstructionSpace.Atlas, new Map([
         [AnnotationStatus.TeamReview, UserPermissions.TeamReview],
         [AnnotationStatus.PublishReview, UserPermissions.PublishReview]
     ])]
 ]);
 
-export function isAnnotatorUploadStatus(space: ReconstructionSpace, status: AnnotationStatus): boolean {
-    return UploadSourceStatuses.get(space)?.get(status) === OwningAnnotator;
+/**
+ * Statuses at which only the import tools load specimen data, which the annotator delivered outside the portal.  The
+ * portal has no specimen-space upload here; an annotator uploads a raw reconstruction instead.
+ * Annotation.assertUploadAllowed admits these only under disregardAuth.
+ */
+export const ImportOnlyUploadSourceStatuses: ReadonlyMap<ReconstructionSpace, ReadonlySet<AnnotationStatus>> = new Map([
+    [ReconstructionSpace.Specimen, new Set([AnnotationStatus.InProgress, AnnotationStatus.Rejected])]
+]);
+
+export function isImportOnlyUploadStatus(space: ReconstructionSpace, status: AnnotationStatus): boolean {
+    return ImportOnlyUploadSourceStatuses.get(space)?.has(status) ?? false;
+}
+
+export function isImportUploadSourceStatus(space: ReconstructionSpace, status: AnnotationStatus): boolean {
+    return (UploadSourceStatuses.get(space)?.has(status) ?? false) || isImportOnlyUploadStatus(space, status);
 }
 
 // "019a7d99-202b-7000-8000-000000000000" is the earliest/lowest possible value that is a valid UUIDv7 value.  It can not be generated unless a system clock
@@ -509,6 +511,16 @@ export class User extends BaseModel {
         return this.isAdmin() || annotatorId == this.id || (this.permissions & (UserPermissions.PeerReview | UserPermissions.PublishReview)) != 0;
     }
 
+    /**
+     * The annotation's own annotator, any review bit, or an admin.  No status argument: RawUploadSourceStatuses in
+     * rawReconstructionUpload.ts decides when, and assertRawUploadAllowed checks this first so the status is not
+     * disclosed to a caller who could never upload.  The null guard keeps an id-less user from owning an annotation
+     * with no annotator.
+     */
+    public canUploadRawReconstruction(annotatorId: string): boolean {
+        return this.isAdmin() || (annotatorId != null && annotatorId == this.id) || (this.permissions & UserPermissions.ReviewAll) != 0;
+    }
+
     public canReviseAnnotation(): boolean {
         return this.canAnnotate();
     }
@@ -573,43 +585,32 @@ export class User extends BaseModel {
     }
 
     /**
-     * Admin or the review bit UploadSourceStatuses pairs with the status the reconstruction is in, for both spaces, or
-     * the owning annotator at an OwningAnnotator status.  The same map decides the locked re-check in
-     * Annotation.fromParsedStructures, so the rule is stated once.
+     * Admin, or the review bit UploadSourceStatuses pairs with the status the reconstruction is in, for both spaces.
+     * The same map decides the locked re-check in Annotation.fromParsedStructures, so the rule is stated once.
      */
-    public canUploadReconstructionData(space: ReconstructionSpace, currentStatus: AnnotationStatus, annotatorId: string): boolean {
-        const authority = UploadSourceStatuses.get(space)?.get(currentStatus);
+    public canUploadReconstructionData(space: ReconstructionSpace, currentStatus: AnnotationStatus): boolean {
+        const requiredPermission = UploadSourceStatuses.get(space)?.get(currentStatus);
 
-        if (authority === undefined) {
+        if (requiredPermission === undefined) {
             return false;
         }
 
-        return this.holdsUploadAuthority(authority, annotatorId);
+        return this.isAdmin() || (this.permissions & requiredPermission) != 0;
     }
 
     /**
-     * Whether this user could upload this annotation in the space at some status, without regard to the one the
-     * reconstruction is in.  It is what separates a caller who is refused for who they are from one refused only for
-     * where the reconstruction is, so that the status is disclosed to the second and not the first.
+     * Whether this user could upload in the space at some status, without regard to the one the reconstruction is in.
+     * It is what separates a caller who is refused for who they are from one refused only for where the reconstruction
+     * is, so that the status is disclosed to the second and not the first.
      */
-    public canUploadReconstructionDataInSpace(space: ReconstructionSpace, annotatorId: string): boolean {
-        const authorities = UploadSourceStatuses.get(space);
+    public canUploadReconstructionDataInSpace(space: ReconstructionSpace): boolean {
+        const permissions = UploadSourceStatuses.get(space);
 
-        if (authorities === undefined) {
+        if (permissions === undefined) {
             return false;
         }
 
-        return [...authorities.values()].some(authority => this.holdsUploadAuthority(authority, annotatorId));
-    }
-
-    private holdsUploadAuthority(authority: UploadAuthority, annotatorId: string): boolean {
-        if (authority === OwningAnnotator) {
-            // No admin bypass: before review the reconstruction is the annotator's work in progress.  The null guard
-            // keeps an id-less user from owning an annotation with no annotator.
-            return annotatorId != null && annotatorId == this.id;
-        }
-
-        return this.isAdmin() || (this.permissions & authority) != 0;
+        return this.isAdmin() || [...permissions.values()].some(permission => (this.permissions & permission) != 0);
     }
 
     /**

@@ -270,6 +270,8 @@ export const coreTypeDefinitions = gql`
         atlasReconstructionId: String
         atlasReconstruction: AtlasReconstruction
         specimenSpaceReconstruction: SpecimenSpaceReconstruction!
+        rawReconstruction: RawReconstruction
+        latestRawReconstructionUpload: RawReconstructionUpload
         startedAt: Date
         completedAt: Date
         reviewedAt: Date
@@ -291,6 +293,30 @@ export const coreTypeDefinitions = gql`
         soma: SpecimenNode
         precomputed: Precomputed
         annotationId: String
+        createdAt: Date
+        updatedAt: Date
+    }
+
+    type RawReconstruction {
+        id: String!
+        nodeCounts: NodeCounts
+        notes: String
+        uploadedAt: Date
+        annotationId: String
+        createdAt: Date
+        updatedAt: Date
+    }
+
+    type RawReconstructionUpload {
+        id: String!
+        annotationId: String
+        attemptNumber: Int
+        status: Int
+        userId: String
+        user: User
+        sourceFilename: String
+        format: Int
+        failureMessage: String
         createdAt: Date
         updatedAt: Date
     }
