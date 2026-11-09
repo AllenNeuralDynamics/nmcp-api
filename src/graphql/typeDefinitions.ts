@@ -117,8 +117,8 @@ export const typeDefinitions = gql`
 
         annotations(queryArgs: AnnotationQueryArgs!): AnnotationsResponse
 
-        """Returns a specific quality control instance."""
-        qualityControl(id: String!): QualityControl
+        """Returns a specific atlas quality control instance."""
+        atlasQualityControl(id: String!): AtlasQualityControl
 
         issueCount: Int!
 

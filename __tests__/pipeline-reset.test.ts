@@ -8,7 +8,7 @@ const {Annotation} = require("../src/models/annotation");
 const {AnnotationStatus} = require("../src/models/annotationStatus");
 const {AtlasReconstruction} = require("../src/models/atlasReconstruction");
 const {AtlasReconstructionStatus, AbandonableFailureStatuses} = require("../src/models/atlasReconstructionStatus");
-const {QualityControl} = require("../src/models/qualityControl");
+const {AtlasQualityControl} = require("../src/models/atlasQualityControl");
 const {Precomputed} = require("../src/models/precomputed");
 const {EventLogItem, EventLogItemKind} = require("../src/models/eventLogItem");
 const {UnauthorizedError} = require("../src/graphql/secureResolvers");
@@ -43,8 +43,8 @@ function stub(childStatus: number | null, parentStatus: number = AnnotationStatu
     const qualityControl = {makePending: vi.fn().mockResolvedValue(undefined)};
     const precomputed = {id: "precomputed-1", status: "untouched"};
 
-    vi.spyOn(QualityControl, "findOne").mockResolvedValue(qualityControl as any);
-    vi.spyOn(QualityControl, "createForReconstruction").mockResolvedValue({id: "qc-new"} as any);
+    vi.spyOn(AtlasQualityControl, "findOne").mockResolvedValue(qualityControl as any);
+    vi.spyOn(AtlasQualityControl, "createForReconstruction").mockResolvedValue({id: "qc-new"} as any);
     const createPrecomputed = vi.spyOn(Precomputed, "createForReconstruction").mockResolvedValue(precomputed as any);
     vi.spyOn(Precomputed, "findOne").mockResolvedValue(precomputed as any);
 

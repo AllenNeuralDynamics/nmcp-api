@@ -33,7 +33,9 @@ export const SpecimenSpaceReconstructionTableName = "SpecimenSpaceReconstruction
 export const SpecimenNodeTableName = "SpecimenNode";
 export const AtlasNodeTableName = "AtlasNode";
 export const AtlasReconstructionTableName = "AtlasReconstruction";
+// The table before it was renamed for the atlas wrapper; only migrations use it.
 export const QualityControlTableName = "QualityControl";
+export const AtlasQualityControlTableName = "AtlasQualityControl";
 export const SpecimenSpacePrecomputedTableName ="SpecimenSpacePrecomputed";
 export const RawReconstructionTableName = "RawReconstruction";
 export const RawReconstructionNodeTableName = "RawReconstructionNode";

@@ -22,7 +22,7 @@ import {SpecimenSpaceReconstruction} from "../models/specimenSpaceReconstruction
 import {RawReconstruction} from "../models/rawReconstruction";
 import {RawReconstructionUpload, RawReconstructionUploadArgs} from "../models/rawReconstructionUpload";
 import GraphQLUpload = require("graphql-upload/GraphQLUpload.js");
-import {QualityControl} from "../models/qualityControl";
+import {AtlasQualityControl} from "../models/atlasQualityControl";
 import {AtlasNode} from "../models/atlasNode";
 import {SpecimenNode} from "../models/specimenNode";
 import {Precomputed} from "../models/precomputed";
@@ -410,8 +410,8 @@ export const secureResolvers = {
             const user = await reconstruction.getReviewer({attributes: ["id", "firstName", "lastName", "isSystemUser"]});
             return user?.isSystemUser ? null : user;
         },
-        qualityControl(reconstruction: AtlasReconstruction): Promise<QualityControl> {
-            return reconstruction.getQualityControl();
+        qualityControl(reconstruction: AtlasReconstruction): Promise<AtlasQualityControl> {
+            return reconstruction.getAtlasQualityControl();
         },
         precomputed(reconstruction: AtlasReconstruction): Promise<Precomputed> {
             return reconstruction.getPrecomputed();

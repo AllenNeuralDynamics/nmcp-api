@@ -7,14 +7,14 @@ import type {ServiceBackoff} from "../src/synchronization/serviceBackoff";
 // the bootstrap timer never arms and no sweep runs on import.
 const {Transaction} = require("sequelize");
 const atlasReconstructionModule = require("../src/models/atlasReconstruction");
-const qualityControlModule = require("../src/models/qualityControl");
+const qualityControlModule = require("../src/models/atlasQualityControl");
 const workerModule = require("../src/synchronization/synchronizationWorker");
 const {AtlasReconstructionStatus, ClaimedPhaseStatuses} = require("../src/models/atlasReconstructionStatus");
-const {QualityControlStatus} = require("../src/models/qualityControlStatus");
+const {AtlasQualityControlStatus} = require("../src/models/atlasQualityControlStatus");
 const {PhaseOutcome} = require("../src/util/phaseFailure");
 
 const AtlasReconstruction = atlasReconstructionModule.AtlasReconstruction;
-const QualityControl = qualityControlModule.QualityControl;
+const AtlasQualityControl = qualityControlModule.AtlasQualityControl;
 
 const performSynchronization: (repeat?: boolean, intervalSeconds?: number) => Promise<void> = workerModule.performSynchronization;
 const performStructureAssignments: (batchSize: number) => Promise<boolean> = workerModule.performStructureAssignments;
@@ -69,7 +69,7 @@ afterEach(() => {
     qcBackoff.recordSuccess();
     doiBackoff.recordSuccess();
     delete (AtlasReconstruction as any).sequelize;
-    delete (QualityControl as any).sequelize;
+    delete (AtlasQualityControl as any).sequelize;
     delete (process as any).send;
 });
 
@@ -152,17 +152,17 @@ describe.each(childPhases)("$name claims its item", (phase) => {
     });
 });
 
-describe("QualityControl claim and release", () => {
-    function claimable(qualityControlStatus: number = QualityControlStatus.Pending, affected: number = 1) {
+describe("AtlasQualityControl claim and release", () => {
+    function claimable(qualityControlStatus: number = AtlasQualityControlStatus.Pending, affected: number = 1) {
         const transactionFn = vi.fn().mockImplementation(async (callback: any) => await callback(transaction));
 
-        Object.defineProperty(QualityControl, "sequelize", {value: {transaction: transactionFn}, configurable: true, writable: true});
+        Object.defineProperty(AtlasQualityControl, "sequelize", {value: {transaction: transactionFn}, configurable: true, writable: true});
 
         const lockChild = vi.spyOn(AtlasReconstruction, "findByPk").mockResolvedValue({id: "atlas-1"} as any);
         const childUpdate = vi.spyOn(AtlasReconstruction, "update").mockResolvedValue([1] as any);
-        const rowUpdate = vi.spyOn(QualityControl, "update").mockResolvedValue([affected] as any);
+        const rowUpdate = vi.spyOn(AtlasQualityControl, "update").mockResolvedValue([affected] as any);
 
-        const qualityControl = Object.create(QualityControl.prototype);
+        const qualityControl = Object.create(AtlasQualityControl.prototype);
 
         Object.assign(qualityControl, {id: "qc-1", reconstructionId: "atlas-1", status: qualityControlStatus});
 
@@ -186,8 +186,8 @@ describe("QualityControl claim and release", () => {
         await stubs.qualityControl.claim();
 
         expect(stubs.rowUpdate).toHaveBeenCalledWith(
-            {status: QualityControlStatus.InProgress},
-            {where: {id: "qc-1", status: QualityControlStatus.Pending}, transaction: transaction}
+            {status: AtlasQualityControlStatus.InProgress},
+            {where: {id: "qc-1", status: AtlasQualityControlStatus.Pending}, transaction: transaction}
         );
 
         expect(stubs.childUpdate).toHaveBeenCalledWith(
@@ -195,23 +195,23 @@ describe("QualityControl claim and release", () => {
             {where: {id: "atlas-1", status: AtlasReconstructionStatus.PendingQualityControl}, transaction: transaction}
         );
 
-        expect(stubs.qualityControl.status).toBe(QualityControlStatus.InProgress);
+        expect(stubs.qualityControl.status).toBe(AtlasQualityControlStatus.InProgress);
     });
 
     test("a lost compare-and-set claims neither row", async () => {
-        const stubs = claimable(QualityControlStatus.Pending, 0);
+        const stubs = claimable(AtlasQualityControlStatus.Pending, 0);
 
         expect(await stubs.qualityControl.claim()).toBe(false);
         expect(stubs.childUpdate).not.toHaveBeenCalled();
     });
 
     test("release takes the child lock first as well", async () => {
-        const stubs = claimable(QualityControlStatus.InProgress);
+        const stubs = claimable(AtlasQualityControlStatus.InProgress);
 
         await stubs.qualityControl.release();
 
         expect(stubs.lockChild.mock.invocationCallOrder[0]).toBeLessThan(stubs.rowUpdate.mock.invocationCallOrder[0]);
-        expect(stubs.qualityControl.status).toBe(QualityControlStatus.Pending);
+        expect(stubs.qualityControl.status).toBe(AtlasQualityControlStatus.Pending);
     });
 });
 
@@ -219,13 +219,13 @@ describe("the pass-boundary sweep", () => {
     function sweepable(childrenReleased: number = 0, qualityControlReleased: number = 0) {
         return {
             childSweep: vi.spyOn(AtlasReconstruction, "releasePhaseClaims").mockResolvedValue(childrenReleased),
-            qualityControlSweep: vi.spyOn(QualityControl, "releasePhaseClaims").mockResolvedValue(qualityControlReleased)
+            qualityControlSweep: vi.spyOn(AtlasQualityControl, "releasePhaseClaims").mockResolvedValue(qualityControlReleased)
         };
     }
 
     function stubEmptyPhases() {
         return {
-            getPending: vi.spyOn(QualityControl, "getPending").mockResolvedValue([]),
+            getPending: vi.spyOn(AtlasQualityControl, "getPending").mockResolvedValue([]),
             getPendingStructureAssignment: vi.spyOn(AtlasReconstruction, "getPendingStructureAssignment").mockResolvedValue([]),
             getPendingDoiAssignment: vi.spyOn(AtlasReconstruction, "getPendingDoiAssignment").mockResolvedValue([]),
             getIndexable: vi.spyOn(AtlasReconstruction, "getIndexable").mockResolvedValue([])
@@ -258,7 +258,7 @@ describe("the pass-boundary sweep", () => {
     // Contained by its own try rather than by runPhase, which has no "may be more work" answer to give it.
     test("a sweep that throws does not cost the pass its phases", async () => {
         vi.spyOn(AtlasReconstruction, "releasePhaseClaims").mockRejectedValue(new Error("the database is gone"));
-        vi.spyOn(QualityControl, "releasePhaseClaims").mockResolvedValue(0);
+        vi.spyOn(AtlasQualityControl, "releasePhaseClaims").mockResolvedValue(0);
 
         const phases = stubEmptyPhases();
 
@@ -281,7 +281,7 @@ describe("the pass-boundary sweep", () => {
 
         const sweep = sweepable();
 
-        vi.spyOn(QualityControl, "getPending").mockResolvedValue([]);
+        vi.spyOn(AtlasQualityControl, "getPending").mockResolvedValue([]);
         vi.spyOn(AtlasReconstruction, "getPendingStructureAssignment").mockResolvedValue([]);
         vi.spyOn(AtlasReconstruction, "getPendingDoiAssignment").mockResolvedValue([]);
         const getIndexable = vi.spyOn(AtlasReconstruction, "getIndexable").mockResolvedValue([item]);

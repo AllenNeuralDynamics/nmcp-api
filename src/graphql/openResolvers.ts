@@ -24,7 +24,8 @@ import {AnnotationStatus} from "../models/annotationStatus";
 import {getSystemSettings, SystemSettings} from "../models/systemSettings";
 import {AccessRequest, AccessRequestShape, RequestAccessResponse} from "../models/accessRequest";
 import {getNeuronVersionHistory} from "../models/neuronVersionHistory";
-import {QualityControl} from "../models/qualityControl";
+import {AtlasQualityControl} from "../models/atlasQualityControl";
+import {QualityOutputShape} from "../data-access/qualityCheckService";
 import {getReconstructionMetrics, ReconstructionMetrics} from "../data-access/reconstructionMetricsService";
 import {FieldResolvers, RequestContext} from "./requestContext";
 
@@ -134,9 +135,9 @@ export const openResolvers = {
             return getNeuronVersionHistory(args.neuronId);
         },
 
-        // Deliberately open at every status, failed test names and affected node indices included.
-        qualityControl(_: any, args: { id: string }, context: RequestContext): Promise<QualityControl> {
-            return QualityControl.findByPk(args.id);
+        // Deliberately open at every status, the stored output and its QC-portal document included.
+        atlasQualityControl(_: any, args: { id: string }, context: RequestContext): Promise<AtlasQualityControl> {
+            return AtlasQualityControl.findByPk(args.id);
         },
     } satisfies FieldResolvers,
     Mutation: {
@@ -241,6 +242,16 @@ export const openResolvers = {
             return null;
         },
     }),
+    JSON: new GraphQLScalarType({
+        name: "JSON",
+        description: "Arbitrary JSON, returned exactly as stored",
+        serialize: (value: unknown) => value
+    }),
+    QualityOutput: {
+        data(output: QualityOutputShape): QualityOutputShape {
+            return output;
+        }
+    } satisfies FieldResolvers,
     PredicateType: {
         ANATOMICAL: PredicateType.AnatomicalRegion,
         CUSTOM: PredicateType.CustomRegion,

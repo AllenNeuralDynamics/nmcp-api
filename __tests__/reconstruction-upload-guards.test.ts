@@ -13,7 +13,7 @@ const {Specimen} = require("../src/models/specimen");
 const {Atlas} = require("../src/models/atlas");
 const {SpecimenSpacePrecomputed} = require("../src/models/specimenSpacePrecomputed");
 const {SpecimenSpaceReconstruction} = require("../src/models/specimenSpaceReconstruction");
-const {QualityControl} = require("../src/models/qualityControl");
+const {AtlasQualityControl} = require("../src/models/atlasQualityControl");
 const {Precomputed} = require("../src/models/precomputed");
 const {EventLogItem, EventLogItemKind} = require("../src/models/eventLogItem");
 const {UnauthorizedError} = require("../src/graphql/secureResolvers");
@@ -541,8 +541,8 @@ describe("AtlasReconstruction.approve", () => {
     // Whether the pipeline can start is no longer a question it answers - the caller has already required the data.
     test("records the reviewer and the event, and starts the automatic phases", async () => {
         const create = vi.spyOn(EventLogItem, "create").mockResolvedValue({id: "event-1"});
-        vi.spyOn(QualityControl, "findOne").mockResolvedValue(null);
-        vi.spyOn(QualityControl, "createForReconstruction").mockResolvedValue({id: "qc-1"} as any);
+        vi.spyOn(AtlasQualityControl, "findOne").mockResolvedValue(null);
+        vi.spyOn(AtlasQualityControl, "createForReconstruction").mockResolvedValue({id: "qc-1"} as any);
         vi.spyOn(Precomputed, "findOne").mockResolvedValue({id: "precomputed-1"} as any);
 
         const atlasReconstruction = Object.create(AtlasReconstruction.prototype);

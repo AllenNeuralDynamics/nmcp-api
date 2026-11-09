@@ -9,7 +9,7 @@ const {AtlasReconstructionStatus} = require("../src/models/atlasReconstructionSt
 const {EventLogItem, EventLogItemKind} = require("../src/models/eventLogItem");
 const {Annotation} = require("../src/models/annotation");
 const {AnnotationStatus} = require("../src/models/annotationStatus");
-const {QualityControl} = require("../src/models/qualityControl");
+const {AtlasQualityControl} = require("../src/models/atlasQualityControl");
 const {UnauthorizedError} = require("../src/graphql/secureResolvers");
 
 const transaction = {sentinel: "t"} as any;
@@ -94,7 +94,7 @@ function requestable(status: number | null, options: {precomputed?: any, quality
         ? options.qualityControl
         : {makePending: vi.fn().mockResolvedValue(undefined)};
 
-    vi.spyOn(QualityControl, "findOne").mockResolvedValue(qualityControl);
+    vi.spyOn(AtlasQualityControl, "findOne").mockResolvedValue(qualityControl);
 
     // Only requestSearchIndexing reads it - its afterReset moves the parent back off PublishFailed - but every phase
     // runs through this fixture, so it is always stubbed.
@@ -144,7 +144,7 @@ function requestable(status: number | null, options: {precomputed?: any, quality
 afterEach(() => {
     vi.restoreAllMocks();
     delete (AtlasReconstruction as any).sequelize;
-    delete (QualityControl as any).sequelize;
+    delete (AtlasQualityControl as any).sequelize;
 });
 
 describe.each(phases)("$name", (phase) => {
@@ -255,14 +255,14 @@ describe("requestPrecomputedRegeneration re-requests the generation", () => {
 });
 
 describe("requestQualityControlReassessment re-requests the check", () => {
-    // Without this the reset is inert for the same reason the precomputed one is: the worker's QualityControl.getPending
+    // Without this the reset is inert for the same reason the precomputed one is: the worker's AtlasQualityControl.getPending
     // selects on that row, not on the child, and assess left it at its failed result.
     test("makes the quality control row pending on the same transaction", async () => {
         const stubs = requestable(AtlasReconstructionStatus.FailedQualityControl);
 
         await AtlasReconstruction.requestQualityControlReassessment(userWith(UserPermissions.PublishReview), "annotation-1");
 
-        expect(QualityControl.findOne).toHaveBeenCalledWith({where: {reconstructionId: "atlas-1"}, transaction: transaction});
+        expect(AtlasQualityControl.findOne).toHaveBeenCalledWith({where: {reconstructionId: "atlas-1"}, transaction: transaction});
         expect(stubs.qualityControl.makePending).toHaveBeenCalledWith(expect.anything(), transaction);
     });
 
@@ -371,7 +371,7 @@ describe("prepareToFinalize and replaceNodeData clear the failure metadata", () 
     test("prepareToFinalize resets to pending quality control with the columns cleared", async () => {
         const atlasReconstruction = entering(AtlasReconstructionStatus.FailedQualityControl);
 
-        vi.spyOn(QualityControl, "findOne").mockResolvedValue({makePending: vi.fn().mockResolvedValue(undefined)} as any);
+        vi.spyOn(AtlasQualityControl, "findOne").mockResolvedValue({makePending: vi.fn().mockResolvedValue(undefined)} as any);
 
         const {Precomputed} = require("../src/models/precomputed");
         vi.spyOn(Precomputed, "findOne").mockResolvedValue({} as any);

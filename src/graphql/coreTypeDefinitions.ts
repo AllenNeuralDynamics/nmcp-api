@@ -4,6 +4,7 @@ import {PortalAnnotationSpace, PortalNeuron, PortalNode, PortalSpecimen, PortalU
 export const coreTypeDefinitions = gql`
     scalar Upload
     scalar Date
+    scalar JSON
 
     type SystemSettings {
         apiVersion: String
@@ -331,7 +332,7 @@ export const coreTypeDefinitions = gql`
         soma: AtlasNode
         annotation: Annotation
         annotationId: String
-        qualityControl: QualityControl
+        qualityControl: AtlasQualityControl
         neuron: Neuron
         precomputed: Precomputed
         reviewerId: String
@@ -346,35 +347,22 @@ export const coreTypeDefinitions = gql`
         updatedAt: Date
     }
 
-    type QualityControl {
+    type AtlasQualityControl {
         id: String!
         status: Int
         current: QualityOutput
         history: [QualityOutput!]
     }
 
-    type QualityControlTest {
-        name: String!
-        safeName: String
-        description: String!
-        nodes: [Int!]!
-    }
-
-    type QualityControlToolError {
-        kind: String
-        description: String
-        info: String
-    }
-
+    """
+    A stored quality control output.  The typed fields are common to every output version; data is the whole stored
+    output, whose shape depends on serviceVersion, so callers can read the versions without fetching it.
+    """
     type QualityOutput {
         serviceVersion: Int!
         toolVersion: String!
-        score: Int!
-        passed: [QualityControlTest!]!
-        warnings: [QualityControlTest!]!
-        errors: [QualityControlTest!]!
-        toolError: QualityControlToolError
         when: Date
+        data: JSON
     }
 
     type Precomputed {

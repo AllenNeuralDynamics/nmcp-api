@@ -1,7 +1,7 @@
 import {RemoteDatabaseClient} from "../data-access/remoteDatabaseClient";
 import {AtlasReconstruction} from "../models/atlasReconstruction";
 import {AtlasReconstructionStatus} from "../models/atlasReconstructionStatus";
-import {QualityControl} from "../models/qualityControl";
+import {AtlasQualityControl} from "../models/atlasQualityControl";
 import {User} from "../models/user";
 import {SynchronizationWorkerNotification} from "./synchonizationManager";
 import {ServiceBackoff} from "./serviceBackoff";
@@ -84,7 +84,7 @@ async function performSynchronization(repeat: boolean = true, intervalSeconds = 
  */
 async function releaseAbandonedClaims(): Promise<void> {
     const children = await AtlasReconstruction.releasePhaseClaims();
-    const qualityControl = await QualityControl.releasePhaseClaims();
+    const qualityControl = await AtlasQualityControl.releasePhaseClaims();
 
     if (children > 0 || qualityControl > 0) {
         debug(`released ${children} abandoned atlas reconstruction claim(s) and ${qualityControl} quality control claim(s)`);
@@ -119,7 +119,7 @@ async function performQualityControl(batchSize: number): Promise<boolean> {
         return false;
     }
 
-    const pending = await QualityControl.getPending(batchSize);
+    const pending = await AtlasQualityControl.getPending(batchSize);
 
     if (pending.length === 0) {
         sanityQualityCheckPendingCount++;

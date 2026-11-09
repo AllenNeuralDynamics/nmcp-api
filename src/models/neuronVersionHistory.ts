@@ -120,7 +120,7 @@ export async function getNeuronVersionHistory(neuronId: string): Promise<NeuronV
             ? EventLogItem.findAll({
                 where: {
                     parentId: {[Op.in]: atlasReconstructionIds},
-                    kind: {[Op.gte]: EventLogItemKind.QualityControlCreate}
+                    kind: {[Op.gte]: EventLogItemKind.AtlasQualityControlCreate}
                 },
                 order: [["createdAt", "ASC"]]
             })

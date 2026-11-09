@@ -4,14 +4,14 @@ import type {ServiceBackoff} from "../src/synchronization/serviceBackoff";
 import type {PhaseOutcome as PhaseOutcomeType} from "../src/util/phaseFailure";
 
 // Use require() to get the CJS module instances the compiled worker uses, so that
-// spying on QualityControl and resetting qcBackoff affect the same instances the
+// spying on AtlasQualityControl and resetting qcBackoff affect the same instances the
 // worker calls into (a plain ESM import yields a separate instance under vitest).
-const qualityControlModule = require("../src/models/qualityControl");
+const qualityControlModule = require("../src/models/atlasQualityControl");
 const workerModule = require("../src/synchronization/synchronizationWorker");
 const {PhaseOutcome} = require("../src/util/phaseFailure");
 
-const QualityControl: typeof import("../src/models/qualityControl").QualityControl =
-    qualityControlModule.QualityControl;
+const AtlasQualityControl: typeof import("../src/models/atlasQualityControl").AtlasQualityControl =
+    qualityControlModule.AtlasQualityControl;
 
 const performQualityControl: (batchSize: number) => Promise<boolean> =
     workerModule.performQualityControl;
@@ -27,7 +27,7 @@ const makePending = (assess: AssessFn) => ({
     assess,
     claim: vi.fn().mockResolvedValue(true),
     release: vi.fn().mockResolvedValue(undefined)
-} as unknown as InstanceType<typeof QualityControl>);
+} as unknown as InstanceType<typeof AtlasQualityControl>);
 
 const makeBatch = (count: number, assess: AssessFn) =>
     Array.from({length: count}, () => makePending(assess));
@@ -46,7 +46,7 @@ describe("performQualityControl", () => {
 
     test("abandons the batch but reports the outstanding work when the service is unavailable", async () => {
         const assess = vi.fn<AssessFn>().mockResolvedValue(PhaseOutcome.ServiceUnavailable);
-        vi.spyOn(QualityControl, "getPending").mockResolvedValue(makeBatch(10, assess));
+        vi.spyOn(AtlasQualityControl, "getPending").mockResolvedValue(makeBatch(10, assess));
 
         const mayBeMore = await performQualityControl(10);
 
@@ -57,7 +57,7 @@ describe("performQualityControl", () => {
     test("skips the service entirely while inside the backoff window", async () => {
         const assess = vi.fn<AssessFn>().mockResolvedValue(PhaseOutcome.ServiceUnavailable);
         const getPending = vi
-            .spyOn(QualityControl, "getPending")
+            .spyOn(AtlasQualityControl, "getPending")
             .mockResolvedValue(makeBatch(10, assess));
 
         await performQualityControl(10);
@@ -75,7 +75,7 @@ describe("performQualityControl", () => {
 
         const assess = vi.fn<AssessFn>().mockResolvedValue(PhaseOutcome.ServiceUnavailable);
         const getPending = vi
-            .spyOn(QualityControl, "getPending")
+            .spyOn(AtlasQualityControl, "getPending")
             .mockResolvedValue(makeBatch(10, assess));
 
         await performQualityControl(10);
@@ -89,7 +89,7 @@ describe("performQualityControl", () => {
 
     test("reports a full batch when every item succeeds", async () => {
         const assess = vi.fn<AssessFn>().mockResolvedValue(PhaseOutcome.Handled);
-        vi.spyOn(QualityControl, "getPending").mockResolvedValue(makeBatch(10, assess));
+        vi.spyOn(AtlasQualityControl, "getPending").mockResolvedValue(makeBatch(10, assess));
 
         const mayBeMore = await performQualityControl(10);
 
@@ -100,7 +100,7 @@ describe("performQualityControl", () => {
     test("a partial successful batch does not drive the fast loop or engage backoff", async () => {
         const assess = vi.fn<AssessFn>().mockResolvedValue(PhaseOutcome.Handled);
         const getPending = vi
-            .spyOn(QualityControl, "getPending")
+            .spyOn(AtlasQualityControl, "getPending")
             .mockResolvedValue(makeBatch(3, assess));
 
         const mayBeMore = await performQualityControl(10);
@@ -118,7 +118,7 @@ describe("performQualityControl", () => {
     test("a released item does not engage the backoff or abandon the batch", async () => {
         const assess = vi.fn<AssessFn>().mockResolvedValue(PhaseOutcome.Released);
         const getPending = vi
-            .spyOn(QualityControl, "getPending")
+            .spyOn(AtlasQualityControl, "getPending")
             .mockResolvedValue(makeBatch(3, assess));
 
         const mayBeMore = await performQualityControl(10);
@@ -137,7 +137,7 @@ describe("performQualityControl", () => {
 
         (batch[1].claim as any).mockResolvedValue(false);
 
-        vi.spyOn(QualityControl, "getPending").mockResolvedValue(batch);
+        vi.spyOn(AtlasQualityControl, "getPending").mockResolvedValue(batch);
 
         const mayBeMore = await performQualityControl(3);
 
@@ -153,7 +153,7 @@ describe("performQualityControl", () => {
 
         const batch = makeBatch(3, assess);
 
-        vi.spyOn(QualityControl, "getPending").mockResolvedValue(batch);
+        vi.spyOn(AtlasQualityControl, "getPending").mockResolvedValue(batch);
 
         await performQualityControl(3);
 
@@ -173,7 +173,7 @@ describe("performQualityControl", () => {
 
         (batch[0].release as any).mockRejectedValue(new Error("database is gone"));
 
-        vi.spyOn(QualityControl, "getPending").mockResolvedValue(batch);
+        vi.spyOn(AtlasQualityControl, "getPending").mockResolvedValue(batch);
 
         await expect(performQualityControl(3)).resolves.toBe(false);
 
@@ -182,7 +182,7 @@ describe("performQualityControl", () => {
 
     test("no pending items assesses nothing and does not report a full batch", async () => {
         const assess = vi.fn<AssessFn>();
-        vi.spyOn(QualityControl, "getPending").mockResolvedValue([]);
+        vi.spyOn(AtlasQualityControl, "getPending").mockResolvedValue([]);
 
         const mayBeMore = await performQualityControl(10);
 

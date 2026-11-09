@@ -45,7 +45,7 @@ describe("Precomputed.updateGeneration lock order", () => {
 
         Object.assign(precomputed, {
             id: "precomputed-1",
-            // The AtlasReconstruction's id, not the parent Annotation's - the same trap QualityControl.claim
+            // The AtlasReconstruction's id, not the parent Annotation's - the same trap AtlasQualityControl.claim
             // calls out.
             reconstructionId: "atlas-1",
             status: PrecomputedStatus.Pending

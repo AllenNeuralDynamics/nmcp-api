@@ -1,73 +1,88 @@
 import {BelongsToGetAssociationMixin, DataTypes, Sequelize, Transaction} from "sequelize";
 
 import {BaseModel} from "./baseModel";
-import {QualityControlTableName} from "./tableNames";
+import {AtlasQualityControlTableName} from "./tableNames";
 import {AtlasReconstruction} from "./atlasReconstruction";
 import {AtlasReconstructionStatus} from "./atlasReconstructionStatus";
-import {QualityControlStatus} from "./qualityControlStatus";
+import {AtlasQualityControlStatus} from "./atlasQualityControlStatus";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {User} from "./user";
-import {QualityCheckService, QualityCheckServiceStatus, QualityControlScore, QualityOutputShape} from "../data-access/qualityCheckService";
+import {
+    failedMetricNames,
+    QualityCheckService,
+    QualityCheckServiceStatus,
+    QualityControlOutput,
+    QualityControlScore,
+    QualityOutputShape
+} from "../data-access/qualityCheckService";
 import {failureText, isTransientDatabaseError, PhaseOutcome, phaseFailureMessage} from "../util/phaseFailure";
 
 const debug = require("debug")("nmcp:nmcp-api:quality-control");
 
-function statusForScore(status: QualityControlScore): QualityControlStatus {
+function statusForScore(status: QualityControlScore): AtlasQualityControlStatus {
     switch (status) {
         case QualityControlScore.Error:
-            return QualityControlStatus.Error;
+            return AtlasQualityControlStatus.Error;
         case QualityControlScore.Failed:
-            return QualityControlStatus.Failed;
+            return AtlasQualityControlStatus.Failed;
         case QualityControlScore.Passed:
-            return QualityControlStatus.Passed;
+            return AtlasQualityControlStatus.Passed;
         case QualityControlScore.PassedWithWarnings:
-            return QualityControlStatus.Passed;
+            return AtlasQualityControlStatus.Passed;
     }
 }
 
 /**
  * What the child records about a failed check.  The two failure kinds halt identically and wait for a person, so
- * this text is the only thing that tells a StandardMorph crash apart from a real morphology failure.  Both are
- * composed from the tool's own output, which the ungated qualityControl query already exposes in full.
+ * this text is the only thing that tells a service error apart from a real morphology failure.  Both are composed
+ * from the stored output, which the ungated atlasQualityControl query already exposes in full.  The error's info is
+ * left out on purpose: it can carry raw exception text, and this reason is stored on the child and returned publicly.
  */
-function failureReasonForOutput(status: QualityControlStatus, output: QualityOutputShape): string | null {
+function failureReasonForOutput(status: AtlasQualityControlStatus, output: QualityControlOutput): string | null {
     switch (status) {
-        case QualityControlStatus.Error:
-            return `quality control tool error (${output.toolError?.kind ?? "unknown"}): ${output.toolError?.description ?? "no description"}`;
-        case QualityControlStatus.Failed:
-            return `quality control failed ${output.errors?.length ?? 0} test(s): ${(output.errors ?? []).map(test => test.name).join(", ")}`;
+        case AtlasQualityControlStatus.Error:
+            return `quality control service error (${output.error?.stage ?? "unknown"}, ${output.error?.kind ?? "unknown"}): ${output.error?.description ?? "no description"}`;
+        case AtlasQualityControlStatus.Failed: {
+            const names = failedMetricNames(output);
+            return `quality control failed ${names.length} metric(s): ${names.join(", ")}`;
+        }
         default:
             return null;
     }
 }
 
-function eventKindForStatus(status: QualityControlStatus): EventLogItemKind {
+function eventKindForStatus(status: AtlasQualityControlStatus): EventLogItemKind {
     switch (status) {
-        case QualityControlStatus.Error:
-            return EventLogItemKind.QualityControlError;
-        case QualityControlStatus.Failed:
-            return EventLogItemKind.QualityControlFailed;
-        case QualityControlStatus.Passed:
-            return EventLogItemKind.QualityControlPassed;
+        case AtlasQualityControlStatus.Error:
+            return EventLogItemKind.AtlasQualityControlError;
+        case AtlasQualityControlStatus.Failed:
+            return EventLogItemKind.AtlasQualityControlFailed;
+        case AtlasQualityControlStatus.Passed:
+            return EventLogItemKind.AtlasQualityControlPassed;
     }
 }
 
-export type QualityControlShape = {
+export type AtlasQualityControlShape = {
     reconstructionId?: string;
-    status: QualityControlStatus;
+    status: AtlasQualityControlStatus;
     current?: QualityOutputShape;
     history?: QualityOutputShape[];
 }
 
-export class QualityControl extends BaseModel {
-    public status: QualityControlStatus
+// An assessment event carries the output's common fields only; the full output stays on the row.
+type AtlasQualityControlAssessmentDetails = QualityOutputShape & {
+    status: AtlasQualityControlStatus;
+}
+
+export class AtlasQualityControl extends BaseModel {
+    public status: AtlasQualityControlStatus
     public current: QualityOutputShape;
     public history: QualityOutputShape[];
     public reconstructionId: string;
 
     public getReconstruction!: BelongsToGetAssociationMixin<AtlasReconstruction>;
 
-    private async recordEvent(kind: EventLogItemKind, details: QualityControlShape, user: User, t: Transaction): Promise<void> {
+    private async recordEvent(kind: EventLogItemKind, details: AtlasQualityControlShape | AtlasQualityControlAssessmentDetails, user: User, t: Transaction): Promise<void> {
         await recordEvent({
             kind: kind,
             targetId: this.id,
@@ -77,20 +92,20 @@ export class QualityControl extends BaseModel {
         }, t);
     }
 
-    private static async createWithTransaction(user: User, reconstructionId: string, t: Transaction): Promise<QualityControl> {
-        const shape: QualityControlShape = {
+    private static async createWithTransaction(user: User, reconstructionId: string, t: Transaction): Promise<AtlasQualityControl> {
+        const shape: AtlasQualityControlShape = {
             reconstructionId: reconstructionId,
-            status: QualityControlStatus.Pending
+            status: AtlasQualityControlStatus.Pending
         };
 
         const qualityControl = await this.create(shape, {transaction: t});
 
-        await qualityControl.recordEvent(EventLogItemKind.QualityControlCreate, shape, user, t);
+        await qualityControl.recordEvent(EventLogItemKind.AtlasQualityControlCreate, shape, user, t);
 
         return qualityControl;
     }
 
-    public static async createForReconstruction(user: User, reconstructionId: string, t: Transaction = null): Promise<QualityControl> {
+    public static async createForReconstruction(user: User, reconstructionId: string, t: Transaction = null): Promise<AtlasQualityControl> {
         if (t === null) {
             return await this.sequelize.transaction(async (t) => {
                 return await this.createWithTransaction(user, reconstructionId, t);
@@ -100,10 +115,10 @@ export class QualityControl extends BaseModel {
         }
     }
 
-    public static async getPending(limit: number = null): Promise<QualityControl[]> {
+    public static async getPending(limit: number = null): Promise<AtlasQualityControl[]> {
         return await this.findAll({
             where: {
-                status: QualityControlStatus.Pending
+                status: AtlasQualityControlStatus.Pending
             },
             limit: limit
         });
@@ -123,16 +138,16 @@ export class QualityControl extends BaseModel {
             // reconstructionId on this model is the AtlasReconstruction's id, not the parent Annotation's.
             await AtlasReconstruction.findByPk(this.reconstructionId, {transaction: t, lock: Transaction.LOCK.UPDATE});
 
-            const [affected] = await QualityControl.update(
-                {status: QualityControlStatus.InProgress},
-                {where: {id: this.id, status: QualityControlStatus.Pending}, transaction: t}
+            const [affected] = await AtlasQualityControl.update(
+                {status: AtlasQualityControlStatus.InProgress},
+                {where: {id: this.id, status: AtlasQualityControlStatus.Pending}, transaction: t}
             );
 
             if (affected !== 1) {
                 return false;
             }
 
-            this.status = QualityControlStatus.InProgress;
+            this.status = AtlasQualityControlStatus.InProgress;
 
             // Conditional: this row's compare-and-set is what decides the claim, and the child is only moved if it is
             // still where the claim expects it.
@@ -150,12 +165,12 @@ export class QualityControl extends BaseModel {
         await this.sequelize.transaction(async (t) => {
             await AtlasReconstruction.findByPk(this.reconstructionId, {transaction: t, lock: Transaction.LOCK.UPDATE});
 
-            await QualityControl.update(
-                {status: QualityControlStatus.Pending},
-                {where: {id: this.id, status: QualityControlStatus.InProgress}, transaction: t}
+            await AtlasQualityControl.update(
+                {status: AtlasQualityControlStatus.Pending},
+                {where: {id: this.id, status: AtlasQualityControlStatus.InProgress}, transaction: t}
             );
 
-            this.status = QualityControlStatus.Pending;
+            this.status = AtlasQualityControlStatus.Pending;
 
             await AtlasReconstruction.update(
                 {status: AtlasReconstructionStatus.PendingQualityControl},
@@ -171,33 +186,34 @@ export class QualityControl extends BaseModel {
      */
     public static async releasePhaseClaims(): Promise<number> {
         const [affected] = await this.update(
-            {status: QualityControlStatus.Pending},
-            {where: {status: QualityControlStatus.InProgress}}
+            {status: AtlasQualityControlStatus.Pending},
+            {where: {status: AtlasQualityControlStatus.InProgress}}
         );
 
         return affected;
     }
 
-    public async makePending(user: User, t: Transaction = null): Promise<QualityControl> {
+    public async makePending(user: User, t: Transaction = null): Promise<AtlasQualityControl> {
         const update = {
-            status: QualityControlStatus.Pending
+            status: AtlasQualityControlStatus.Pending
         }
 
         const qualityControl = await this.update(update, {transaction: t});
 
-        await qualityControl.recordEvent(EventLogItemKind.QualityControlUpdate, update, user, t);
+        await qualityControl.recordEvent(EventLogItemKind.AtlasQualityControlUpdate, update, user, t);
 
         return qualityControl;
     }
 
     /**
-     * The try opens above performQualityCheck, not below it: that call serializes the reconstruction's nodes before
-     * its own try, so a database error or a null soma throws out of it rather than becoming Unavailable.  Left
-     * unwrapped it would throw with the worker's claim still held and no failure recorded anywhere.
+     * The try opens above the node serialization: a database error or a null soma there has to be classified like any
+     * other failure.  Left unwrapped it would throw with the worker's claim still held and no failure recorded anywhere.
      */
     public async assess(user: User): Promise<PhaseOutcome> {
         try {
-            const {serviceStatus, output} = await QualityCheckService.performQualityCheck(this.reconstructionId);
+            const nodes = await AtlasReconstruction.serializeNodes(User.SystemInternalUser, this.reconstructionId);
+
+            const {serviceStatus, output} = await QualityCheckService.performQualityCheck(this.reconstructionId, nodes, {isRegistered: true});
 
             if (serviceStatus == QualityCheckServiceStatus.Unavailable || serviceStatus == QualityCheckServiceStatus.Error) {
                 await this.release();
@@ -205,7 +221,7 @@ export class QualityControl extends BaseModel {
                 return PhaseOutcome.ServiceUnavailable;
             }
 
-            const update: QualityControlShape = {
+            const update: AtlasQualityControlShape = {
                 status: statusForScore(output.score),
                 current: output,
                 history: this.history?.slice() ?? []
@@ -221,7 +237,12 @@ export class QualityControl extends BaseModel {
 
                 await this.update(update, {transaction: t});
 
-                await this.recordEvent(eventKindForStatus(update.status), update, user, t);
+                await this.recordEvent(eventKindForStatus(update.status), {
+                    status: update.status,
+                    serviceVersion: output.serviceVersion,
+                    toolVersion: output.toolVersion,
+                    when: output.when
+                }, user, t);
 
                 await reconstruction.qualityControlChanged(update.status, failureReasonForOutput(update.status, output), user, t);
             });
@@ -243,10 +264,10 @@ export class QualityControl extends BaseModel {
             await this.sequelize.transaction(async (t) => {
                 const reconstruction = await AtlasReconstruction.findByPk(this.reconstructionId, {transaction: t, lock: Transaction.LOCK.UPDATE});
 
-                await this.update({status: QualityControlStatus.Error}, {transaction: t});
+                await this.update({status: AtlasQualityControlStatus.Error}, {transaction: t});
 
                 await reconstruction.qualityControlChanged(
-                    QualityControlStatus.Error,
+                    AtlasQualityControlStatus.Error,
                     phaseFailureMessage("quality control", error),
                     user,
                     t
@@ -260,7 +281,7 @@ export class QualityControl extends BaseModel {
 
 // noinspection JSUnusedGlobalSymbols
 export const modelInit = (sequelize: Sequelize) => {
-    return QualityControl.init({
+    return AtlasQualityControl.init({
         id: {
             primaryKey: true,
             type: DataTypes.UUID,
@@ -279,7 +300,7 @@ export const modelInit = (sequelize: Sequelize) => {
             defaultValue: null
         }
     }, {
-        tableName: QualityControlTableName,
+        tableName: AtlasQualityControlTableName,
         timestamps: true,
         paranoid: true,
         sequelize
@@ -288,5 +309,5 @@ export const modelInit = (sequelize: Sequelize) => {
 
 // noinspection JSUnusedGlobalSymbols
 export const modelAssociate = () => {
-    QualityControl.belongsTo(AtlasReconstruction, {foreignKey: "reconstructionId", as: "Reconstruction"});
+    AtlasQualityControl.belongsTo(AtlasReconstruction, {foreignKey: "reconstructionId", as: "Reconstruction"});
 };

@@ -6,13 +6,13 @@ import type {ServiceBackoff} from "../src/synchronization/serviceBackoff";
 // resetting qcBackoff affect the same instances the worker calls into (a plain ESM import yields a separate
 // instance under vitest).  Requiring the worker does not start it: require.main !== module here, so the
 // bootstrap timer never arms.
-const qualityControlModule = require("../src/models/qualityControl");
+const qualityControlModule = require("../src/models/atlasQualityControl");
 const atlasReconstructionModule = require("../src/models/atlasReconstruction");
 const workerModule = require("../src/synchronization/synchronizationWorker");
 const {SynchronizationWorkerNotification} = require("../src/synchronization/synchonizationManager");
 const {PhaseOutcome} = require("../src/util/phaseFailure");
 
-const QualityControl = qualityControlModule.QualityControl;
+const AtlasQualityControl = qualityControlModule.AtlasQualityControl;
 const AtlasReconstruction = atlasReconstructionModule.AtlasReconstruction;
 
 const performSynchronization: (repeat?: boolean, intervalSeconds?: number) => Promise<void> =
@@ -46,14 +46,14 @@ const alwaysSucceeds = () => vi.fn().mockResolvedValue(PhaseOutcome.Handled);
 
 function stubPhases(qc: any[], structure: any[], doi: any[], indexable: any[]) {
     return {
-        getPending: vi.spyOn(QualityControl, "getPending").mockResolvedValue(qc),
+        getPending: vi.spyOn(AtlasQualityControl, "getPending").mockResolvedValue(qc),
         getPendingStructureAssignment: vi.spyOn(AtlasReconstruction, "getPendingStructureAssignment").mockResolvedValue(structure),
         getPendingDoiAssignment: vi.spyOn(AtlasReconstruction, "getPendingDoiAssignment").mockResolvedValue(doi),
         getIndexable: vi.spyOn(AtlasReconstruction, "getIndexable").mockResolvedValue(indexable),
         // performSynchronization sweeps before its first phase, so these have to be stubbed or the pass reaches the
         // real models.
         releasePhaseClaims: vi.spyOn(AtlasReconstruction, "releasePhaseClaims").mockResolvedValue(0),
-        releaseQualityControlClaims: vi.spyOn(QualityControl, "releasePhaseClaims").mockResolvedValue(0)
+        releaseQualityControlClaims: vi.spyOn(AtlasQualityControl, "releasePhaseClaims").mockResolvedValue(0)
     };
 }
 
@@ -74,7 +74,7 @@ afterEach(() => {
 describe("performQualityControl containment", () => {
     test("a throwing item is skipped and the rest of the batch still runs", async () => {
         const assess = failsOnce();
-        const getPending = vi.spyOn(QualityControl, "getPending").mockResolvedValue(makeBatch(3, assess));
+        const getPending = vi.spyOn(AtlasQualityControl, "getPending").mockResolvedValue(makeBatch(3, assess));
 
         const mayBeMore = await performQualityControl(10);
 
@@ -87,13 +87,13 @@ describe("performQualityControl containment", () => {
     });
 
     test("a full batch of successes still reports more work", async () => {
-        vi.spyOn(QualityControl, "getPending").mockResolvedValue(makeBatch(3, alwaysSucceeds()));
+        vi.spyOn(AtlasQualityControl, "getPending").mockResolvedValue(makeBatch(3, alwaysSucceeds()));
 
         expect(await performQualityControl(3)).toBe(true);
     });
 
     test("a batch in which everything throws does not engage the backoff", async () => {
-        vi.spyOn(QualityControl, "getPending").mockResolvedValue(makeBatch(3, alwaysFails()));
+        vi.spyOn(AtlasQualityControl, "getPending").mockResolvedValue(makeBatch(3, alwaysFails()));
 
         expect(await performQualityControl(3)).toBe(false);
         expect(qcBackoff.currentDelay).toBe(0);

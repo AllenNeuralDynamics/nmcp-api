@@ -496,10 +496,10 @@ describe("lock order", () => {
     test("the reset takes the child before the parent", async () => {
         const stubs = ordered(AnnotationStatus.ReadyToPublish, AtlasReconstructionStatus.ReadyToPublish, userWith(UserPermissions.Admin));
 
-        const {QualityControl} = require("../src/models/qualityControl");
+        const {AtlasQualityControl} = require("../src/models/atlasQualityControl");
         const {Precomputed} = require("../src/models/precomputed");
 
-        vi.spyOn(QualityControl, "findOne").mockResolvedValue({makePending: vi.fn().mockResolvedValue(undefined)} as any);
+        vi.spyOn(AtlasQualityControl, "findOne").mockResolvedValue({makePending: vi.fn().mockResolvedValue(undefined)} as any);
         vi.spyOn(Precomputed, "findOne").mockResolvedValue({id: "precomputed-1"} as any);
 
         await AtlasReconstruction.resetPipeline(userWith(UserPermissions.Admin), "annotation-1");

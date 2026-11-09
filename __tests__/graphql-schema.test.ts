@@ -18,6 +18,7 @@ const {Neuron} = require("../src/models/neuron");
 const {Atlas} = require("../src/models/atlas");
 const {AtlasKind} = require("../src/models/atlasKind");
 const {AtlasStructure} = require("../src/models/atlasStructure");
+const {AtlasQualityControl} = require("../src/models/atlasQualityControl");
 
 afterEach(() => {
     vi.restoreAllMocks();
@@ -579,5 +580,96 @@ describe("raw reconstruction resolvers", () => {
 
         expect(await secureResolvers.Mutation[resolver](null, {uploadArgs}, {user})).toBe(attempt);
         expect(spy).toHaveBeenCalledWith(user, uploadArgs);
+    });
+});
+
+describe("atlas quality control in the schema", () => {
+    const schema = createSchema();
+
+    const storedV03 = {
+        serviceVersion: 3,
+        toolVersion: "1.0.3",
+        when: "2026-11-09T12:00:00.000Z",
+        qcServiceVersion: "3.0.3",
+        score: 500,
+        error: null,
+        qualityControl: {metrics: [{name: "non_empty", status_history: [{status: "Pass"}]}]}
+    };
+
+    const storedV02 = {
+        serviceVersion: 2,
+        toolVersion: "0.0.1",
+        when: "2026-01-01T00:00:00.000Z",
+        score: 400,
+        passed: [],
+        warnings: [],
+        errors: [{name: "Soma Count", safeName: "SomaCount", description: "d", nodes: [1]}],
+        toolError: null
+    };
+
+    test("the atlasQualityControl query replaces qualityControl", () => {
+        const fields = schema.getQueryType().getFields();
+
+        expect(fields.atlasQualityControl.type.name).toBe("AtlasQualityControl");
+        expect(fields.qualityControl).toBeUndefined();
+    });
+
+    test("the retired types are gone and the atlas field returns the renamed type", () => {
+        expect(schema.getType("QualityControl")).toBeUndefined();
+        expect(schema.getType("QualityControlTest")).toBeUndefined();
+        expect(schema.getType("QualityControlToolError")).toBeUndefined();
+
+        expect(schema.getType("AtlasReconstruction").getFields().qualityControl.type.name).toBe("AtlasQualityControl");
+    });
+
+    test("QualityOutput has the three common fields and the opaque data field", () => {
+        const fields = schema.getType("QualityOutput").getFields();
+
+        expect(Object.keys(fields)).toEqual(["serviceVersion", "toolVersion", "when", "data"]);
+        expect(fields.serviceVersion.type.toString()).toBe("Int!");
+        expect(fields.toolVersion.type.toString()).toBe("String!");
+        expect(fields.when.type.toString()).toBe("Date");
+        expect(fields.data.type.toString()).toBe("JSON");
+    });
+
+    test("stored outputs of every version serialize their common fields and return the whole object as data", async () => {
+        vi.spyOn(AtlasQualityControl, "findByPk").mockResolvedValue({id: "qc-1", status: 500, current: storedV03, history: [storedV02]});
+
+        const result: any = await graphql({
+            schema,
+            source: "{ atlasQualityControl(id: \"qc-1\") { current { serviceVersion toolVersion when data } history { serviceVersion data } } }",
+            contextValue: createRequestContext(Object.create(User.prototype))
+        });
+
+        expect(result.errors).toBeUndefined();
+
+        const {current, history} = result.data.atlasQualityControl;
+
+        expect(current.serviceVersion).toBe(3);
+        expect(current.toolVersion).toBe("1.0.3");
+        expect(current.when).toBe(Date.parse(storedV03.when));
+        expect(current.data).toEqual(storedV03);
+        expect(history[0].serviceVersion).toBe(2);
+        expect(history[0].data.errors).toEqual(storedV02.errors);
+    });
+
+    test("the typed fields can be read without data", async () => {
+        vi.spyOn(AtlasQualityControl, "findByPk").mockResolvedValue({id: "qc-1", status: 500, current: storedV03, history: null});
+
+        const result: any = await graphql({
+            schema,
+            source: "{ atlasQualityControl(id: \"qc-1\") { current { serviceVersion toolVersion when } } }",
+            contextValue: createRequestContext(Object.create(User.prototype))
+        });
+
+        expect(result.errors).toBeUndefined();
+        expect(result.data.atlasQualityControl.current).toEqual({serviceVersion: 3, toolVersion: "1.0.3", when: Date.parse(storedV03.when)});
+    });
+
+    test("AtlasReconstruction.qualityControl resolves through the renamed association", async () => {
+        const row = {id: "qc-1"};
+        const reconstruction = {getAtlasQualityControl: vi.fn().mockResolvedValue(row)};
+
+        expect(await secureResolvers.AtlasReconstruction.qualityControl(reconstruction)).toBe(row);
     });
 });

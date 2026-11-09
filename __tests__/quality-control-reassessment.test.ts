@@ -6,8 +6,8 @@ const {Transaction} = require("sequelize");
 const {User, UserPermissions} = require("../src/models/user");
 const {AtlasReconstruction} = require("../src/models/atlasReconstruction");
 const {AtlasReconstructionStatus} = require("../src/models/atlasReconstructionStatus");
-const {QualityControl} = require("../src/models/qualityControl");
-const {QualityControlStatus} = require("../src/models/qualityControlStatus");
+const {AtlasQualityControl} = require("../src/models/atlasQualityControl");
+const {AtlasQualityControlStatus} = require("../src/models/atlasQualityControlStatus");
 const {EventLogItem, EventLogItemKind} = require("../src/models/eventLogItem");
 const {UnauthorizedError} = require("../src/graphql/secureResolvers");
 
@@ -56,7 +56,7 @@ function stub(childStatus: number | null, options: Options = {}) {
 
     const existing = {
         id: "qc-1",
-        status: options.qualityControlStatus ?? QualityControlStatus.Failed,
+        status: options.qualityControlStatus ?? AtlasQualityControlStatus.Failed,
         makePending: vi.fn().mockResolvedValue(undefined)
     };
 
@@ -65,7 +65,7 @@ function stub(childStatus: number | null, options: Options = {}) {
         existing: existing,
         create: create,
         findAtlas: vi.spyOn(AtlasReconstruction, "findOne").mockResolvedValue(atlasReconstruction as any),
-        findQualityControl: vi.spyOn(QualityControl, "findOne").mockResolvedValue((options.existingQualityControl ?? true) ? existing as any : null)
+        findQualityControl: vi.spyOn(AtlasQualityControl, "findOne").mockResolvedValue((options.existingQualityControl ?? true) ? existing as any : null)
     };
 }
 

@@ -5,7 +5,7 @@ import {expect, test, vi, describe, afterEach} from "vitest";
 const {User, UserPermissions} = require("../src/models/user");
 const {AtlasReconstruction} = require("../src/models/atlasReconstruction");
 const {AtlasNode} = require("../src/models/atlasNode");
-const {QualityControl} = require("../src/models/qualityControl");
+const {AtlasQualityControl} = require("../src/models/atlasQualityControl");
 const {EventLogItem, EventLogItemKind} = require("../src/models/eventLogItem");
 
 const transaction = {sentinel: "t"} as any;
@@ -23,7 +23,7 @@ function stub(found: boolean = true) {
     return {
         findOne: vi.spyOn(AtlasReconstruction, "findOne").mockResolvedValue(row),
         event: vi.spyOn(EventLogItem, "create").mockResolvedValue({id: "event-1"}),
-        destroyQualityControl: vi.spyOn(QualityControl, "destroy").mockResolvedValue(1),
+        destroyQualityControl: vi.spyOn(AtlasQualityControl, "destroy").mockResolvedValue(1),
         destroyNodes: vi.spyOn(AtlasNode, "destroy").mockResolvedValue(3),
         destroyRow: vi.spyOn(AtlasReconstruction, "destroy").mockResolvedValue(1)
     };

@@ -1,4 +1,4 @@
-export enum QualityControlStatus {
+export enum AtlasQualityControlStatus {
     NotReady = 0,
     Pending = 100,
     // The worker's claim: selected by getPending and being assessed right now.

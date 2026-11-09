@@ -10,11 +10,12 @@ const {Annotation} = require("../src/models/annotation");
 const {AnnotationStatus} = require("../src/models/annotationStatus");
 const {AtlasNode} = require("../src/models/atlasNode");
 const {Atlas} = require("../src/models/atlas");
-const {QualityControl} = require("../src/models/qualityControl");
-const {QualityControlStatus} = require("../src/models/qualityControlStatus");
+const {AtlasQualityControl} = require("../src/models/atlasQualityControl");
+const {AtlasQualityControlStatus} = require("../src/models/atlasQualityControlStatus");
 const {PrecomputedStatus} = require("../src/models/precomputed");
-const {EventLogItem} = require("../src/models/eventLogItem");
-const {QualityCheckService, QualityCheckServiceStatus, QualityControlScore} = require("../src/data-access/qualityCheckService");
+const {EventLogItem, EventLogItemKind} = require("../src/models/eventLogItem");
+const {QualityCheckService, QualityCheckServiceStatus, QualityControlScore, toQualityControlOutput} = require("../src/data-access/qualityCheckService");
+const nmcpQcDocument = require("./fixtures/nmcp-qc-document.json");
 const {SearchIndexOperation} = require("../src/transform/searchIndexOperation");
 const {SearchIndex} = require("../src/models/searchIndex");
 const {PhaseOutcome, failureText} = require("../src/util/phaseFailure");
@@ -69,7 +70,7 @@ const carriesNoStack = (reason: string) => {
 
 afterEach(() => {
     vi.restoreAllMocks();
-    for (const model of [AtlasReconstruction, QualityControl]) {
+    for (const model of [AtlasReconstruction, AtlasQualityControl]) {
         delete (model as any).sequelize;
     }
 });
@@ -90,7 +91,7 @@ describe("qualityControlChanged", () => {
     test("a pass advances to structure assignment and clears the previous failure", async () => {
         const atlasReconstruction = child();
 
-        await atlasReconstruction.qualityControlChanged(QualityControlStatus.Passed, null, systemUser, transaction);
+        await atlasReconstruction.qualityControlChanged(AtlasQualityControlStatus.Passed, null, systemUser, transaction);
 
         expect(atlasReconstruction.status).toBe(AtlasReconstructionStatus.PendingStructureAssignment);
         expect(atlasReconstruction.failureReason).toBeNull();
@@ -101,7 +102,7 @@ describe("qualityControlChanged", () => {
         const atlasReconstruction = child();
 
         await atlasReconstruction.qualityControlChanged(
-            QualityControlStatus.Failed,
+            AtlasQualityControlStatus.Failed,
             "quality control failed 2 test(s): SomaCount, Bifurcations",
             systemUser,
             transaction
@@ -117,7 +118,7 @@ describe("qualityControlChanged", () => {
         const atlasReconstruction = child();
 
         await atlasReconstruction.qualityControlChanged(
-            QualityControlStatus.Error,
+            AtlasQualityControlStatus.Error,
             "quality control tool error (SegmentationFault): the tool crashed",
             systemUser,
             transaction
@@ -131,7 +132,7 @@ describe("qualityControlChanged", () => {
     test("a claimed child is admitted, since InQualityControl is one of the phase's statuses", async () => {
         const atlasReconstruction = child(AtlasReconstructionStatus.InQualityControl);
 
-        await atlasReconstruction.qualityControlChanged(QualityControlStatus.Passed, null, systemUser, transaction);
+        await atlasReconstruction.qualityControlChanged(AtlasQualityControlStatus.Passed, null, systemUser, transaction);
 
         expect(atlasReconstruction.status).toBe(AtlasReconstructionStatus.PendingStructureAssignment);
     });
@@ -139,17 +140,32 @@ describe("qualityControlChanged", () => {
     test("a child outside the quality control statuses writes nothing", async () => {
         const atlasReconstruction = child(AtlasReconstructionStatus.ReadyToPublish);
 
-        await atlasReconstruction.qualityControlChanged(QualityControlStatus.Failed, "whatever", systemUser, transaction);
+        await atlasReconstruction.qualityControlChanged(AtlasQualityControlStatus.Failed, "whatever", systemUser, transaction);
 
         expect(atlasReconstruction.update).not.toHaveBeenCalled();
     });
 });
 
-describe("QualityControl.assess outcomes", () => {
-    function assessable(options: {reject?: any} = {}) {
-        stubTransactions(QualityControl, AtlasReconstruction);
+describe("AtlasQualityControl.assess outcomes", () => {
+    const nodes = [{index: 1, structure: 1, x: 0, y: 0, z: 0, radius: 1, parentIndex: -1}];
 
-        vi.spyOn(EventLogItem, "create").mockResolvedValue({id: "event-1"} as any);
+    const metric = (name: string, ...statuses: string[]) => ({name, status_history: statuses.map(status => ({status}))});
+
+    function serviceOutput(overrides: object = {}) {
+        return toQualityControlOutput("atlas-1", {
+            serviceVersion: "3.0.3",
+            standardMorphVersion: "1.0.3",
+            reconstructionId: "atlas-1",
+            qualityControl: {metrics: [metric("non_empty", "Pass")]},
+            error: null,
+            ...overrides
+        });
+    }
+
+    function assessable(options: {reject?: any, output?: any, current?: any} = {}) {
+        stubTransactions(AtlasQualityControl, AtlasReconstruction);
+
+        const createEvent = vi.spyOn(EventLogItem, "create").mockResolvedValue({id: "event-1"} as any);
         vi.spyOn(AtlasReconstruction, "update").mockResolvedValue([1] as any);
 
         const child = prototypeStub(AtlasReconstruction, {
@@ -160,26 +176,122 @@ describe("QualityControl.assess outcomes", () => {
 
         const lockChild = vi.spyOn(AtlasReconstruction, "findByPk").mockResolvedValue(child);
 
-        const performQualityCheck = vi.spyOn(QualityCheckService, "performQualityCheck");
+        // assess serializes the nodes itself now, so this is where a database error or a null soma comes from.
+        const serializeNodes = vi.spyOn(AtlasReconstruction, "serializeNodes");
 
         if (options.reject) {
-            performQualityCheck.mockRejectedValue(options.reject);
+            serializeNodes.mockRejectedValue(options.reject);
         } else {
-            performQualityCheck.mockResolvedValue({
-                serviceStatus: QualityCheckServiceStatus.Success,
-                output: {score: QualityControlScore.Passed, errors: [], warnings: [], passed: []}
-            } as any);
+            serializeNodes.mockResolvedValue(nodes);
         }
 
-        const qualityControl = prototypeStub(QualityControl, {
+        const output = options.output ?? serviceOutput();
+
+        const performQualityCheck = vi.spyOn(QualityCheckService, "performQualityCheck").mockResolvedValue({
+            reconstructionId: "atlas-1",
+            serviceStatus: QualityCheckServiceStatus.Success,
+            serviceError: null,
+            output: output
+        } as any);
+
+        const qualityControl = prototypeStub(AtlasQualityControl, {
             id: "qc-1",
             reconstructionId: "atlas-1",
-            status: QualityControlStatus.InProgress,
+            status: AtlasQualityControlStatus.InProgress,
+            current: options.current ?? null,
+            history: null,
             release: vi.fn().mockResolvedValue(undefined)
         });
 
-        return {qualityControl, child, lockChild, performQualityCheck, staticUpdate: QualityControl.update};
+        return {qualityControl, child, lockChild, serializeNodes, performQualityCheck, createEvent, output, staticUpdate: AtlasQualityControl.update};
     }
+
+    test("serializes the atlas nodes and checks them as registered", async () => {
+        const stubs = assessable();
+
+        await stubs.qualityControl.assess(systemUser);
+
+        expect(stubs.serializeNodes).toHaveBeenCalledWith(User.SystemInternalUser, "atlas-1");
+        expect(stubs.performQualityCheck).toHaveBeenCalledWith("atlas-1", nodes, {isRegistered: true});
+    });
+
+    test("a failed document names its failing metrics on the child", async () => {
+        const stubs = assessable({output: serviceOutput({qualityControl: nmcpQcDocument})});
+
+        expect(await stubs.qualityControl.assess(systemUser)).toBe(PhaseOutcome.Handled);
+
+        expect(stubs.qualityControl.status).toBe(AtlasQualityControlStatus.Failed);
+        expect(stubs.child.status).toBe(AtlasReconstructionStatus.FailedQualityControl);
+        expect(stubs.child.failureReason).toBe("quality control failed 2 metric(s): duplicate_node_coordinates, edge_length");
+    });
+
+    test("a service error records its stage, kind and description but not its info", async () => {
+        const stubs = assessable({
+            output: serviceOutput({
+                qualityControl: null,
+                error: {stage: "standard_morph", kind: "ValueError", description: "d", info: "secret detail"}
+            })
+        });
+
+        await stubs.qualityControl.assess(systemUser);
+
+        expect(stubs.qualityControl.status).toBe(AtlasQualityControlStatus.Error);
+        expect(stubs.child.status).toBe(AtlasReconstructionStatus.FailedQualityControl);
+        expect(stubs.child.failureReason).toBe("quality control service error (standard_morph, ValueError): d");
+        expect(stubs.child.failureReason).not.toContain("secret detail");
+    });
+
+    test("an id mismatch is recorded as a service error naming both ids", async () => {
+        const stubs = assessable({output: serviceOutput({reconstructionId: "atlas-2"})});
+
+        await stubs.qualityControl.assess(systemUser);
+
+        expect(stubs.qualityControl.status).toBe(AtlasQualityControlStatus.Error);
+        expect(stubs.child.failureReason).toContain("ReconstructionIdMismatch");
+        expect(stubs.child.failureReason).toContain("atlas-1");
+        expect(stubs.child.failureReason).toContain("atlas-2");
+    });
+
+    test("pending metrics without a failure pass and advance the child", async () => {
+        const stubs = assessable({output: serviceOutput({qualityControl: {metrics: [metric("a", "Pass"), metric("b", "Pending")]}})});
+
+        expect(stubs.output.score).toBe(QualityControlScore.PassedWithWarnings);
+
+        await stubs.qualityControl.assess(systemUser);
+
+        expect(stubs.qualityControl.status).toBe(AtlasQualityControlStatus.Passed);
+        expect(stubs.child.status).toBe(AtlasReconstructionStatus.PendingStructureAssignment);
+        expect(stubs.child.failureReason).toBeNull();
+    });
+
+    test("the assessment event carries only the status and the output's common fields", async () => {
+        const stubs = assessable();
+
+        await stubs.qualityControl.assess(systemUser);
+
+        const assessment = stubs.createEvent.mock.calls
+            .map(call => call[0] as any)
+            .find(item => item.kind === EventLogItemKind.AtlasQualityControlPassed);
+
+        expect(Object.keys(assessment.details).sort()).toEqual(["serviceVersion", "status", "toolVersion", "when"]);
+        expect(assessment.details).toEqual({
+            status: AtlasQualityControlStatus.Passed,
+            serviceVersion: stubs.output.serviceVersion,
+            toolVersion: "1.0.3",
+            when: stubs.output.when
+        });
+    });
+
+    test("the row stores the full output and moves the previous one to history", async () => {
+        const previous = {serviceVersion: 2, toolVersion: "0.0.1", when: "2026-01-01T00:00:00.000Z", errors: []};
+
+        const stubs = assessable({current: previous});
+
+        await stubs.qualityControl.assess(systemUser);
+
+        expect(stubs.qualityControl.current).toBe(stubs.output);
+        expect(stubs.qualityControl.history).toEqual([previous]);
+    });
 
     test.each([
         ["unavailable", QualityCheckServiceStatus.Unavailable],
@@ -196,14 +308,14 @@ describe("QualityControl.assess outcomes", () => {
         expect(stubs.child.update).not.toHaveBeenCalled();
     });
 
-    // The path the end-to-end wrap exists for: performQualityCheck serializes the nodes before its own try, so a
-    // database error there throws out of it rather than becoming Unavailable.
+    // The path the end-to-end wrap exists for: assess serializes the nodes inside its own try, so a database error
+    // there is classified rather than escaping with the claim held.
     test("a throw before any service result is recorded on both rows", async () => {
         const stubs = assessable({reject: new TypeError("cannot read soma")});
 
         expect(await stubs.qualityControl.assess(systemUser)).toBe(PhaseOutcome.Handled);
 
-        expect(stubs.qualityControl.status).toBe(QualityControlStatus.Error);
+        expect(stubs.qualityControl.status).toBe(AtlasQualityControlStatus.Error);
         expect(stubs.child.status).toBe(AtlasReconstructionStatus.FailedQualityControl);
         expect(stubs.child.failureReason).toBe("unexpected TypeError during quality control");
         carriesNoStack(stubs.child.failureReason);

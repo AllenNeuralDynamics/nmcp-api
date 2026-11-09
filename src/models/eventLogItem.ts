@@ -108,11 +108,12 @@ export enum EventLogItemKind {
 
     AtlasReconstructionArchive = 6900,
 
-    QualityControlCreate = 7000,
-    QualityControlUpdate = 7010,
-    QualityControlError = 7100,
-    QualityControlPassed = 7110,
-    QualityControlFailed = 7120,
+    // Renamed from QualityControl...; rows written before the rename keep these numbers but store the old text in name.
+    AtlasQualityControlCreate = 7000,
+    AtlasQualityControlUpdate = 7010,
+    AtlasQualityControlError = 7100,
+    AtlasQualityControlPassed = 7110,
+    AtlasQualityControlFailed = 7120,
 
     PrecomputedCreate = 8000,
     PrecomputedUpdate = 8010,

@@ -44,7 +44,7 @@ const events = [
     event("atlas-create-2", EventLogItemKind.AtlasReconstructionCreate, "atlas-2", "annotation-2", 33),
     event("specimen-space-upload-2", EventLogItemKind.SpecimenSpaceReconstructionUpload, "specimen-space-2", "annotation-2", 34),
     event("precomputed-update-2", EventLogItemKind.PrecomputedUpdate, "precomputed-2", "specimen-space-2", 35),
-    event("quality-control-2", EventLogItemKind.QualityControlCreate, "qc-2", "atlas-2", 36),
+    event("quality-control-2", EventLogItemKind.AtlasQualityControlCreate, "qc-2", "atlas-2", 36),
     event("raw-upload-2", EventLogItemKind.RawReconstructionUploadCreate, "raw-upload-attempt-2", "annotation-2", 37),
     event("raw-create-2", EventLogItemKind.RawReconstructionCreate, "raw-2", "annotation-2", 38)
 ];

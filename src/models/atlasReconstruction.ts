@@ -10,7 +10,7 @@ import {
     PrecomputedStatusKinds,
     QualityControlStatusKinds
 } from "./atlasReconstructionStatus";
-import {QualityControlStatus} from "./qualityControlStatus";
+import {AtlasQualityControlStatus} from "./atlasQualityControlStatus";
 import {failureText, isTransientDatabaseError, PhaseOutcome, phaseFailureMessage} from "../util/phaseFailure";
 import {User} from "./user";
 import {Precomputed, PrecomputedGenerationStatus, PrecomputedStatus} from "./precomputed";
@@ -26,7 +26,7 @@ import {Annotation} from "./annotation";
 import {AnnotationStatus} from "./annotationStatus";
 import {GraphQLError} from "graphql/error";
 import {AtlasReconstructionTableName} from "./tableNames";
-import {QualityControl} from "./qualityControl";
+import {AtlasQualityControl} from "./atlasQualityControl";
 import {AtlasNode, AtlasNodeShape, mapToAtlasNodeShape} from "./atlasNode";
 import {EventLogItem, EventLogItemKind, recordEvent} from "./eventLogItem";
 import {NeuronStructure} from "./neuronStructure";
@@ -87,13 +87,13 @@ export class AtlasReconstruction extends BaseModel {
     public getReviewer!: BelongsToGetAssociationMixin<User>;
     public getPrecomputed!: BelongsToGetAssociationMixin<Precomputed>;
     public getAnnotation!: BelongsToGetAssociationMixin<Annotation>;
-    public getQualityControl!: BelongsToGetAssociationMixin<QualityControl>;
+    public getAtlasQualityControl!: BelongsToGetAssociationMixin<AtlasQualityControl>;
     public getSoma!: BelongsToGetAssociationMixin<AtlasNode>;
     public getAtlasNodes!: HasManyGetAssociationsMixin<AtlasNode>;
 
     public readonly Precomputed: Precomputed;
     public readonly Annotation: Annotation;
-    public readonly QualityControl: QualityControl;
+    public readonly AtlasQualityControl: AtlasQualityControl;
     public readonly Reviewer: User;
 
     private static _nearestNodeCache: FiniteMap<string, KDTree> = new FiniteMap<string, KDTree>(10);
@@ -251,10 +251,10 @@ export class AtlasReconstruction extends BaseModel {
     public async prepareToFinalize(user: User, t: Transaction, substituteUser: User = null): Promise<void> {
         // Set up next step: QC if needed.
         // TODO change create to only create if needed for one call.
-        let qc = await QualityControl.findOne({where: {reconstructionId: this.id}, transaction: t});
+        let qc = await AtlasQualityControl.findOne({where: {reconstructionId: this.id}, transaction: t});
 
         if (!qc) {
-            await QualityControl.createForReconstruction(user, this.id, t);
+            await AtlasQualityControl.createForReconstruction(user, this.id, t);
         } else {
             await qc.makePending(user, t);
         }
@@ -318,7 +318,7 @@ export class AtlasReconstruction extends BaseModel {
 
         await reconstruction.recordEvent(EventLogItemKind.AtlasReconstructionDiscard, null, user, t);
 
-        await QualityControl.destroy({where: {reconstructionId: reconstruction.id}, transaction: t});
+        await AtlasQualityControl.destroy({where: {reconstructionId: reconstruction.id}, transaction: t});
 
         await AtlasNode.destroy({where: {reconstructionId: reconstruction.id}, transaction: t});
 
@@ -369,14 +369,14 @@ export class AtlasReconstruction extends BaseModel {
     }
 
     /**
-     * The quality control status rather than a boolean, so that a StandardMorph tool error stays distinguishable
+     * The quality control status rather than a boolean, so that a quality control service error stays distinguishable
      * from a genuine morphology failure in the record.  Both halt at FailedQualityControl and wait for a person;
      * failureReason is what says which.  Runs on the caller's transaction - assess has committed nothing yet, and
      * its row write and this one belong together.
      */
-    public async qualityControlChanged(status: QualityControlStatus, failureReason: string | null, user: User, t: Transaction): Promise<void> {
+    public async qualityControlChanged(status: AtlasQualityControlStatus, failureReason: string | null, user: User, t: Transaction): Promise<void> {
         if (QualityControlStatusKinds.includes(this.status)) {
-            const passed = status === QualityControlStatus.Passed;
+            const passed = status === AtlasQualityControlStatus.Passed;
 
             await this.recordEvent(EventLogItemKind.AtlasReconstructionQualityControlComplete, {passed: passed}, user, t);
 
@@ -849,7 +849,7 @@ export class AtlasReconstruction extends BaseModel {
     }
 
     /**
-     * The child reset alone would be inert here too: the worker's QualityControl.getPending selects on that row, not on
+     * The child reset alone would be inert here too: the worker's AtlasQualityControl.getPending selects on that row, not on
      * the child, and assess left it at its failed result.
      */
     public static async requestQualityControlReassessment(user: User, annotationId: string): Promise<AtlasReconstruction> {
@@ -861,7 +861,7 @@ export class AtlasReconstruction extends BaseModel {
             AtlasReconstructionStatus.PendingQualityControl,
             EventLogItemKind.AtlasReconstructionQualityControlRequest,
             async (atlasReconstruction, t) => {
-                const qualityControl = await QualityControl.findOne({where: {reconstructionId: atlasReconstruction.id}, transaction: t});
+                const qualityControl = await AtlasQualityControl.findOne({where: {reconstructionId: atlasReconstruction.id}, transaction: t});
 
                 if (!qualityControl) {
                     throw new Error("No quality control record found for this reconstruction");
@@ -1283,7 +1283,7 @@ export const modelAssociate = () => {
     // enforces it is in 20261104000000-annotation-doi alongside the NOT NULL.
     AtlasReconstruction.belongsTo(Annotation, {foreignKey: {name: "annotationId", allowNull: false}});
     AtlasReconstruction.belongsTo(AtlasNode, {foreignKey: "somaNodeId", as: "Soma"});
-    AtlasReconstruction.hasOne(QualityControl, {foreignKey: "reconstructionId"});
+    AtlasReconstruction.hasOne(AtlasQualityControl, {foreignKey: "reconstructionId"});
     AtlasReconstruction.hasOne(Precomputed, {foreignKey: "reconstructionId"});
     AtlasReconstruction.hasMany(AtlasNode, {foreignKey: "reconstructionId"});
 };

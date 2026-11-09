@@ -1,0 +1,451 @@
+{
+  "object_type": "Quality control",
+  "describedBy": "https://raw.githubusercontent.com/AllenNeuralDynamics/aind-data-schema/main/src/aind_data_schema/core/quality_control.py",
+  "schema_version": "2.4.2",
+  "metrics": [
+    {
+      "object_type": "QC metric",
+      "name": "required_columns",
+      "modality": {
+        "name": "Selective plane illumination microscopy",
+        "abbreviation": "SPIM"
+      },
+      "stage": "Processing",
+      "value": 0.0,
+      "status_history": [
+        {
+          "object_type": "QC status",
+          "evaluator": "Automated: standard_morph",
+          "status": "Pass",
+          "timestamp": "2026-11-06T19:35:38.067152Z"
+        }
+      ],
+      "description": "All required SWC columns are present. | Measurements: required_columns=[node_id, compartment, x, y, z, r, parent], present_columns=[node_id, compartment, x, y, z, r, parent], missing_columns=[]",
+      "reference": null,
+      "tags": {
+        "phase": "integrity"
+      },
+      "evaluated_assets": null
+    },
+    {
+      "object_type": "QC metric",
+      "name": "non_empty",
+      "modality": {
+        "name": "Selective plane illumination microscopy",
+        "abbreviation": "SPIM"
+      },
+      "stage": "Processing",
+      "value": 1860.0,
+      "status_history": [
+        {
+          "object_type": "QC status",
+          "evaluator": "Automated: standard_morph",
+          "status": "Pass",
+          "timestamp": "2026-11-06T19:35:38.067152Z"
+        }
+      ],
+      "description": "SWC table has 1860 node(s).",
+      "reference": null,
+      "tags": {
+        "phase": "integrity"
+      },
+      "evaluated_assets": null
+    },
+    {
+      "object_type": "QC metric",
+      "name": "castable_columns",
+      "modality": {
+        "name": "Selective plane illumination microscopy",
+        "abbreviation": "SPIM"
+      },
+      "stage": "Processing",
+      "value": 0.0,
+      "status_history": [
+        {
+          "object_type": "QC status",
+          "evaluator": "Automated: standard_morph",
+          "status": "Pass",
+          "timestamp": "2026-11-06T19:35:38.067152Z"
+        }
+      ],
+      "description": "All column values cast cleanly to their required types. | Measurements: problems_by_column={}",
+      "reference": null,
+      "tags": {
+        "phase": "integrity"
+      },
+      "evaluated_assets": null
+    },
+    {
+      "object_type": "QC metric",
+      "name": "unique_node_ids",
+      "modality": {
+        "name": "Selective plane illumination microscopy",
+        "abbreviation": "SPIM"
+      },
+      "stage": "Processing",
+      "value": 0.0,
+      "status_history": [
+        {
+          "object_type": "QC status",
+          "evaluator": "Automated: standard_morph",
+          "status": "Pass",
+          "timestamp": "2026-11-06T19:35:38.067152Z"
+        }
+      ],
+      "description": "All node ids are unique. | Measurements: duplicate_ids=[]",
+      "reference": null,
+      "tags": {
+        "phase": "integrity"
+      },
+      "evaluated_assets": null
+    },
+    {
+      "object_type": "QC metric",
+      "name": "valid_parent_references",
+      "modality": {
+        "name": "Selective plane illumination microscopy",
+        "abbreviation": "SPIM"
+      },
+      "stage": "Processing",
+      "value": 0.0,
+      "status_history": [
+        {
+          "object_type": "QC status",
+          "evaluator": "Automated: standard_morph",
+          "status": "Pass",
+          "timestamp": "2026-11-06T19:35:38.067152Z"
+        }
+      ],
+      "description": "All parent ids reference an existing node.",
+      "reference": null,
+      "tags": {
+        "phase": "integrity"
+      },
+      "evaluated_assets": null
+    },
+    {
+      "object_type": "QC metric",
+      "name": "acyclic",
+      "modality": {
+        "name": "Selective plane illumination microscopy",
+        "abbreviation": "SPIM"
+      },
+      "stage": "Processing",
+      "value": 0.0,
+      "status_history": [
+        {
+          "object_type": "QC status",
+          "evaluator": "Automated: standard_morph",
+          "status": "Pass",
+          "timestamp": "2026-11-06T19:35:38.067152Z"
+        }
+      ],
+      "description": "Parent chain is acyclic.",
+      "reference": null,
+      "tags": {
+        "phase": "integrity"
+      },
+      "evaluated_assets": null
+    },
+    {
+      "object_type": "QC metric",
+      "name": "single_root_node",
+      "modality": {
+        "name": "Selective plane illumination microscopy",
+        "abbreviation": "SPIM"
+      },
+      "stage": "Processing",
+      "value": 1.0,
+      "status_history": [
+        {
+          "object_type": "QC status",
+          "evaluator": "Automated: standard_morph",
+          "status": "Pass",
+          "timestamp": "2026-11-06T19:35:38.067152Z"
+        }
+      ],
+      "description": "Single valid root: one soma-type root, node_id 1. | Measurements: n_soma_roots=1, n_type1_nodes=1",
+      "reference": null,
+      "tags": {
+        "phase": "morphology"
+      },
+      "evaluated_assets": null
+    },
+    {
+      "object_type": "QC metric",
+      "name": "soma_first_node",
+      "modality": {
+        "name": "Selective plane illumination microscopy",
+        "abbreviation": "SPIM"
+      },
+      "stage": "Processing",
+      "value": 1.0,
+      "status_history": [
+        {
+          "object_type": "QC status",
+          "evaluator": "Automated: standard_morph",
+          "status": "Pass",
+          "timestamp": "2026-11-06T19:35:38.067152Z"
+        }
+      ],
+      "description": "First node (id 1) is the soma. | Measurements: first_node_id=1, first_node_compartment=1",
+      "reference": null,
+      "tags": {
+        "phase": "morphology"
+      },
+      "evaluated_assets": null
+    },
+    {
+      "object_type": "QC metric",
+      "name": "single_connected_component",
+      "modality": {
+        "name": "Selective plane illumination microscopy",
+        "abbreviation": "SPIM"
+      },
+      "stage": "Processing",
+      "value": 1.0,
+      "status_history": [
+        {
+          "object_type": "QC status",
+          "evaluator": "Automated: standard_morph",
+          "status": "Pass",
+          "timestamp": "2026-11-06T19:35:38.067152Z"
+        }
+      ],
+      "description": "Reconstruction is a single connected component. | Measurements: n_roots=1, n_orphans=0",
+      "reference": null,
+      "tags": {
+        "phase": "morphology"
+      },
+      "evaluated_assets": null
+    },
+    {
+      "object_type": "QC metric",
+      "name": "node_identity_types",
+      "modality": {
+        "name": "Selective plane illumination microscopy",
+        "abbreviation": "SPIM"
+      },
+      "stage": "Processing",
+      "value": 0.0,
+      "status_history": [
+        {
+          "object_type": "QC status",
+          "evaluator": "Automated: standard_morph",
+          "status": "Pass",
+          "timestamp": "2026-11-06T19:35:38.067152Z"
+        }
+      ],
+      "description": "Node types [1, 2, 3] are all expected. | Measurements: unique_types=[1, 2, 3], type_counts={1: 1, 2: 1427, 3: 432}",
+      "reference": null,
+      "tags": {
+        "phase": "morphology"
+      },
+      "evaluated_assets": null
+    },
+    {
+      "object_type": "QC metric",
+      "name": "duplicate_node_coordinates",
+      "modality": {
+        "name": "Selective plane illumination microscopy",
+        "abbreviation": "SPIM"
+      },
+      "stage": "Processing",
+      "value": 2.0,
+      "status_history": [
+        {
+          "object_type": "QC status",
+          "evaluator": "Automated: standard_morph",
+          "status": "Fail",
+          "timestamp": "2026-11-06T19:35:38.067152Z"
+        }
+      ],
+      "description": "2 node(s) in 1 group(s) share coordinates with another node. | Measurements: n_duplicate_groups=1",
+      "reference": "js:neuroglancer?action=goto:11027.093,12976.864,14293&action=goto:11027.093,12976.864,14293",
+      "tags": {
+        "phase": "morphology"
+      },
+      "evaluated_assets": null
+    },
+    {
+      "object_type": "QC metric",
+      "name": "branch_max_degree",
+      "modality": {
+        "name": "Selective plane illumination microscopy",
+        "abbreviation": "SPIM"
+      },
+      "stage": "Processing",
+      "value": 6.0,
+      "status_history": [
+        {
+          "object_type": "QC status",
+          "evaluator": "Automated: standard_morph",
+          "status": "Pending",
+          "timestamp": "2026-11-06T19:35:38.067152Z"
+        }
+      ],
+      "description": "14 branch point(s) have more than 2 children. | Thresholds: max_children=2",
+      "reference": "js:neuroglancer?action=goto:10861.29,13008.887,14324.061&action=goto:11395.24,13410.829,14262.913&action=goto:11427.719,13468.269,14261.146&action=goto:18658.93,16103.768,8598.58&action=goto:20543.705,8735.812,7027.432&action=goto:20533.332,8725.446,7088.601&action=goto:20549.947,8747.916,7091.482&action=goto:20522.898,8722.462,7026.518&action=goto:24565.734,11909.757,6564.082&action=goto:24589.813,11780.871,6559.027&action=goto:24470.262,11700.147,6542.846&action=goto:24535.978,11786.409,6523.281&action=goto:24699.43,11858.224,6534.919&action=goto:24736.497,11763.243,6527.225",
+      "tags": {
+        "phase": "morphology"
+      },
+      "evaluated_assets": null
+    },
+    {
+      "object_type": "QC metric",
+      "name": "edge_length",
+      "modality": {
+        "name": "Selective plane illumination microscopy",
+        "abbreviation": "SPIM"
+      },
+      "stage": "Processing",
+      "value": 0.4253369272237197,
+      "status_history": [
+        {
+          "object_type": "QC status",
+          "evaluator": "Automated: standard_morph",
+          "status": "Fail",
+          "timestamp": "2026-11-06T19:35:38.067152Z"
+        }
+      ],
+      "description": "789/1855 edge(s) outside [0, 30.0] um (min 0.0, max 412.0 um). | Thresholds: max_length_um=[0, 30], space=image_space | Measurements: n_edges=1855, n_over=789, fraction_over=0.425337, max_edge_length=411.986",
+      "reference": "js:neuroglancer?action=goto:10900.397,13055.56,14310.856&action=goto:10964.341,13069.813,14309.006&action=goto:11020.895,13106.516,14333.066&action=goto:11089.635,13136.221,14339.107&action=goto:11141.255,13148.202,14357.054&action=goto:11194.117,13205.056,14357.072&action=goto:11296.29,13292.007,14317.007&action=goto:11323.074,13318.508,14311.128&action=goto:11373.924,13348.636,14297.132&action=goto:11448.761,13387.577,14291.092&action=goto:11478.694,13402.557,14279.755&action=goto:11253.653,13217.059,14325.002&action=goto:11269.218,13199.082,14305.108&action=goto:11222.928,13133.209,14361.236&action=goto:11060.059,13098.329,14338.926&action=goto:11097.844,13070.456,14342.839&action=goto:11128.216,13052.515,14355.149&action=goto:11158.731,13025.644,14365.077&action=goto:11009.269,13112.237,14301.183&action=goto:11040.2,13112.265,14291.093&action=goto:11069.047,13118.215,14275.169&action=goto:11098.979,13112.333,14267.282&action=goto:10896.586,13082.393,14289.297&action=goto:10970.278,13130.469,14269.631&action=goto:10843.96,12936.223,14328.956&action=goto:10847.373,12869.423,14337.076&action=goto:10853.412,12786.36,14332.756&action=goto:10841.441,12756.326,14312.76&action=goto:10817.477,12733.188,14292.932&action=goto:10853.31,12673.723,14227.084&action=goto:10934.222,12693.576,14202.945&action=goto:10970.023,12687.729,14185.056&action=goto:11002.869,12677.938,14191.059&action=goto:11067.141,12675.573,14198.004&action=goto:11108.655,12666.698,14168&action=goto:11119.357,12696.556,14186&action=goto:11017.017,12699.36,14162.004&action=goto:10871.268,12896.54,14322.946&action=goto:10922.207,12863.28,14317.115&action=goto:10937.271,12828.162,14317.003&action=goto:11002.862,12798.642,14308.981&action=goto:11041.803,12795.427,14294.865&action=goto:11077.715,12798.397,14286.839&action=goto:10877.387,12849.16,14287.244&action=goto:10823.399,12939.182,14309.079&action=goto:10772.509,12914.498,14267.139&action=goto:10735.69,12900.068,14245.23&action=goto:10667.921,12884.95,14233.218&action=goto:10616.891,12879.098,14233.291&action=goto:10584.162,12866.922,14230.795&action=goto:10718.768,12876.632,14207.258&action=goto:10814.633,12909.152,14313.452&action=goto:10790.691,12891.381,14329.031&action=goto:10775.486,12855.577,14345.334&action=goto:10708.396,12834.533,14347.26&action=goto:10665.093,12819.608,14340.72&action=goto:10623.538,12819.522,14321.104&action=goto:10575.1,12795.986,14303.313&action=goto:10521.776,12777.65,14289.148&action=goto:10484.476,12768.622,14283.011&action=goto:10390.025,12756.71,14266.624&action=goto:10470.448,12741.609,14290.785&action=goto:10820.518,12869.854,14305.261&action=goto:10877.515,12812.941,14317.219&action=goto:10931.035,12795.165,14335.104&action=goto:10812.192,12966.069,14338.022&action=goto:10778.659,12929.484,14339.047&action=goto:10772.608,12899.948,14337.105&action=goto:10766.463,12839.671,14291.237&action=goto:10775.764,12825.304,14239.238&action=goto:10770.145,12801.56,14221.235&action=goto:10771.684,12968.88,14355.057&action=goto:10689.16,12998.041,14387.167&action=goto:10640.274,13093.883,14409.591&action=goto:10607.609,13034.346,14427.171&action=goto:10693.889,12936.391,14398&action=goto:10682.752,12954.318,14421.999&action=goto:10859.053,12978.294,14313.383&action=goto:10864.701,12944.879,14305.178&action=goto:10856.304,12906.023,14271.01&action=goto:10847.381,12890.873,14239.179&action=goto:10764.022,12879.032,14223.048&action=goto:10898.217,12920.929,14275.141&action=goto:10924.955,12947.852,14263.319&action=goto:10967.072,12953.629,14255.117&action=goto:10949.036,12871.267,14271.173&action=goto:10993.819,12866.848,14285.27&action=goto:11026.82,12875.761,14290.934&action=goto:10946.414,13010.675,14338.359&action=goto:10988.279,13010.57,14329.331&action=goto:11054.785,13013.673,14315.185&action=goto:11087.022,13022.56,14313.259&action=goto:11126.381,13043.57,14305.193&action=goto:11164.736,13067.931,14301.082&action=goto:11200.785,13103.65,14303.112&action=goto:11227.962,13142.47,14295.155&action=goto:11263.625,13184.176,14286.723&action=goto:11293.582,13237.977,14284.945&action=goto:11311.37,13276.724,14283.579&action=goto:11335.382,13309.987,14272.033&action=goto:11368.612,13354.729,14260.69&action=goto:11395.052,13396.549,14262.959&action=goto:11422.777,13444.32,14261.408&action=goto:11442.605,13499.597,14261.308&action=goto:11454.619,13558.226,14267.115&action=goto:11451.643,13483.344,14247.186&action=goto:11478.592,13510.277,14228.656&action=goto:11493.549,13538.509,14212.999&action=goto:11353.929,13462.361,14269.01&action=goto:10904.478,12923.84,14355.098&action=goto:10916.385,12885.131,14345.221&action=goto:10916.427,12806.746,14335.112&action=goto:10943.296,12750.653,14314&action=goto:10877.564,12775.555,14324.917&action=goto:10990.996,12842.102,14318.832&action=goto:10931.261,12889.206,14373.099&action=goto:10955.756,12885.153,14399.042&action=goto:10982.026,12867.067,14417.093&action=goto:11082.153,12968.745,14271.078&action=goto:11200.301,12933.057,14208.81&action=goto:11230.575,12924.112,14213.127&action=goto:11149.76,12947.738,14283.078&action=goto:11047.948,12945.88,14295.068&action=goto:11158.804,12875.942,14311.445&action=goto:11263.463,12899.635,14310.93&action=goto:11128.866,12891.02,14323.021&action=goto:11182.604,12843.179,14313.015&action=goto:11030.134,12989.647,14257.093&action=goto:10994.479,13028.579,14191.23&action=goto:10832.522,13031.561,14311.009&action=goto:10784.855,13031.541,14301.099&action=goto:10757.781,13058.074,14303.141&action=goto:10709.544,13100.665,14285.079&action=goto:10680.024,13136.388,14297.446&action=goto:10646.912,13157.462,14303.069&action=goto:10568.97,13172.428,14291.7&action=goto:10718.584,13088.646,14314.872&action=goto:10688.642,13106.617,14317.373&action=goto:10835.742,13043.114,14309.138&action=goto:10792.736,13079.233,14299.287&action=goto:10725.056,13099.828,14279.25&action=goto:10658.736,13103.619,14267.258&action=goto:10616.512,13097.784,14269.371&action=goto:10688.859,13136.158,14225.264&action=goto:10862.314,13082.375,14333.06&action=goto:10863.821,13118.279,14345.066&action=goto:10868.566,13178.105,14363.15&action=goto:10880.449,13269.888,14395.113&action=goto:10910.443,13396.373,14379.041&action=goto:10952.319,13507.283,14425.088&action=goto:10924.164,13351.819,14396.893&action=goto:10954.054,13414.531,14359.02&action=goto:10845.243,13244.065,14389.029&action=goto:10782.707,13262.101,14421.115&action=goto:10727.18,13262.036,14423.051&action=goto:10856.548,13255.843,14429.043&action=goto:10832.655,13283.761,14401.036&action=goto:10814.682,13307.931,14419.614&action=goto:10790.763,13334.175,14427.145&action=goto:10766.711,13387.51,14395.114&action=goto:10763.854,13414.292,14381.086&action=goto:10766.576,13398.302,14427.115&action=goto:10922.432,13334.656,14419.038&action=goto:10940.329,13363.916,14438.991&action=goto:10949.494,13265.105,14414&action=goto:10798.925,13059.398,14291.507&action=goto:10786.977,13010.012,14281.559&action=goto:10789.953,12926.217,14282.516&action=goto:10786.426,12857.571,14271.412&action=goto:10788.419,12826.099,14276.266&action=goto:10689.863,12892.524,14303.494&action=goto:10657.093,12933.78,14297.202&action=goto:10639.954,12960.396,14291.378&action=goto:10587.249,13024.692,14255.6&action=goto:10556.593,13068.781,14247.312&action=goto:10553.496,13105.489,14238.186&action=goto:10551.978,13141.552,14228.801&action=goto:10535.32,13228.757,14217.3&action=goto:10529.746,13265.894,14209.11&action=goto:10520.513,13313.84,14194.568&action=goto:10517.582,13343.744,14177.497&action=goto:10514.543,13379.694,14174.332&action=goto:10564.434,13559.11,14299.725&action=goto:10606.896,13644.156,14344.229&action=goto:10622.411,13672.609,14355.629&action=goto:10641.848,13729.642,14365.71&action=goto:10483.32,13421.776,14140.347&action=goto:10490.682,13433.231,14098.406&action=goto:10480.369,13461.566,14067.556&action=goto:10460.613,13498.892,14020.927&action=goto:10454.97,13524.381,13953.264&action=goto:10465.801,13520.072,13917.795&action=goto:10469.988,13516.946,13855.872&action=goto:10478.647,13527.514,13797.43&action=goto:10462.331,13541.013,13708.688&action=goto:10474.343,13561.601,13667.824&action=goto:10460.806,13591.851,13634.596&action=goto:10460.689,13629.215,13616.028&action=goto:10435.339,13671.664,13607.869&action=goto:10414.435,13733.86,13608.187&action=goto:10387.039,13802.717,13606.78&action=goto:10365.037,13863.147,13606.862&action=goto:10344.055,13925.363,13597.147&action=goto:10308.224,13967.614,13586.729&action=goto:10287.178,14014.873,13583.876&action=goto:10267.442,14052.498,13575.905&action=goto:10261.655,14107.435,13546.999&action=goto:10255.758,14157.193,13545.641&action=goto:10242.393,14206.514,13537.31&action=goto:10239.357,14266.456,13508.539&action=goto:10230.354,14305.531,13478.877&action=goto:10220.247,14351.91,13477.882&action=goto:10206.549,14396.607,13475.562&action=goto:10210.803,14422.027,13424.879&action=goto:10224.337,14409.408,13394.764&action=goto:10244.13,14417.538,13356.627&action=goto:10258.846,14402.652,13245.79&action=goto:10237.929,14467.999,13167.769&action=goto:10219.958,14543.764,13133.812&action=goto:10189.434,14583.607,13110.783&action=goto:10175.039,14628.846,13085.856&action=goto:10163.473,14683.897,13051.724&action=goto:10146.58,14731.328,13009.915&action=goto:10115.279,14784.056,12962.627&action=goto:10100.262,14843.931,12929.388&action=goto:10079.327,14879.967,12921.867&action=goto:10065.582,14899.441,12897.304&action=goto:10037.186,14942.824,12832.436&action=goto:10041.972,14979.889,12782.654&action=goto:10019.594,15021.922,12712.762&action=goto:9994.012,15051.637,12615.836&action=goto:9993.022,15060.721,12579.385&action=goto:9980.533,15113.229,12513.135&action=goto:9936.376,15176.071,12453.889&action=goto:9896.837,15216.161,12398.894&action=goto:9860.517,15246.779,12364.421&action=goto:9829.559,15279.381,12331.111&action=goto:9814.686,15318.115,12305.931&action=goto:9804.065,15365.008,12264.143&action=goto:9802.314,15460.102,12196.147&action=goto:9796.533,15493.061,12169.789&action=goto:9810.074,15521.447,12139.654&action=goto:9833.874,15632.018,11956.789&action=goto:9866.749,15717.66,11874.401&action=goto:9873.883,15731.112,11841.727&action=goto:9895.29,15772.977,11796.609&action=goto:9901.107,15798.42,11759.812&action=goto:9899.779,15826.824,11730.545&action=goto:9913.398,15855.17,11700.455&action=goto:9944.512,15856.386,11668.59&action=goto:9968.458,15861.482,11604.537&action=goto:9973.023,15864.095,11573.138&action=goto:9979.04,15838.932,11526.755&action=goto:9987.887,15798.54,11432.661&action=goto:10046.29,15763.45,11327.748&action=goto:10080.586,15726.567,11256.131&action=goto:10098.618,15713.264,11220.8&action=goto:10116.558,15681.864,11127.755&action=goto:10110.641,15674.397,11044.219&action=goto:10105.114,15680.359,11012.982&action=goto:10094.129,15689.271,10978.637&action=goto:10064.129,15697.033,10917.564&action=goto:10055.349,15716.327,10883.748&action=goto:10031.452,15731.803,10844.791&action=goto:9977.951,15770.255,10756.943&action=goto:9962.583,15785.145,10713.738&action=goto:9940.167,15794.036,10675.763&action=goto:9923.522,15807.607,10632.756&action=goto:9902.226,15827.056,10569.765&action=goto:9865.406,15835.952,10527.804&action=goto:9823.106,15839.046,10517.527&action=goto:9797.226,15883.735,10472.626&action=goto:9820.491,15913.704,10462.139&action=goto:9824.219,15971.23,10446.054&action=goto:9817.923,16012.269,10424.646&action=goto:9809.262,16051.32,10391.71&action=goto:9808.57,16060.32,10360.652&action=goto:9805.694,16067.922,10324.858&action=goto:9841.528,16084.199,10272.648&action=goto:9868.146,16082.628,10240.789&action=goto:9890.168,16075.094,10197.893&action=goto:9922.265,16084.478,10129.678&action=goto:9941.667,16102.199,10058.88&action=goto:9958.028,16106.548,10019.665&action=goto:10020.926,16101.097,9905.687&action=goto:10060.364,16118.497,9855.783&action=goto:10082.29,16139.282,9817.615&action=goto:10113.783,16180.609,9738.773&action=goto:10127.201,16205.318,9706.69&action=goto:10145.222,16235.726,9674.664&action=goto:10172.522,16269.662,9650.655&action=goto:10212.63,16305.484,9619.663&action=goto:10236.378,16332.291,9595.649&action=goto:10263.246,16363.623,9565.031&action=goto:10276.895,16408.742,9528.771&action=goto:10311.045,16465.547,9502.397&action=goto:10359.395,16494.133,9471.409&action=goto:10432.526,16528.506,9442.525&action=goto:10481.594,16585.306,9418.076&action=goto:10522.047,16618.095,9409.489&action=goto:10571.472,16650.86,9398&action=goto:10619.276,16669.751,9391.93&action=goto:10647.677,16679.668,9385.999&action=goto:10684,16709.497,9386&action=goto:10752.42,16720.13,9361.869&action=goto:10881.535,16662.089,9355.269&action=goto:10946.252,16681.652,9366.154&action=goto:10995.994,16711.3,9379.998&action=goto:11031.867,16724.44,9384.345&action=goto:11130.583,16749.847,9379.479&action=goto:11162.13,16780.246,9364.425&action=goto:11238.083,16848.639,9340.424&action=goto:11322.138,16829.245,9314.751&action=goto:11348.84,16830.637,9298.461&action=goto:11410.54,16833.68,9256.268&action=goto:11451.161,16829.062,9239.854&action=goto:11489.914,16817.224,9229.71&action=goto:11535.665,16788.733,9210.414&action=goto:11573.51,16773.744,9126.786&action=goto:11628.918,16733.432,9091.353&action=goto:11659.201,16724.536,9076.639&action=goto:11708.899,16722.997,9061.479&action=goto:11805.645,16730.49,9054.531&action=goto:11966.592,16726.092,9092.303&action=goto:12021.057,16715.533,9113.548&action=goto:12089.188,16697.547,9122.417&action=goto:12170.961,16706.422,9134.008&action=goto:12370.978,16687.074,9153.413&action=goto:12450.007,16700.653,9144.37&action=goto:12511.53,16706.231,9165.526&action=goto:12562.214,16690.266,9180.271&action=goto:12644.914,16699.246,9193.488&action=goto:12714.929,16696.282,9203.433&action=goto:12812.382,16703.763,9209.434&action=goto:12869.003,16703.831,9209.301&action=goto:12941.152,16694.726,9213.557&action=goto:13028.636,16691.803,9205.421&action=goto:13132.798,16690.27,9194.493&action=goto:13283.565,16684.349,9188.371&action=goto:13334.564,16682.951,9187.008&action=goto:13436.108,16684.619,9182.491&action=goto:13572.25,16672.271,9185.454&action=goto:13603.654,16670.983,9184.548&action=goto:13676.974,16654.328,9186.411&action=goto:13793.709,16643.947,9185.166&action=goto:13915.723,16618.502,9174.336&action=goto:14043.504,16585.42,9175.381&action=goto:14118.345,16587.625,9178.649&action=goto:14212.622,16590.11,9160.762&action=goto:14311.341,16585.592,9143.096&action=goto:14413.032,16556.711,9153.698&action=goto:14532.695,16525.9,9151.772&action=goto:14592.649,16514.861,9146.62&action=goto:14722.717,16500.224,9132.698&action=goto:14798.796,16500.084,9132.673&action=goto:14926.159,16552.626,9119.587&action=goto:15017.446,16564.497,9106.509&action=goto:15108.767,16569.136,9089.912&action=goto:15181.989,16555.71,9099.86&action=goto:15269.028,16586.031,9082.385&action=goto:15461.619,16639.375,9041.533&action=goto:15574.123,16657.381,9024.628&action=goto:15654.555,16679.854,9015.684&action=goto:15702.465,16663.308,9003.539&action=goto:15774.398,16661.735,8994.662&action=goto:15872.417,16648.797,8982.518&action=goto:15928.415,16641.004,8988.577&action=goto:16009.346,16659.139,8982.589&action=goto:16171.18,16649.678,8972.957&action=goto:16293.623,16661.915,8964.187&action=goto:16425.199,16655.967,8949.529&action=goto:16490.469,16675.463,8928.331&action=goto:16624.078,16666.471,8915.385&action=goto:16743.555,16648.457,8904.169&action=goto:16875.492,16615.527,8881.471&action=goto:16939.053,16591.625,8867.398&action=goto:17012.598,16561.848,8852.089&action=goto:17041.303,16549.725,8841.429&action=goto:17093.959,16509.33,8834.437&action=goto:17166.119,16525.811,8823.39&action=goto:17246.963,16491.336,8813.524&action=goto:17333.514,16478.199,8781.405&action=goto:17414.214,16427.101,8734.306&action=goto:17499.4,16354.614,8658.399&action=goto:17547.408,16328.297,8633.604&action=goto:17598.111,16286.755,8597.417&action=goto:17637.324,16211.633,8558.438&action=goto:17677.537,16125.492,8514.328&action=goto:17723.88,16103.92,8482.913&action=goto:17777.706,16031.158,8445.368&action=goto:17819.749,15956.523,8411.268&action=goto:17858.469,15888.515,8380.01&action=goto:17905.837,15853.211,8351.921&action=goto:17976.615,15809.25,8314.365&action=goto:18038.073,15758.325,8279.548&action=goto:18072.526,15799.225,8263.409&action=goto:18096.436,15838.598,8263.437&action=goto:18105.482,15889.979,8262.359&action=goto:18145.868,15974.146,8278.412&action=goto:18181.792,16019.871,8306.392&action=goto:18219.154,16053.374,8369.441&action=goto:18259.504,16112.686,8412.417&action=goto:18258.049,16138.147,8452.56&action=goto:18265.254,16114.288,8498.44&action=goto:18321.05,16108.347,8613.206&action=goto:18322.162,16065.166,8617.444&action=goto:18374.659,16038.016,8630.524&action=goto:18432.818,16000.503,8668.985&action=goto:18497.18,15936.172,8695.498&action=goto:18528.553,15928.711,8703.507&action=goto:18580.197,15903.294,8709.485&action=goto:18682.676,16021.383,8614.565&action=goto:18627.291,15964.587,8650.356&action=goto:18613.882,15990.098,8638.404&action=goto:18619.505,16021.291,8633.475&action=goto:18497.207,15975.15,8703.61&action=goto:18521.139,16033.511,8719.626&action=goto:18308.708,16085.322,8553.391&action=goto:18353.596,16077.977,8559.399&action=goto:18420.429,16057.239,8579.422&action=goto:18470.308,16030.29,8591.394&action=goto:18515.202,15998.96,8600.513&action=goto:18556.828,15998.89,8603.416&action=goto:18686.573,16141.051,8641.506&action=goto:18666.173,16136.486,8666.472&action=goto:18586.929,15970.498,8626.396&action=goto:18578.022,15901.754,8679.427&action=goto:18592.97,15874.789,8698.428&action=goto:18088.793,15703.63,8251.458&action=goto:18144.21,15640.15,8222.389&action=goto:18204.633,15565.487,8201.006&action=goto:18230.338,15518.999,8191.471&action=goto:18293.811,15420.753,8174.491&action=goto:18318.139,15354.592,8161.053&action=goto:18344.807,15275.126,8152.354&action=goto:18388.183,15156.851,8136.558&action=goto:18411.962,15088.099,8129.504&action=goto:18464.414,14982.178,8104.537&action=goto:18532.014,14848.85,8079.631&action=goto:18608.072,14754.57,8058.352&action=goto:18676.765,14670.521,8050.329&action=goto:18712.66,14620.258,8050.546&action=goto:18723.084,14587.698,8050.414&action=goto:18762.34,14540.617,8039.597&action=goto:18807.293,14486.731,8024.5&action=goto:18832.387,14452.703,8017.405&action=goto:18854.83,14403.697,8012.372&action=goto:18902.524,14328.102,7984.029&action=goto:18948.898,14260.928,7956.03&action=goto:18959.601,14231.065,7949.029&action=goto:18962.484,14192.574,7944.78&action=goto:18957.201,14160.179,7939.035&action=goto:18972.918,14085.459,7922.604&action=goto:18995.429,14044.523,7908.51&action=goto:19013.199,14000.534,7891.756&action=goto:19023.773,13929.855,7885.617&action=goto:19040.214,13858.341,7865.638&action=goto:19055.242,13816.111,7850.545&action=goto:19080.593,13728.187,7811.656&action=goto:19086.652,13689.876,7791.553&action=goto:19074.59,13654.946,7778.07&action=goto:19097.203,13611.419,7752.441&action=goto:19113.505,13533.795,7724.655&action=goto:19113.574,13490.333,7707.562&action=goto:19094.165,13423.088,7676.509&action=goto:19095.561,13353.235,7641.643&action=goto:19090.998,13305.157,7619.741&action=goto:19088.107,13239.312,7595.606&action=goto:19091.004,13138.854,7560.059&action=goto:19086.558,13079.104,7535.676&action=goto:19050.586,12966.732,7494.764&action=goto:19052.242,12911.871,7467.556&action=goto:19064.314,12838.396,7424.539&action=goto:19068.725,12784.616,7399.574&action=goto:19070.202,12727.598,7379.582&action=goto:19067.233,12689.911,7373.572&action=goto:19067.433,12646.28,7365.501&action=goto:19076.375,12575.046,7340.513&action=goto:19074.352,12514.576,7326.622&action=goto:19059.779,12456.672,7310.488&action=goto:19058.206,12401.299,7299.583&action=goto:19061.48,12368.452,7277.017&action=goto:19058.537,12310.223,7256.538&action=goto:19052.618,12272.119,7248.533&action=goto:19060.762,12230.786,7224.013&action=goto:19073.192,12175.454,7201.339&action=goto:19076.196,12124.536,7181.518&action=goto:19086.736,12077.834,7160.722&action=goto:19110.529,12027.275,7145.604&action=goto:19124.135,11971.03,7131.727&action=goto:19140.332,11888.123,7104.68&action=goto:19162.318,11840.285,7078.467&action=goto:19175.088,11754.727,7079.714&action=goto:19188.517,11673.749,7057.56&action=goto:19182.508,11573.749,7046.144&action=goto:19164.578,11473.709,7037.3&action=goto:19166.103,11421.593,7050.491&action=goto:19160.097,11333.12,7057.329&action=goto:19167.594,11248.135,7070.45&action=goto:19161.599,11153.493,7072.371&action=goto:19166.127,11072.208,7079.655&action=goto:19157.107,11009.86,7075.346&action=goto:19158.638,10949.442,7090.585&action=goto:19142.398,10921.844,7088.451&action=goto:19134.734,10859.491,7084.8&action=goto:19141.487,10805.051,7085.783&action=goto:19155.666,10758.851,7080.765&action=goto:19161.617,10682.992,7073.514&action=goto:19163.1,10621.115,7082.39&action=goto:19143.639,10528.707,7081.327&action=goto:19149.662,10453.365,7082.605&action=goto:19163.106,10391.692,7077.45&action=goto:19177.065,10338.344,7074.427&action=goto:19194.505,10278.345,7090.295&action=goto:19218.488,10205.19,7110.542&action=goto:19228.931,10132.96,7122.449&action=goto:19240.361,10095.98,7116.526&action=goto:19240.905,10022.872,7110.503&action=goto:19251.383,9956.711,7118.552&action=goto:19257.273,9922.232,7126.972&action=goto:19260.359,9872.604,7124.541&action=goto:19282.758,9796.855,7132.188&action=goto:19305.207,9729.446,7150.16&action=goto:19349.027,9671.137,7157.349&action=goto:19422.33,9632.23,7132.405&action=goto:19498.119,9623.248,7110.462&action=goto:19568.99,9597.815,7113.487&action=goto:19652.166,9608.296,7083.419&action=goto:19719.62,9577.57,7025.521&action=goto:19807.871,9536.518,6983.474&action=goto:19833.403,9541.026,6952.34&action=goto:19879.615,9542.148,6917.553&action=goto:19991.815,9582.791,6900.553&action=goto:20056.283,9617.038,6888.374&action=goto:20081.633,9588.003,6888.57&action=goto:20100.742,9567.927,6872.635&action=goto:20110.038,9513.819,6865.643&action=goto:20131.006,9478.401,6863.535&action=goto:20140.701,9427.313,6845.666&action=goto:20159.44,9392.471,6829.498&action=goto:20199.492,9313.604,6851.553&action=goto:20226.732,9285.889,6850.622&action=goto:20295.391,9183.445,6845.539&action=goto:20358.471,9113.183,6856.089&action=goto:20422.707,9033.849,6863.552&action=goto:20484.1,8980.007,6862.948&action=goto:20520.226,8951.55,6859.476&action=goto:20596.152,8907.944,6850.924&action=goto:20626.708,8893.179,6854.613&action=goto:20639.628,8866.455,6843.06&action=goto:20651.298,8834.648,6827.524&action=goto:20727.718,8787.504,6763.641&action=goto:20768.721,8788.231,6770.497&action=goto:20825.137,8798.763,6773.608&action=goto:20904.173,8824.144,6783.384&action=goto:20989.473,8841.936,6783.115&action=goto:21046.14,8860.077,6788.433&action=goto:21096.465,8877.986,6795.357&action=goto:21150.921,8890.084,6796.133&action=goto:21181.112,8880.257,6793.426&action=goto:21295.884,8863.039,6807.418&action=goto:21335.185,8875.138,6820.455&action=goto:21405.574,8861.655,6832.106&action=goto:21459.388,8851.186,6841.055&action=goto:21500.277,8851.195,6844.266&action=goto:21610.147,8859.91,6889.959&action=goto:21637.281,8867.644,6903.523&action=goto:21741.897,8927.395,6943.425&action=goto:21764.387,8933.258,6997.442&action=goto:21788.305,8921.626,7014.406&action=goto:21722.507,8993.186,6974.378&action=goto:20633.847,8834.816,6830.545&action=goto:20611.377,8783.887,6819.319&action=goto:20599.391,8752.504,6815.391&action=goto:20551.204,8741.804,6955.968&action=goto:20546.697,8737.286,6992.179&action=goto:20543.705,8735.812,7027.432&action=goto:20510.845,8741.896,7158.28&action=goto:20600.726,8819.737,7222.416&action=goto:20629.099,8797.298,7260.417&action=goto:20645.62,8792.757,7287.458&action=goto:20650.01,8795.706,7326.22&action=goto:20428.694,8668.647,7085.551&action=goto:20543.89,8678.84,6869.866&action=goto:20620.136,8717.977,6797.611&action=goto:20108.615,9651.716,6875.352&action=goto:20198.92,9685.502,6830.569&action=goto:20282.394,9727.56,6822.773&action=goto:20505.297,9864.425,6766.644&action=goto:20839.172,10020.603,6833.828&action=goto:20946.795,10038.454,6834.567&action=goto:21084.741,10098.113,6870.792&action=goto:21227.995,10200.023,6882.654&action=goto:21425.383,10235.929,6895.124&action=goto:21498.357,10230.159,6906.599&action=goto:21557.993,10325.418,6862.455&action=goto:21820.856,10618.947,6742.14&action=goto:21923.386,10665.082,6769.071&action=goto:22021.905,10693.327,6806.893&action=goto:22106.678,10734.492,6815.086&action=goto:22143.772,10749.032,6824.951&action=goto:22232.025,10742.881,6835.205&action=goto:22291.309,10724.74,6829.32&action=goto:22355.01,10727.45,6843.42&action=goto:22429.619,10769.229,6869.199&action=goto:22496.857,10781.275,6893.51&action=goto:22548.261,10799.357,6923.006&action=goto:22585.061,10811.392,6932.969&action=goto:22633,10837.663,6942.849&action=goto:22694.393,10841.202,6946.911&action=goto:22734.687,10858.995,6952.973&action=goto:22809.471,10877.254,6958.915&action=goto:22901.019,10913.081,6980.938&action=goto:22964.233,10927.884,7002.667&action=goto:23033.463,10945.951,7011.166&action=goto:23114.51,11011.675,7035.051&action=goto:23141.268,11038.769,7046.772&action=goto:23188.877,11058.062,7062.6&action=goto:23213.514,11086.799,7076.956&action=goto:23336.281,11140.622,7092.93&action=goto:23398.742,11167.897,7091.995&action=goto:23424.505,11203.361,7098.94&action=goto:23532.317,11215.898,7068.95&action=goto:23626.036,11233.227,7050.894&action=goto:23662.255,11236.285,7034.954&action=goto:23724.785,11257.149,6981.491&action=goto:23769.715,11272.203,6933.657&action=goto:23820.469,11275.11,6883.22&action=goto:23883.313,11293.083,6845.237&action=goto:23955.166,11337.771,6811.219&action=goto:23981.983,11355.794,6797.458&action=goto:24026.942,11395.238,6773.168&action=goto:24072.197,11430.845,6750.302&action=goto:24095.81,11439.918,6733.067&action=goto:24116.702,11463.693,6711.185&action=goto:24182.659,11529.506,6647.167&action=goto:24236.474,11630.179,6608.919&action=goto:24245.485,11660.418,6610.766&action=goto:24281.012,11702.999,6606.938&action=goto:24302.311,11751.548,6630.69&action=goto:24311.373,11795.639,6644.421&action=goto:24341.311,11831.632,6648.848&action=goto:24398.055,11876.549,6616.752&action=goto:24453.584,11832.092,6595.262&action=goto:24505.961,11832.291,6582.951&action=goto:24371.134,11837.579,6605.287&action=goto:24439.883,11816.785,6559.88&action=goto:24478.919,11807.792,6556.849&action=goto:24440.029,11802.124,6545.297&action=goto:24461.121,11790.027,6539.063&action=goto:24535.738,11789.868,6561.095&action=goto:24381.802,11837.635,6649.138&action=goto:24404.173,11849.391,6631.242&action=goto:24430.947,11843.919,6594.79&action=goto:24610.792,11951.545,6561.065&action=goto:24649.262,11963.565,6562.938&action=goto:24677.554,11963.519,6573.058&action=goto:24362.312,11682.254,6605.023&action=goto:24480.545,11751.245,6566.996&action=goto:24554.023,11749.526,6568.99&action=goto:24317.246,11727.644,6585.216&action=goto:22061.722,10725.023,6811.31&action=goto:22133.443,10769.796,6825.08&action=goto:22190.485,10784.991,6841.459&action=goto:22294.667,10811.706,6885.674&action=goto:22357.01,10820.576,6907.375&action=goto:22429.332,10828.732,6923.289&action=goto:22487.868,10862.661,6943.237&action=goto:22554.396,10895.678,6971.287&action=goto:22614.375,10925.236,6997.114&action=goto:22668.311,10946.259,7021.151&action=goto:22704.789,10958.298,7039.184&action=goto:22740.486,10973.125,7071.12&action=goto:22788.103,10990.804,7103.003&action=goto:22902.78,11039.353,7147.145&action=goto:22994.714,11078.133,7187.444&action=goto:23045.588,11084.733,7189.188&action=goto:23084.817,11099.164,7205.12&action=goto:23156.26,11103.618,7237.129&action=goto:23197.797,11132.286,7247.35&action=goto:23231.026,11144.042,7254.817&action=goto:23260.999,11161.907,7264.119&action=goto:23374.584,11186.01,7292.379&action=goto:23428.523,11197.862,7312.745&action=goto:23500.248,11230.899,7335.287&action=goto:23567.506,11251.891,7321.927&action=goto:23620.088,11239.999,7296.854&action=goto:23674.055,11240.255,7275.332&action=goto:23761.773,11266.749,7243.099&action=goto:23808.63,11293.419,7229.115&action=goto:23943.029,11362.827,7209.87&action=goto:23988.258,11392.974,7204.813&action=goto:24074.795,11416.275,7137.484&action=goto:24086.91,11434.347,7089.679&action=goto:24105.185,11440.281,7008.062&action=goto:24113.459,11470.281,6957.428&action=goto:24152.648,11494.497,6885.284&action=goto:24185.646,11500.03,6847.043&action=goto:24212.386,11521.562,6805.56&action=goto:24227.52,11565.709,6765.085&action=goto:24287.38,11589.702,6729.022&action=goto:24323.568,11676.342,6698.757&action=goto:24356.474,11751.033,6664.219&action=goto:24380.357,11771.974,6650.721&action=goto:24407.542,11772.356,6626.886&action=goto:24517.909,11816.76,6596.111&action=goto:24494.123,11778.255,6630.712&action=goto:24527.382,11792.794,6630.878&action=goto:24574.95,11823.04,6618.721&action=goto:24614.059,11861.764,6587.401&action=goto:24592.7,11849.969,6551.062&action=goto:24470.239,11765.697,6594.819&action=goto:24496.699,11772.166,6579.23&action=goto:24555.172,11776.266,6565.166&action=goto:24589.813,11780.871,6559.027&action=goto:24594.932,11745.671,6557.335&action=goto:24619.803,11772.118,6585.054&action=goto:24658.743,11793.118,6578.946&action=goto:24703.48,11829.135,6553.107&action=goto:24555.925,11762.574,6581.871&action=goto:24296.264,11589.188,6682.953&action=goto:24297.696,11627.951,6669.148&action=goto:24338.211,11664.113,6636.885&action=goto:24353.567,11688.436,6625.003&action=goto:24431.316,11756.846,6604.279&action=goto:24365.305,11712.119,6602.37&action=goto:24414.697,11700.225,6577.038&action=goto:24467.287,11739.204,6553.167&action=goto:24523.767,11742.036,6548.948&action=goto:24555.137,11706.157,6559.067&action=goto:21837.509,10665.05,6689.097&action=goto:21885.113,10742.625,6643.277&action=goto:21902.771,10766.335,6631.125&action=goto:21932.684,10790.221,6637.133&action=goto:21998.195,10843.965,6640.274&action=goto:22040.337,10889.109,6634.922&action=goto:22100.262,10928.089,6663.786&action=goto:22192.574,11014.759,6695.576&action=goto:22278.188,11083.686,6709.076&action=goto:22390.414,11158.406,6711.143&action=goto:22486.066,11203.188,6719.692&action=goto:22525.051,11239.181,6709.293&action=goto:22674.648,11355.877,6726.059&action=goto:22749.129,11394.437,6709.207&action=goto:22865.708,11466.417,6705.256&action=goto:23021.599,11475.575,6695.179&action=goto:23098.67,11451.608,6645.193&action=goto:23237.608,11430.842,6611.126&action=goto:23339.878,11439.831,6585.124&action=goto:23400.98,11442.578,6603.222&action=goto:23470.564,11469.545,6597.205&action=goto:23572.463,11478.576,6581.181&action=goto:23675.977,11487.569,6573.175&action=goto:23775.107,11520.73,6577.079&action=goto:23812.418,11526.496,6575.101&action=goto:23898.244,11538.858,6553.613&action=goto:23955.061,11553.639,6549.639&action=goto:24056.711,11613.016,6547.25&action=goto:24120.883,11628.653,6537.237&action=goto:24219.062,11634.382,6507.156&action=goto:24298.047,11637.291,6477.128&action=goto:24391.151,11652.183,6477.107&action=goto:24475.765,11713.838,6501.241&action=goto:24496.689,11733.14,6512.866&action=goto:24553.88,11729.921,6589.076&action=goto:24562.815,11721.047,6557.385&action=goto:24628.481,11745.012,6525.007&action=goto:24575.569,11812.157,6520.257&action=goto:24529.786,11786.853,6591.125&action=goto:24805.404,11822.746,6501.121&action=goto:24777.842,11786.998,6505.115&action=goto:24754.42,11793.102,6538.915&action=goto:24775.3,11812.865,6550.004&action=goto:24698.154,11802.216,6537.643&action=goto:24697.604,11763.011,6530.403&action=goto:24706.811,11808.068,6589.104&action=goto:24729.8,11855.885,6573.125&action=goto:24805.211,11849.749,6526.855&action=goto:24892.093,11861.555,6527.912&action=goto:24850.152,11828.923,6532.998&action=goto:24822.167,11816.845,6519.138&action=goto:24634.273,11885.784,6527.109&action=goto:24610.605,11867.677,6538.979&action=goto:24736.328,11849.733,6487.021&action=goto:24646.466,11813.985,6521.08&action=goto:24533.03,11667.807,6566.896&action=goto:24521.558,11780.373,6546.578&action=goto:24533.503,11808.821,6541.006&action=goto:24576.972,11904.292,6578.473",
+      "tags": {
+        "phase": "morphology"
+      },
+      "evaluated_assets": null
+    },
+    {
+      "object_type": "QC metric",
+      "name": "soma_child_distance",
+      "modality": {
+        "name": "Selective plane illumination microscopy",
+        "abbreviation": "SPIM"
+      },
+      "stage": "Processing",
+      "value": 22.596508756021073,
+      "status_history": [
+        {
+          "object_type": "QC status",
+          "evaluator": "Automated: standard_morph",
+          "status": "Pass",
+          "timestamp": "2026-11-06T19:35:38.067152Z"
+        }
+      ],
+      "description": "All 4 soma child(ren) within 50.0 um. | Thresholds: max_soma_child_to_soma_um=50 | Measurements: n_soma_children=4, n_over=0, soma_child_distances=[15.3567, 22.5965, 19.6802, 4.1892]",
+      "reference": null,
+      "tags": {
+        "phase": "morphology"
+      },
+      "evaluated_assets": null
+    },
+    {
+      "object_type": "QC metric",
+      "name": "axon_origination",
+      "modality": {
+        "name": "Selective plane illumination microscopy",
+        "abbreviation": "SPIM"
+      },
+      "stage": "Processing",
+      "value": 4.189202913798166,
+      "status_history": [
+        {
+          "object_type": "QC status",
+          "evaluator": "Automated: standard_morph",
+          "status": "Pass",
+          "timestamp": "2026-11-06T19:35:38.067152Z"
+        }
+      ],
+      "description": "Single axon origination from the soma/basal, near the soma. | Thresholds: max_axon_origin_to_soma_um=75 | Measurements: n_axon_origins=1, origin_distances_to_soma_um=[4.1892]",
+      "reference": null,
+      "tags": {
+        "phase": "morphology"
+      },
+      "evaluated_assets": null
+    },
+    {
+      "object_type": "QC metric",
+      "name": "apical_origination",
+      "modality": {
+        "name": "Selective plane illumination microscopy",
+        "abbreviation": "SPIM"
+      },
+      "stage": "Processing",
+      "value": 0.0,
+      "status_history": [
+        {
+          "object_type": "QC status",
+          "evaluator": "Automated: standard_morph",
+          "status": "Pass",
+          "timestamp": "2026-11-06T19:35:38.067152Z"
+        }
+      ],
+      "description": "No apical dendrite nodes present. | Thresholds: max_origins=1",
+      "reference": null,
+      "tags": {
+        "phase": "morphology"
+      },
+      "evaluated_assets": null
+    },
+    {
+      "object_type": "QC metric",
+      "name": "compartment_transitions",
+      "modality": {
+        "name": "Selective plane illumination microscopy",
+        "abbreviation": "SPIM"
+      },
+      "stage": "Processing",
+      "value": 0.0,
+      "status_history": [
+        {
+          "object_type": "QC status",
+          "evaluator": "Automated: standard_morph",
+          "status": "Pass",
+          "timestamp": "2026-11-06T19:35:38.067152Z"
+        }
+      ],
+      "description": "All dendrite compartment transitions are valid.",
+      "reference": null,
+      "tags": {
+        "phase": "morphology"
+      },
+      "evaluated_assets": null
+    },
+    {
+      "object_type": "QC metric",
+      "name": "local_tortuosity",
+      "modality": {
+        "name": "Selective plane illumination microscopy",
+        "abbreviation": "SPIM"
+      },
+      "stage": "Processing",
+      "value": 2.755362846198705,
+      "status_history": [
+        {
+          "object_type": "QC status",
+          "evaluator": "Automated: standard_morph",
+          "status": "Pass",
+          "timestamp": "2026-11-06T19:35:38.067152Z"
+        }
+      ],
+      "description": "All 1674 evaluated node(s) within tortuosity threshold 10.0. | Thresholds: tortuosity_threshold=10 | Measurements: n_evaluated=1674, mean_tortuosity=1.05755, flagged_tortuosities=[]",
+      "reference": null,
+      "tags": {
+        "phase": "morphology"
+      },
+      "evaluated_assets": null
+    }
+  ],
+  "key_experimenters": null,
+  "notes": null,
+  "default_grouping": [
+    "phase"
+  ],
+  "allow_tag_failures": [],
+  "status": {
+    "phase:morphology": "Fail",
+    "phase:integrity": "Pass",
+    "SPIM": "Fail",
+    "Processing": "Fail"
+  }
+}

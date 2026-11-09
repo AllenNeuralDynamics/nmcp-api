@@ -37,7 +37,7 @@ Two subsets of the child's statuses carry workflow rules:
   `WaitingForAtlasReconstruction` parent. Reject has one source outside the set: a `PublishFailed` parent whose child
   is at `FailedSearchIndexing` (1.6).
 
-Supporting rows: `QualityControl` and `Precomputed` hang off the `AtlasReconstruction`; `SpecimenSpacePrecomputed`
+Supporting rows: `AtlasQualityControl` and `Precomputed` hang off the `AtlasReconstruction`; `SpecimenSpacePrecomputed`
 hangs off the `SpecimenSpaceReconstruction` and is not part of the publish path.
 
 Two more optional rows hang off the `Annotation`, also outside the publish path: `RawReconstruction` (with its
@@ -830,7 +830,7 @@ stateDiagram-v2
 Each `In…` status is a **claim**, not a stage: the worker compare-and-sets `Pending…` → `In…` before doing any work,
 and every exit from a claimed item either advances it, records a failure, or releases the claim back to `Pending…`
 (`AtlasReconstruction.claim` / `release`, `src/models/atlasReconstruction.ts:138`, `:150`; the QC pair at
-`src/models/qualityControl.ts:121`, `:149`). `ClaimedPhaseStatuses`
+`src/models/atlasQualityControl.ts:136`, `:164`). `ClaimedPhaseStatuses`
 (`src/models/atlasReconstructionStatus.ts:52`) is the map from claim back to pending.
 
 Nothing a person can ask for is admissible from an `In…` status. That is what makes the guards airtight rather than
@@ -870,7 +870,7 @@ sequenceDiagram
     API->>DB: refuse with 1005 if the child has no nodeCounts
     API->>DB: Annotation → Approved, approvedAt
     API->>DB: AtlasReconstruction.reviewerId
-    API->>DB: create/reset QualityControl → Pending
+    API->>DB: create/reset AtlasQualityControl → Pending
     API->>DB: AtlasReconstruction → PendingQualityControl, failure cleared
     API->>DB: create Precomputed (Initialized) if absent
     API->>DB: Annotation → WaitingForAtlasReconstruction
@@ -880,11 +880,11 @@ sequenceDiagram
     end
 
     loop every 60 s
-        SW->>DB: QualityControl where status = Pending (batch 10)
+        SW->>DB: AtlasQualityControl where status = Pending (batch 10)
         SW->>DB: claim: QC → InProgress, child → InQualityControl
-        SW->>QC: POST atlas nodes
-        QC-->>SW: passed / warnings / errors / tool error
-        SW->>DB: QualityControl → Passed or Failed/Error
+        SW->>QC: POST atlas nodes (isRegistered: true)
+        QC-->>SW: QC-portal document, or a service error
+        SW->>DB: AtlasQualityControl → Passed or Failed/Error
         SW->>DB: child → PendingStructureAssignment, or FailedQualityControl + reason
     end
 
@@ -961,7 +961,7 @@ because all of them do.
    the import tools out of the permission, not out of the state rule. The transitions outside this protocol are named
    in decision 5 of section 3, and their status rule is unconditional too — it is the locking they lack, not the rule.
 4. **Lock order:** `Neuron` (publish and the atlas upload) → `AtlasReconstruction` → `Annotation` →
-   `SpecimenSpaceReconstruction` / `RawReconstruction` / `RawReconstructionUpload` / `QualityControl` / `Precomputed` /
+   `SpecimenSpaceReconstruction` / `RawReconstruction` / `RawReconstructionUpload` / `AtlasQualityControl` / `Precomputed` /
    `SpecimenSpacePrecomputed`.
 
 The atlas upload takes the neuron first because its atlas-soma back-fill updates that row, and an `update` takes the
@@ -983,17 +983,24 @@ item. `Handled` means the item was dealt with, whether it advanced or was record
 What a failure is allowed to say on the row is bounded. An unexpected exception records
 `unexpected <ErrorClass> during <phase>` (`phaseFailureMessage`, `:50`), never a stack trace or a raw database error;
 the full text goes to `debug()` only. A DataCite rejection records DataCite's own response text, and a quality control
-failure records the failing test names — both already exposed elsewhere.
+failure records the failing metric names — both already exposed elsewhere.
 
-**Quality control.** The worker polls `QualityControl` rows with status `Pending` in batches of 10 and POSTs the atlas
-nodes to the StandardMorph service. Errors → `Failed`; warnings only → `Passed`; a tool error → `Error`. All three of
-`Failed`, `Error` and an unexpected exception land the child at `FailedQualityControl`; `failureReason` is what tells
-them apart (`failureReasonForOutput`, `src/models/qualityControl.ts:33`). If the service is unavailable the worker
+**Quality control.** The worker polls `AtlasQualityControl` rows with status `Pending` in batches of 10, serializes the
+atlas nodes and POSTs them to the nmcp-qc service as CCF-registered (`isRegistered: true`). The service returns the
+QC-portal document built by standard-morph; nmcp-api scores it per metric, on each metric's latest status:
+
+- any `Fail` metric → `Failed`;
+- `Pending` without a `Fail` → `Passed` (scored as passed with warnings);
+- every metric `Pass` → `Passed`;
+- a service error, a missing or malformed document, or a response for a different reconstruction id → `Error`.
+
+All three of `Failed`, `Error` and an unexpected exception land the child at `FailedQualityControl`; `failureReason` is
+what tells them apart (`failureReasonForOutput`, `src/models/atlasQualityControl.ts:41`). If the service is unavailable the worker
 records a failure against an exponential backoff (60 s base, 5 min cap) and skips quality control on subsequent passes
 until it expires, while the other phases keep running.
 
 Quality control runs only as a pipeline phase. There is no pre-approval hand-run and no mutation that doubles as an
-entry point for one: the `QualityControl` row is created or reset by `prepareToFinalize` at approval, and
+entry point for one: the `AtlasQualityControl` row is created or reset by `prepareToFinalize` at approval, and
 `requestQualityControlReassessment` is one of the five callers of the shared `requestPhaseRetry`, admissible only
 from `FailedQualityControl`.
 
@@ -1075,7 +1082,7 @@ Three things make a stuck reconstruction findable rather than indistinguishable 
 
   | Mutation | From | To |
   |---|---|---|
-  | `requestQualityControlReassessment` | `FailedQualityControl` | `PendingQualityControl` (and `QualityControl` → `Pending`) |
+  | `requestQualityControlReassessment` | `FailedQualityControl` | `PendingQualityControl` (and `AtlasQualityControl` → `Pending`) |
   | `requestStructureAssignment` | `FailedStructureAssignment` | `PendingStructureAssignment` |
   | `requestPrecomputedRegeneration` | `FailedPrecomputed` | `PendingPrecomputed` (and `Precomputed` → `Pending`) |
   | `requestDoiAssignment` | `FailedDoiAssignment` | `PendingDoiAssignment` |
@@ -1273,11 +1280,12 @@ raising one as a finding means disputing the decision rather than reporting a de
    reviewer pair unwritten — `reviewerId` / `reviewedAt` for peer review, `teamReviewerId` / `teamReviewedAt` for team
    review — so that reviewer appears nowhere, including in the DOI contributor list. The record is of what actually
    happened rather than of a stage that was required and missed.
-7. **Quality control output is readable without authentication.** The `qualityControl(id)` query sits in
-   `openResolvers` (`src/graphql/openResolvers.ts:138`) and returns the full output — failed test names and affected
-   node indices — for any reconstruction at any status, annotated in the code as deliberate. The `failureReason` a
-   failed or errored check records on the child is composed from that same output (`failureReasonForOutput`,
-   `src/models/qualityControl.ts:33`) and is safe to store and return on exactly that basis. The two decisions move
+7. **Quality control output is readable without authentication.** The `atlasQualityControl(id)` query sits in
+   `openResolvers` (`src/graphql/openResolvers.ts:139`) and returns the stored output, including the QC-portal
+   document's metric names, statuses, descriptions and neuroglancer references, for any reconstruction at any status,
+   annotated in the code as deliberate. The `failureReason` a failed or errored check records on the child is composed
+   from that same output (`failureReasonForOutput`, `src/models/atlasQualityControl.ts:41`) and is safe to store and
+   return on exactly that basis. The two decisions move
    together: closing the open query means revisiting what a phase failure is allowed to say on the row.
 8. **Two annotators can hold live reconstructions on one neuron, and the publish reviewer is the gate.**
    `openAnnotation` (`src/models/annotation.ts:661`) scopes both its existing-row lookup and the `AnnotateOne`
@@ -1382,8 +1390,8 @@ raising one as a finding means disputing the decision rather than reporting a de
     an architecture change, not a configuration change, and several things in the pipeline assume it:
 
     - The pass-boundary sweep, `releasePhaseClaims` (`src/models/atlasReconstruction.ts:163` and
-      `src/models/qualityControl.ts:172`), resets *every* row at a claimed-phase status — the four in
-      `ClaimedPhaseStatuses` plus the `QualityControl` row's own `InProgress`. That is sound only because one process polls the
+      `src/models/atlasQualityControl.ts:187`), resets *every* row at a claimed-phase status — the four in
+      `ClaimedPhaseStatuses` plus the `AtlasQualityControl` row's own `InProgress`. That is sound only because one process polls the
       database and the four phases are awaited in sequence, so at a pass boundary nothing is legitimately claimed. A
       second instance's sweep would steal the first's live claims and produce the duplicate work the claims exist to
       prevent — two StandardMorph calls, two structure assignments, two DOI assignment passes, two index rebuilds on the
@@ -1394,9 +1402,10 @@ raising one as a finding means disputing the decision rather than reporting a de
     - `SynchronizationWorkerNotification.SearchIndexUpdated` is delivered over the fork's IPC channel to its own parent
       (`synchronizationWorker.ts:346`), so the published-count cache reset reaches only that one API process.
 18. **The quality check call is left unbounded on purpose.** `QualityCheckService.performQualityCheck`
-    (`src/data-access/qualityCheckService.ts:137`) calls `fetch` with no `AbortSignal` (`:145`), unlike `DataCiteService`,
+    (`src/data-access/qualityCheckService.ts:232`) calls `fetch` with no `AbortSignal` (`:240`), unlike `DataCiteService`,
     which sets 30 s (`src/data-access/doi/dataCiteService.ts:188`). Assessing a large reconstruction legitimately takes
-    minutes, and a client-side deadline short enough to protect the worker would start cancelling real work. Falling back
+    minutes, and the first CCF-registered call after the service starts also loads a ~4.8 GB atlas. A client-side
+    deadline short enough to protect the worker would start cancelling real work. Falling back
     to undici's defaults — `headersTimeout` and `bodyTimeout`, both 300 s — allows roughly that much and still errors out
     rather than hanging forever, which the phase then classifies as `ServiceUnavailable` and backs off from.
 

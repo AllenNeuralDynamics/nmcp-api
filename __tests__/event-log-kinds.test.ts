@@ -103,3 +103,20 @@ describe("raw reconstruction event kinds", () => {
         }
     });
 });
+
+describe("atlas quality control event kinds", () => {
+    // Stored rows carry these numbers, so the rename must not move any of them.
+    test.each([
+        ["AtlasQualityControlCreate", 7000],
+        ["AtlasQualityControlUpdate", 7010],
+        ["AtlasQualityControlError", 7100],
+        ["AtlasQualityControlPassed", 7110],
+        ["AtlasQualityControlFailed", 7120]
+    ])("%s is %i", (name: string, value: number) => {
+        expect(EventLogItemKind[name]).toBe(value);
+    });
+
+    test("no member name keeps the old prefix", () => {
+        expect(memberNames.filter(name => name.startsWith("QualityControl"))).toEqual([]);
+    });
+});

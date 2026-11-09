@@ -10,7 +10,7 @@ const {AnnotationStatus} = require("../src/models/annotationStatus");
 const {ReconstructionSpace} = require("../src/models/reconstructionSpace");
 const {AtlasReconstruction} = require("../src/models/atlasReconstruction");
 const {AtlasReconstructionStatus} = require("../src/models/atlasReconstructionStatus");
-const {QualityControl} = require("../src/models/qualityControl");
+const {AtlasQualityControl} = require("../src/models/atlasQualityControl");
 const {Precomputed, PrecomputedStatus} = require("../src/models/precomputed");
 const {SpecimenSpacePrecomputed} = require("../src/models/specimenSpacePrecomputed");
 const {SpecimenSpaceReconstruction} = require("../src/models/specimenSpaceReconstruction");
@@ -20,7 +20,8 @@ const {SearchIndex} = require("../src/models/searchIndex");
 const {Atlas} = require("../src/models/atlas");
 const {Specimen} = require("../src/models/specimen");
 const {EventLogItem} = require("../src/models/eventLogItem");
-const {QualityCheckService, QualityCheckServiceStatus, QualityControlScore} = require("../src/data-access/qualityCheckService");
+const {QualityCheckService, QualityCheckServiceStatus, toQualityControlOutput} = require("../src/data-access/qualityCheckService");
+const {AtlasQualityControlStatus} = require("../src/models/atlasQualityControlStatus");
 
 // A sentinel rather than a real Transaction: every assertion here is that this exact value reaches the read.
 const transaction = {sentinel: "t"} as any;
@@ -87,7 +88,7 @@ afterEach(() => {
     vi.restoreAllMocks();
     delete (Annotation as any).sequelize;
     delete (AtlasReconstruction as any).sequelize;
-    delete (QualityControl as any).sequelize;
+    delete (AtlasQualityControl as any).sequelize;
 });
 
 describe("approveAnnotation", () => {
@@ -179,7 +180,7 @@ describe("prepareToFinalize", () => {
     test("both finders read through the transaction", async () => {
         stubEvents();
 
-        const findQualityControl = vi.spyOn(QualityControl, "findOne")
+        const findQualityControl = vi.spyOn(AtlasQualityControl, "findOne")
             .mockResolvedValue({makePending: vi.fn().mockResolvedValue(undefined)} as any);
 
         const findPrecomputed = vi.spyOn(Precomputed, "findOne").mockResolvedValue({id: "precomputed-1"} as any);
@@ -264,26 +265,39 @@ describe("AtlasReconstruction.precomputedChanged", () => {
     });
 });
 
-describe("QualityControl.assess", () => {
+describe("AtlasQualityControl.assess", () => {
     // Through a locked findByPk rather than getAnnotation: the child lock has to be taken before this row is
     // written, so that a claim and a reassessment cannot deadlock against each other.
     test("locks the atlas reconstruction through its own transaction", async () => {
         stubEvents();
-        defineSequelize(QualityControl);
+        defineSequelize(AtlasQualityControl);
+
+        // Unstubbed, serialization would throw and send assess down its failure path instead of the success path.
+        vi.spyOn(AtlasReconstruction, "serializeNodes").mockResolvedValue([]);
 
         vi.spyOn(QualityCheckService, "performQualityCheck").mockResolvedValue({
+            reconstructionId: "atlas-1",
             serviceStatus: QualityCheckServiceStatus.Success,
-            output: {score: QualityControlScore.Passed}
+            serviceError: null,
+            output: toQualityControlOutput("atlas-1", {
+                serviceVersion: "3.0.3",
+                standardMorphVersion: "1.0.3",
+                reconstructionId: "atlas-1",
+                qualityControl: {metrics: [{name: "non_empty", status_history: [{status: "Pass"}]}]},
+                error: null
+            })
         } as any);
 
-        const lockChild = vi.spyOn(AtlasReconstruction, "findByPk")
-            .mockResolvedValue({qualityControlChanged: vi.fn().mockResolvedValue(undefined)} as any);
+        const child = {qualityControlChanged: vi.fn().mockResolvedValue(undefined)};
 
-        const qualityControl = prototypeStub(QualityControl, {reconstructionId: "atlas-1"});
+        const lockChild = vi.spyOn(AtlasReconstruction, "findByPk").mockResolvedValue(child as any);
+
+        const qualityControl = prototypeStub(AtlasQualityControl, {reconstructionId: "atlas-1"});
 
         await qualityControl.assess(userWith(UserPermissions.Admin));
 
         expect(lockChild).toHaveBeenCalledWith("atlas-1", {transaction: transaction, lock: Transaction.LOCK.UPDATE});
+        expect(child.qualityControlChanged).toHaveBeenCalledWith(AtlasQualityControlStatus.Passed, null, expect.anything(), transaction);
     });
 });
 
