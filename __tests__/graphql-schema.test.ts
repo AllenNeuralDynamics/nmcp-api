@@ -1,4 +1,4 @@
-import {expect, test, vi, describe, afterEach} from "vitest";
+import {expect, test, vi, describe, afterEach, beforeEach} from "vitest";
 
 // require() rather than import: the .ts sources are compiled to .js in place, and an ESM import yields a
 // different module instance than the CJS one the model methods call into, so the spies would not apply.
@@ -13,6 +13,7 @@ const {AtlasReconstruction} = require("../src/models/atlasReconstruction");
 const {SpecimenSpaceReconstruction} = require("../src/models/specimenSpaceReconstruction");
 const {RawReconstruction} = require("../src/models/rawReconstruction");
 const {RawReconstructionUpload} = require("../src/models/rawReconstructionUpload");
+const {RawReconstructionUploadStatus} = require("../src/models/rawReconstructionUploadStatus");
 const {SpecimenSpacePrecomputed} = require("../src/models/specimenSpacePrecomputed");
 const {Neuron} = require("../src/models/neuron");
 const {Atlas} = require("../src/models/atlas");
@@ -518,18 +519,40 @@ describe("raw reconstructions in the schema", () => {
         expect(fields.qualityControlUrl.type).toBe(GraphQLString);
     });
 
-    test("qualityControlUrl links a tagged attempt and is null for an untagged one", () => {
-        const options = CoreServiceOptions.qualityControl;
-        const saved = options.aindMetadataUrl;
-        options.aindMetadataUrl = "https://metadata.example.org/";
+    describe("qualityControlUrl", () => {
+        const published = [RawReconstructionUploadStatus.Accepted, RawReconstructionUploadStatus.FailedQualityControl];
 
-        try {
-            expect(secureResolvers.RawReconstructionUpload.qualityControlUrl({qcTag: "tag-1"}))
+        const unpublished = [
+            RawReconstructionUploadStatus.PendingQualityControl,
+            RawReconstructionUploadStatus.FailedUpload,
+            RawReconstructionUploadStatus.FailedPrecomputed,
+            RawReconstructionUploadStatus.ErroredQualityControl,
+            RawReconstructionUploadStatus.FailedQualityControlService
+        ];
+
+        let saved: string;
+
+        beforeEach(() => {
+            saved = CoreServiceOptions.qualityControl.aindMetadataUrl;
+            CoreServiceOptions.qualityControl.aindMetadataUrl = "https://metadata.example.org/";
+        });
+
+        afterEach(() => {
+            CoreServiceOptions.qualityControl.aindMetadataUrl = saved;
+        });
+
+        test.each(published)("links a tagged attempt at status %s, whose document was published", (status: number) => {
+            expect(secureResolvers.RawReconstructionUpload.qualityControlUrl({qcTag: "tag-1", status}))
                 .toBe("https://metadata.example.org/quality_control?name=nmcp-qc-tag-1");
-            expect(secureResolvers.RawReconstructionUpload.qualityControlUrl({qcTag: null})).toBeNull();
-        } finally {
-            options.aindMetadataUrl = saved;
-        }
+        });
+
+        test.each(unpublished)("is null for a tagged attempt at status %s, which published no document", (status: number) => {
+            expect(secureResolvers.RawReconstructionUpload.qualityControlUrl({qcTag: "tag-1", status})).toBeNull();
+        });
+
+        test("is null for an untagged attempt", () => {
+            expect(secureResolvers.RawReconstructionUpload.qualityControlUrl({qcTag: null, status: RawReconstructionUploadStatus.FailedUpload})).toBeNull();
+        });
     });
 
     test("exportedRawReconstruction takes a required id and returns a PortalReconstruction", () => {

@@ -74,20 +74,47 @@ describe("raw quality control files", () => {
         await expect(files.readUploadFile(tag)).rejects.toThrow("Unsupported raw upload file version 2");
     });
 
-    test("the QC document is written through a temporary file renamed over the final name", async () => {
-        const rename = vi.spyOn(fs.promises, "rename");
+    test.each([
+        ["the QC document", () => files.publishQualityControlDocument(tag, {metrics: [{name: "non_empty"}]}), () => files.qualityControlDocumentPath(tag)],
+        ["the hand-off file", () => files.writeUploadFile(uploadFile()), () => files.uploadFilePath(tag)]
+    ])("%s is staged outside the output and copied in under its final name, with no rename or copyFile", async (_label: string, write: () => Promise<void>, finalPath: () => string) => {
+        // A FUSE-mounted S3 bucket answers rename with ENOSYS.
+        const unsupported = Object.assign(new Error("ENOSYS: function not implemented"), {code: "ENOSYS"});
+        const rename = vi.spyOn(fs.promises, "rename").mockRejectedValue(unsupported);
+        const copyFile = vi.spyOn(fs.promises, "copyFile").mockRejectedValue(unsupported);
+        const mkdtemp = vi.spyOn(fs.promises, "mkdtemp");
+
+        await write();
+
+        expect(rename).not.toHaveBeenCalled();
+        expect(copyFile).not.toHaveBeenCalled();
+
+        const staging = await mkdtemp.mock.results[0].value;
+
+        expect(staging.startsWith(os.tmpdir())).toBe(true);
+        expect(fs.existsSync(staging)).toBe(false);
+
+        expect(await fs.promises.readdir(path.join(directory, "raw"))).toEqual([path.basename(finalPath())]);
+        expect(fs.statSync(finalPath()).size).toBeGreaterThan(0);
+    });
+
+    test("the staging directory is removed when the copy fails", async () => {
+        const mkdtemp = vi.spyOn(fs.promises, "mkdtemp");
+        vi.spyOn(fs, "createWriteStream").mockImplementation(() => {
+            throw new Error("EACCES");
+        });
+
+        await expect(files.publishQualityControlDocument(tag, {metrics: []})).rejects.toThrow("EACCES");
+
+        expect(fs.existsSync(await mkdtemp.mock.results[0].value)).toBe(false);
+    });
+
+    test("the QC document round-trips", async () => {
         const document = {metrics: [{name: "non_empty", status_history: [{status: "Pass"}]}]};
 
         await files.publishQualityControlDocument(tag, document);
 
-        const finalPath = files.qualityControlDocumentPath(tag);
-
-        expect(rename).toHaveBeenCalledTimes(1);
-        expect(rename.mock.calls[0][0]).toMatch(new RegExp(`^${finalPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\..+\\.tmp$`));
-        expect(rename.mock.calls[0][1]).toBe(finalPath);
-
-        expect(await fs.promises.readdir(path.join(directory, "raw"))).toEqual([`nmcp-qc-${tag}.json`]);
-        expect(JSON.parse(await fs.promises.readFile(finalPath, "utf8"))).toEqual(document);
+        expect(JSON.parse(await fs.promises.readFile(files.qualityControlDocumentPath(tag), "utf8"))).toEqual(document);
     });
 
     test("removing the QC document deletes it, and resolves when there is none", async () => {

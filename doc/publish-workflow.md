@@ -719,7 +719,7 @@ is saved only once quality control passes. In order:
    | Service unreachable or non-OK, or the hand-off file unreadable | `FailedQualityControlService` | none | kept |
 
    The QC document is `<NMCP_QC_BLOB_OUTPUT>/raw/nmcp-qc-<qc-tag>.json`, the tool's own QC-portal document. It is
-   written or removed atomically before the outcome commits, so for every finished attempt the status alone says
+   written or removed before the outcome commits, so for every finished attempt the status alone says
    whether it exists. A `Failed` score also posts the document, after the outcome commits, to the metadata portal at
    `<NMCP_AIND_METADATA_URL>/metadata-viz/temporary-metadata` as `{"quality_control": <document>, "name":
    "nmcp-qc-<qc-tag>", "location": <skeleton location>}`, the location being the skeleton QC checked; a failed post
@@ -746,12 +746,15 @@ failure never replaces the current raw reconstruction, and a superseded one is h
   newer upload;
 - `Accepted` (500).
 
-**The QC tag.** A tagged attempt exposes `qcTag`, `skeletonId` and `qualityControlUrl`,
-`<NMCP_AIND_METADATA_URL>/quality_control?name=nmcp-qc-<qc-tag>`.
+**The QC tag.** A tagged attempt exposes `qcTag` and `skeletonId`. `qualityControlUrl`,
+`<NMCP_AIND_METADATA_URL>/quality_control?name=nmcp-qc-<qc-tag>`, is set only at `Accepted` and `FailedQualityControl`,
+the statuses whose QC document was published; at every other status, pending included, it is null.
 
 **Configuration.** `NMCP_QC_SKELETON_OUTPUT` is the base for raw-QC skeletons, and must lie outside the precomputed
 worker's own output, which the service refuses. `NMCP_QC_BLOB_OUTPUT` holds the hand-off files and QC documents under
-`raw/`. `NMCP_AIND_METADATA_URL` is the metadata-portal base, prefix included. `NMCP_PRECOMPUTED_API_HOST`, `_PORT` and
+`raw/`. Neither file is renamed into place, because an S3 bucket mounted through FUSE has no rename: each is staged in
+the local temp directory and streamed into a new file under its final name, so an interrupted copy can leave a partial
+file there. `NMCP_AIND_METADATA_URL` is the metadata-portal base, prefix included. `NMCP_PRECOMPUTED_API_HOST`, `_PORT` and
 `_ENDPOINT` locate the precomputed service (default `precomputed-worker:5000/generateskeleton`).
 
 **Export, revisions and teardown.** `exportedRawReconstruction(id)` returns the raw reconstruction in portal format,

@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
-import {randomUUID} from "crypto";
+import * as os from "os";
+import {pipeline} from "stream/promises";
 
 import {CoreServiceOptions} from "../options/coreServicesOptions";
 import {SimpleReconstructionRow} from "./simpleReconstruction";
@@ -33,23 +34,34 @@ export function qualityControlDocumentPath(qcTag: string): string {
     return path.join(rawQualityControlDirectory(), `nmcp-qc-${qcTag}.json`);
 }
 
-// Rename is atomic within a directory, so a crash never leaves a partial file under the final name.
-async function writeJsonAtomically(filePath: string, value: unknown): Promise<void> {
-    await fs.promises.mkdir(path.dirname(filePath), {recursive: true});
+/**
+ * The blob output can be an S3 bucket mounted through FUSE, which has no rename (ENOSYS), so the file is staged in the
+ * local temp directory and its bytes streamed into a new file under the final name.  Not fs.copyFile: on Linux it also
+ * truncates and chmods the destination, which such a mount can refuse.  The final name is no longer written atomically:
+ * an interrupted copy can leave a partial file there, which readUploadFile refuses as bad JSON.
+ */
+async function writeJsonFile(filePath: string, value: unknown): Promise<void> {
+    const staging = await fs.promises.mkdtemp(path.join(os.tmpdir(), "nmcp-raw-qc-"));
 
-    const temporary = `${filePath}.${randomUUID()}.tmp`;
+    try {
+        const staged = path.join(staging, path.basename(filePath));
 
-    await fs.promises.writeFile(temporary, JSON.stringify(value));
+        await fs.promises.writeFile(staged, JSON.stringify(value));
 
-    await fs.promises.rename(temporary, filePath);
+        await fs.promises.mkdir(path.dirname(filePath), {recursive: true});
+
+        await pipeline(fs.createReadStream(staged), fs.createWriteStream(filePath));
+    } finally {
+        await fs.promises.rm(staging, {recursive: true, force: true});
+    }
 }
 
 export async function writeUploadFile(file: RawUploadFile): Promise<void> {
-    await writeJsonAtomically(uploadFilePath(file.qcTag), file);
+    await writeJsonFile(uploadFilePath(file.qcTag), file);
 }
 
 export async function publishQualityControlDocument(qcTag: string, document: unknown): Promise<void> {
-    await writeJsonAtomically(qualityControlDocumentPath(qcTag), document);
+    await writeJsonFile(qualityControlDocumentPath(qcTag), document);
 }
 
 export async function removeQualityControlDocument(qcTag: string): Promise<void> {

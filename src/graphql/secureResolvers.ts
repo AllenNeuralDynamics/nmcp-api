@@ -20,7 +20,11 @@ import {
 } from "../models/annotation";
 import {SpecimenSpaceReconstruction} from "../models/specimenSpaceReconstruction";
 import {RawReconstruction} from "../models/rawReconstruction";
-import {RawReconstructionUpload, RawReconstructionUploadArgs} from "../models/rawReconstructionUpload";
+import {
+    publishesQualityControlDocument,
+    RawReconstructionUpload,
+    RawReconstructionUploadArgs
+} from "../models/rawReconstructionUpload";
 import GraphQLUpload = require("graphql-upload/GraphQLUpload.js");
 import {AtlasQualityControl} from "../models/atlasQualityControl";
 import {AtlasNode} from "../models/atlasNode";
@@ -395,7 +399,8 @@ export const secureResolvers = {
             return upload.getUser({attributes: ["id", "firstName", "lastName"]});
         },
         qualityControlUrl(upload: RawReconstructionUpload): string | null {
-            return rawUploadQualityControlUrl(upload.qcTag);
+            // Only a published document can be linked: a failure before or during quality control never published one.
+            return publishesQualityControlDocument(upload.status) ? rawUploadQualityControlUrl(upload.qcTag) : null;
         },
     } satisfies FieldResolvers,
     SpecimenSpaceReconstruction: {

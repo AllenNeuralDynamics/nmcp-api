@@ -100,8 +100,8 @@ export function assertRawUploadAllowed(user: User, status: AnnotationStatus, ann
 }
 
 /**
- * Every tagged attempt exposes its metadata-portal link, so an upload is refused, before any attempt exists, when
- * the link could not be built or quality control could not run.
+ * An attempt whose QC document is published exposes its metadata-portal link, so an upload is refused, before any
+ * attempt exists, when the link could not be built or quality control could not run.
  */
 export function assertRawQualityControlConfigured(): void {
     const options = CoreServiceOptions.qualityControl;
@@ -117,7 +117,7 @@ function isTerminalStatus(status: RawReconstructionUploadStatus): boolean {
 }
 
 // The statuses whose QC document exists, and only these: for every terminal status, the status alone says whether it does.
-function publishesQualityControlDocument(status: RawReconstructionUploadStatus): boolean {
+export function publishesQualityControlDocument(status: RawReconstructionUploadStatus): boolean {
     return status == RawReconstructionUploadStatus.Accepted || status == RawReconstructionUploadStatus.FailedQualityControl;
 }
 
