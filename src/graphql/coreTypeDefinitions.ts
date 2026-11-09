@@ -318,6 +318,9 @@ export const coreTypeDefinitions = gql`
         sourceFilename: String
         format: Int
         failureMessage: String
+        qcTag: String
+        skeletonId: Int
+        qualityControlUrl: String
         createdAt: Date
         updatedAt: Date
     }

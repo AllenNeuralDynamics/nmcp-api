@@ -230,3 +230,55 @@ export function buildSimpleReconstruction(source: string, rows: SimpleReconstruc
 export async function parseSwcFile(source: string, swcFile: ReadStream): Promise<SimpleReconstruction> {
     return await swcParse(source, swcFile);
 }
+
+/**
+ * The rows createFromParsed would save, so buildSimpleReconstruction(source, rows, comments) rebuilds an equivalent
+ * reconstruction.  Each row's structure is the node's compartment, never its current structure: finalize() has
+ * relabeled those as fork (5) and end (6) points, which buildSimpleReconstruction drops.
+ */
+export function toReconstructionRows(data: SimpleReconstruction): SimpleReconstructionRow[] {
+    const rows: SimpleReconstructionRow[] = [];
+    const seen = new Set<number>();
+
+    const add = (node: PortalNode, compartment: number) => {
+        if (seen.has(node.index)) {
+            return;
+        }
+
+        seen.add(node.index);
+
+        rows.push({
+            index: node.index,
+            parentIndex: node.parentIndex,
+            structure: node.structure == NodeStructures.soma ? NodeStructures.soma : compartment,
+            x: node.x,
+            y: node.y,
+            z: node.z,
+            radius: node.radius,
+            atlasStructure: node.atlasStructure ?? null
+        });
+    };
+
+    const soma = data.axon.soma ?? data.dendrite.soma;
+
+    if (soma) {
+        add(soma, NodeStructures.soma);
+    }
+
+    data.axon.getNonSomaNodes().forEach(node => add(node, NodeStructures.axon));
+    data.dendrite.getNonSomaNodes().forEach(node => add(node, NodeStructures.basalDendrite));
+
+    return rows;
+}
+
+export function toNodeData(rows: SimpleReconstructionRow[]): PortalNode[] {
+    return rows.map(row => ({
+        index: row.index,
+        structure: row.structure,
+        x: row.x,
+        y: row.y,
+        z: row.z,
+        radius: row.radius,
+        parentIndex: row.parentIndex
+    }));
+}

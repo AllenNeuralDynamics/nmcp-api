@@ -8,6 +8,7 @@ const {
     QualityControlScore,
     QualityControlServiceVersion,
     failedMetricNames,
+    qualityControlFailureReason,
     toQualityControlOutput
 } = require("../src/data-access/qualityCheckService");
 const {CoreServiceOptions} = require("../src/options/coreServicesOptions");
@@ -327,5 +328,29 @@ describe("performQualityCheck", () => {
         await QualityCheckService.performQualityCheck("atlas-1", nodes, {isRegistered: true});
 
         expect(serializeNodes).not.toHaveBeenCalled();
+    });
+});
+
+describe("qualityControlFailureReason", () => {
+    test("names the failing metrics of a Failed score", () => {
+        const output = toQualityControlOutput("atlas-1", envelope({qualityControl: nmcpQcDocument}));
+
+        expect(qualityControlFailureReason(output)).toBe("quality control failed 2 metric(s): duplicate_node_coordinates, edge_length");
+    });
+
+    test("describes an Error score's service error without its info", () => {
+        const output = toQualityControlOutput("atlas-1", envelope({
+            qualityControl: null,
+            error: {stage: "standard_morph", kind: "ValueError", description: "bad input", info: "Traceback (most recent call last)"}
+        }));
+
+        expect(qualityControlFailureReason(output)).toBe("quality control service error (standard_morph, ValueError): bad input");
+    });
+
+    test.each([
+        ["Passed", envelope()],
+        ["PassedWithWarnings", envelope({qualityControl: {metrics: [metric("non_empty", "Pending")]}})]
+    ])("is null for %s", (_label: string, body: any) => {
+        expect(qualityControlFailureReason(toQualityControlOutput("atlas-1", body))).toBeNull();
     });
 });

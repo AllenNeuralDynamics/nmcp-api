@@ -17,6 +17,7 @@ import {initializeTokenVerifier, validateToken} from "./data-access/auth/tokenVe
 import {synchronizationManagerStart} from "./synchronization/synchonizationManager";
 import {User} from "./models/user";
 import {ApiKey} from "./models/apiKey";
+import {RawReconstructionUpload} from "./models/rawReconstructionUpload";
 import {typeDefinitions} from "./graphql/typeDefinitions";
 import {merge} from "lodash";
 import {openResolvers} from "./graphql/openResolvers";
@@ -29,6 +30,10 @@ start().then().catch((err) => debug(err));
 
 async function start() {
     await RemoteDatabaseClient.Start(true, true);
+
+    RawReconstructionUpload.resumeQualityControl()
+        .then(count => debug(`resumed quality control for ${count} raw upload attempt(s)`))
+        .catch(error => debug(`failed to resume raw upload quality control: ${error}`));
 
     synchronizationManagerStart();
 

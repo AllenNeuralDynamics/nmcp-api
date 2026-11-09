@@ -512,10 +512,10 @@ export class User extends BaseModel {
     }
 
     /**
-     * The annotation's own annotator, any review bit, or an admin.  No status argument: RawUploadSourceStatuses in
-     * rawReconstructionUpload.ts decides when, and assertRawUploadAllowed checks this first so the status is not
-     * disclosed to a caller who could never upload.  The null guard keeps an id-less user from owning an annotation
-     * with no annotator.
+     * The annotation's own annotator, any review bit, or an admin: whoever could upload a raw reconstruction at some
+     * status.  No status argument: assertRawUploadAllowed in rawReconstructionUpload.ts checks this first so the status
+     * is not disclosed to a caller who could never upload, then decides the status and, at a review status, the review
+     * bit.  The null guard keeps an id-less user from owning an annotation with no annotator.
      */
     public canUploadRawReconstruction(annotatorId: string): boolean {
         return this.isAdmin() || (annotatorId != null && annotatorId == this.id) || (this.permissions & UserPermissions.ReviewAll) != 0;

@@ -16,7 +16,8 @@
     "smartsheet-schema": "tsc && node --trace-warnings src/tools/smartSheetSchema.js",
     "smartsheet-download": "tsc && node --trace-warnings src/tools/smartSheetDownload.js",
     "import-candidates": "tsc && node --trace-warnings src/tools/importCandidates.js",
-    "mouselight": "tsc && node --trace-warnings src/tools/mouselightImport.js"
+    "mouselight": "tsc && node --trace-warnings src/tools/mouselightImport.js",
+    "raw-upload": "tsc && node --trace-warnings src/tools/rawSwcUpload.js"
   },
   "dependencies": {
     "@apollo/client": "^3.10.5",

@@ -49,9 +49,9 @@ and `RawReconstructionUpload`, one row per attempt to upload it. Section 1.8 cov
 | Actor | Permission bit | Can do |
 |---|---|---|
 | Annotator | `AnnotateOne` / `AnnotateMany` | Open a reconstruction, pause/resume, mark incomplete or duplicate, request peer, team or publish review, discard, mark untraceable, upload a raw reconstruction to their own reconstruction while `InProgress` or `Rejected` |
-| Peer reviewer | `PeerReview` | Approve peer review, reject, upload specimen-space data, mark untraceable, upload a raw reconstruction at `InProgress` or `Rejected` |
-| Team reviewer | `TeamReview` | Approve team review, reject, upload specimen- **or atlas-space** data, upload a raw reconstruction at `InProgress` or `Rejected`. **Not** mark untraceable — see 1.3 |
-| Publish reviewer | `PublishReview` | Approve publish review, upload specimen- or atlas-space data, reject, discard past approval, publish, retry a failed phase, replay the pipeline, upload a raw reconstruction at `InProgress` or `Rejected` |
+| Peer reviewer | `PeerReview` | Approve peer review, reject, upload specimen-space data, mark untraceable, upload a raw reconstruction at `InProgress` or `Rejected`, and at `PeerReview` |
+| Team reviewer | `TeamReview` | Approve team review, reject, upload specimen- **or atlas-space** data, upload a raw reconstruction at `InProgress` or `Rejected`, and at `TeamReview`. **Not** mark untraceable — see 1.3 |
+| Publish reviewer | `PublishReview` | Approve publish review, upload specimen- or atlas-space data, reject, discard past approval, publish, retry a failed phase, replay the pipeline, upload a raw reconstruction at `InProgress` or `Rejected`, and at `PublishReview` |
 | Admin | `Admin` | Everything above, plus the discard and reject routes reserved to admins, and the retries and the replay |
 | Internal services | `InternalAccess` | Report precomputed generation results; read export data. **No admin bypass** (`src/models/user.ts:623`) |
 | Synchronization worker | runs as `User.SystemInternalUser` | Quality control, structure assignment, DOI assignment, search indexing |
@@ -122,14 +122,14 @@ stateDiagram-v2
     InProgress --> InProgress: uploadRawSwcData / uploadRawParquetData<br/>(raw reconstruction, annotator or reviewer)
     Rejected --> Rejected: uploadRawSwcData / uploadRawParquetData<br/>(raw reconstruction, annotator or reviewer)
 
-    PeerReview --> PeerReview: uploadSwcData / uploadParquetData<br/>(specimen space, peer reviewer)
+    PeerReview --> PeerReview: uploadSwcData / uploadParquetData, uploadRawSwcData / uploadRawParquetData<br/>(specimen space or raw, peer reviewer)
     PeerReview --> TeamReview: approveAnnotation(TeamReview)<br/>peer reviewer
     PeerReview --> PublishReview: approveAnnotation(PublishReview)<br/>peer reviewer, skipping team review
 
-    TeamReview --> TeamReview: uploadSwcData / uploadParquetData<br/>(specimen or atlas space, team reviewer)
+    TeamReview --> TeamReview: uploadSwcData / uploadParquetData, uploadRawSwcData / uploadRawParquetData<br/>(specimen or atlas space, or raw, team reviewer)
     TeamReview --> PublishReview: approveAnnotation(PublishReview)<br/>team reviewer
 
-    PublishReview --> PublishReview: uploadSwcData / uploadParquetData<br/>(specimen or atlas space, publish reviewer)
+    PublishReview --> PublishReview: uploadSwcData / uploadParquetData, uploadRawSwcData / uploadRawParquetData<br/>(specimen or atlas space, or raw, publish reviewer)
     PublishReview --> WaitingForAtlasReconstruction: approveAnnotation(Approved)<br/>publish reviewer, atlas data required
 
     WaitingForAtlasReconstruction --> ReadyToPublish: automatic processing<br/>(section 2)
@@ -287,7 +287,8 @@ behalf.
 **Uploading before review.** While a reconstruction is `InProgress` or `Rejected`, its annotator, a peer, team or
 publish reviewer, or an admin may upload a raw reconstruction for it (`uploadRawSwcData` / `uploadRawParquetData`).
 That is the only upload at these statuses: the refined specimen-space data belongs to the reviewers (1.3) and the import
-tools (1.4) alone. Section 1.8 describes the raw upload.
+tools (1.4) alone. The raw upload stays open through review, but there it is the reviewers' alone (1.3). Section 1.8
+describes the raw upload.
 
 ### 1.3 The Optional Reviews
 
@@ -587,7 +588,7 @@ stateDiagram-v2
     InProgress --> PeerReview: requestReview(PeerReview)<br/>annotator
     Rejected --> PeerReview: requestReview(PeerReview)<br/>annotator
 
-    PeerReview --> PeerReview: uploadSwcData / uploadParquetData<br/>(specimen space)
+    PeerReview --> PeerReview: uploadSwcData / uploadParquetData, uploadRawSwcData / uploadRawParquetData<br/>(specimen space or raw)
     PeerReview --> TeamReview: approveAnnotation(TeamReview)
     PeerReview --> PublishReview: approveAnnotation(PublishReview)<br/>skipping team review
     PeerReview --> Rejected: rejectAnnotation()
@@ -609,7 +610,7 @@ stateDiagram-v2
     Rejected --> TeamReview: requestReview(TeamReview)<br/>annotator
     PeerReview --> TeamReview: approveAnnotation(TeamReview)<br/>peer reviewer
 
-    TeamReview --> TeamReview: uploadSwcData / uploadParquetData<br/>(specimen or atlas space)
+    TeamReview --> TeamReview: uploadSwcData / uploadParquetData, uploadRawSwcData / uploadRawParquetData<br/>(specimen or atlas space, or raw)
     TeamReview --> PublishReview: approveAnnotation(PublishReview)
     TeamReview --> Rejected: rejectAnnotation()
     TeamReview --> Discarded: discardAnnotation()<br/>admin only
@@ -631,7 +632,7 @@ stateDiagram-v2
     PeerReview --> PublishReview: approveAnnotation(PublishReview)<br/>peer reviewer, skipping team review
     TeamReview --> PublishReview: approveAnnotation(PublishReview)<br/>team reviewer
 
-    PublishReview --> PublishReview: uploadSwcData / uploadParquetData<br/>(specimen or atlas space)
+    PublishReview --> PublishReview: uploadSwcData / uploadParquetData, uploadRawSwcData / uploadRawParquetData<br/>(specimen or atlas space, or raw)
     PublishReview --> WaitingForAtlasReconstruction: approveAnnotation(Approved)<br/>atlas data required
 
     WaitingForAtlasReconstruction --> ReadyToPublish: automatic processing<br/>(section 2)
@@ -664,7 +665,9 @@ abandonable failed phase, and the reject out of `PublishFailed` only when the ch
 (1.6).
 
 Any of the three reviewers may also upload a raw reconstruction while the annotation is `InProgress` or `Rejected`
-(1.8), a self-loop on the annotator's figure rather than on theirs.
+(1.8), a self-loop on the annotator's figure rather than on theirs. At `PeerReview`, `TeamReview` and `PublishReview`
+the raw upload follows the specimen-space upload: the reviewer holding that status's bit, or an admin, and not the
+annotator. It shares the specimen-space self-loop on each figure.
 
 ### 1.8 Raw Reconstructions
 
@@ -674,22 +677,56 @@ one: `RawReconstruction.annotationId` carries a unique index. Its nodes are `Raw
 `SpecimenNode`'s columns in a table of their own.
 
 **The upload.** `uploadRawSwcData` and `uploadRawParquetData` take an annotation id, optional notes and the file
-(`RawReconstructionUpload.fromSwcUpload` / `fromParquetUpload`, `src/models/rawReconstructionUpload.ts`). In order:
+(`RawReconstructionUpload.fromSwcUpload` / `fromParquetUpload`, `src/models/rawReconstructionUpload.ts`). An upload is
+a quality-control gate: the mutation hands the parsed upload to quality control and returns, and the raw reconstruction
+is saved only once quality control passes. In order:
 
 1. A request with no file is refused.
 2. The gate, `assertRawUploadAllowed`. Permission comes first: the annotation's own annotator, any review bit, or an
-   admin (`User.canUploadRawReconstruction`); anyone else gets a 401 without the status being looked at. Then the
-   status: anything but `InProgress` or `Rejected` (`RawUploadSourceStatuses`) gets code 1009. Last, an annotation whose
-   specimen-space reconstruction already has nodes gets code 1010 (`assertNoSpecimenSpaceData`); the empty row every
-   annotation is created with does not count. No refusal here records an attempt.
-3. The attempt is recorded. In a short transaction that commits before the file is parsed, the annotation row is locked,
-   the gate and the specimen-space check re-run against it, and a `RawReconstructionUpload` row created at `Uploading`
-   with the next `attemptNumber`.
-4. The file is parsed, and a soma required.
-5. One data transaction locks the annotation, re-runs the gate and the specimen-space check, hard-deletes the current
-   raw reconstruction and its nodes, and writes the new one. It takes only the annotation's lock, as the specimen-space upload does (2.4).
-6. The attempt's outcome is written in a transaction of its own: `Accepted`, or `FailedUpload` with the error's
-   message, after which the original error is returned to the caller.
+   admin (`User.canUploadRawReconstruction`); anyone else gets a 401 without the status being looked at. `InProgress`
+   and `Rejected` (`PreReviewRawUploadSourceStatuses`) then admit the upload. Any other status follows the
+   specimen-space upload's rule, in the order `Annotation`'s `assertUploadAllowed` uses: a status that is not a
+   specimen-space source in `UploadSourceStatuses` (`PeerReview`, `TeamReview`, `PublishReview`) gets code 1009, and a
+   caller without the review bit paired with it, and not an admin, gets a 401 (`User.canUploadReconstructionData`).
+   Whether the specimen-space reconstruction already has nodes does not matter. No refusal here records an attempt.
+3. The configuration check, `assertRawQualityControlConfigured`. Without the skeleton base, the blob directory and the
+   metadata-portal base, the upload is refused with code 1012 and no attempt.
+4. One transaction does the rest, its first statement locking the annotation row. The lock, and one pooled connection,
+   are held through parsing and the skeleton call.
+   - The gate re-runs against the locked row.
+   - **The in-progress gate.** If the annotation's newest attempt is `PendingQualityControl` and under an hour old, the
+     upload is refused with code 1011 and no attempt. An older one is closed as `FailedQualityControlService`, after its
+     QC document, if a crashed run left one, is removed; if that removal fails, the upload gets code 1012 and the stale
+     attempt stays pending.
+   - The file is parsed and a soma required. A failure records a `FailedUpload` attempt and returns the original error.
+   - A `<qc-tag>` (UUID v7) is generated, and nmcp-precomputed's `POST /generateskeleton` builds a standalone skeleton
+     at `<NMCP_QC_SKELETON_OUTPUT>/precomputed/nmcp-qc-<qc-tag>`, segment 1, with a 120 s deadline. A reply counts
+     only when it names the requested tag and segment. Any failure records a `FailedPrecomputed` attempt and returns
+     code 1012.
+   - The parsed upload is saved as the hand-off file `<NMCP_QC_BLOB_OUTPUT>/raw/nmcp-upload-<qc-tag>.json`. A failure
+     records a `FailedQualityControlService` attempt and returns code 1012.
+   - The attempt is recorded as `PendingQualityControl`, with its `qcTag` and `skeletonId`, and the mutation returns it.
+5. After the commit, the in-process QC worker (not the synchronization worker) takes the attempt. It reads the hand-off
+   file and calls nmcp-qc with `isRegistered: false`, the skeleton location and segment 1. In one transaction that
+   locks the annotation and then the attempt, it finishes the attempt, unless the attempt was discarded or closed
+   meanwhile:
+
+   | Result | Attempt | QC document | Raw reconstruction |
+   | --- | --- | --- | --- |
+   | Score `Passed` or `PassedWithWarnings` | `Accepted` | written | replaced, as before |
+   | Score `Failed` | `FailedQualityControl`, with the failed metrics | written | kept |
+   | Score `Error` | `ErroredQualityControl`, with the service error | none | kept |
+   | Service unreachable or non-OK, or the hand-off file unreadable | `FailedQualityControlService` | none | kept |
+
+   The QC document is `<NMCP_QC_BLOB_OUTPUT>/raw/nmcp-qc-<qc-tag>.json`, the tool's own QC-portal document. It is
+   written or removed atomically before the outcome commits, so for every finished attempt the status alone says
+   whether it exists. A `Failed` score also posts the document, after the outcome commits, to the metadata portal at
+   `<NMCP_AIND_METADATA_URL>/metadata-viz/temporary-metadata` as `{"quality_control": <document>, "name":
+   "nmcp-qc-<qc-tag>", "location": <skeleton location>}`, the location being the skeleton QC checked; a failed post
+   is logged and changes nothing. If the finish cannot commit, a fallback finish records `FailedQualityControlService`
+   with no document.
+6. On startup the API resumes every `PendingQualityControl` attempt whose hand-off file exists. The rest stay pending
+   until a newer upload closes them after an hour.
 
 **Every attempt is kept.** Attempts are numbered per annotation by `attemptNumber`, assigned under the annotation lock
 and never by timestamp, and the highest-numbered one is `Annotation.latestRawReconstructionUpload`. The newest attempt
@@ -697,9 +734,25 @@ can therefore be a failure while `Annotation.rawReconstruction` still points at 
 failure never replaces the current raw reconstruction, and a superseded one is hard-deleted rather than kept
 (section 3, decision 19).
 
-`RawReconstructionUploadStatus` has five values: `Uploading`, `PendingQualityControl`, `FailedUpload`,
-`FailedQualityControl` and `Accepted`. The two quality-control values are reserved for a quality-control step that is
-not built yet.
+`RawReconstructionUploadStatus` has eight values:
+
+- `Uploading` (100), no longer written and kept only for attempts that already carry it;
+- `PendingQualityControl` (200), handed to the QC worker;
+- `FailedUpload` (300), the file could not be parsed or has no soma;
+- `FailedPrecomputed` (320), the precomputed skeleton could not be built;
+- `FailedQualityControl` (400), quality control ran and the reconstruction did not pass;
+- `ErroredQualityControl` (410), the QC service answered without a usable analysis;
+- `FailedQualityControlService` (420), quality control could not be run or finished, or the attempt was closed by a
+  newer upload;
+- `Accepted` (500).
+
+**The QC tag.** A tagged attempt exposes `qcTag`, `skeletonId` and `qualityControlUrl`,
+`<NMCP_AIND_METADATA_URL>/quality_control?name=nmcp-qc-<qc-tag>`.
+
+**Configuration.** `NMCP_QC_SKELETON_OUTPUT` is the base for raw-QC skeletons, and must lie outside the precomputed
+worker's own output, which the service refuses. `NMCP_QC_BLOB_OUTPUT` holds the hand-off files and QC documents under
+`raw/`. `NMCP_AIND_METADATA_URL` is the metadata-portal base, prefix included. `NMCP_PRECOMPUTED_API_HOST`, `_PORT` and
+`_ENDPOINT` locate the precomputed service (default `precomputed-worker:5000/generateskeleton`).
 
 **Export, revisions and teardown.** `exportedRawReconstruction(id)` returns the raw reconstruction in portal format,
 resolving a raw id first and then an annotation id. An `AtlasSpace` revision copies the raw reconstruction and the
@@ -944,7 +997,7 @@ because all of them do.
 
 1. **The `AtlasReconstruction` row is the gate.** Any path touching both rows takes `LOCK.UPDATE` on the child first.
    A path touching only one of the two locks only that one and can never be part of a cycle — the specimen-space
-   upload and the raw upload's attempt and data transactions (1.8) are the examples; each locks the parent alone.
+   upload and the raw upload's transaction and QC finish (1.8) are the examples; each locks the parent alone.
 2. **Lock the parent too, before deciding anything about it.** A plain read under READ COMMITTED returns the last
    committed version without blocking a concurrent writer, so a check made against an unlocked read and a write issued
    afterwards are not one atomic decision. The re-read is `findByPk` with the lock, never `reload` — `reload`
@@ -1418,9 +1471,9 @@ raising one as a finding means disputing the decision rather than reporting a de
 
 19. **Raw reconstruction uploads keep a history of attempts, not of data.** A superseded raw reconstruction is
     hard-deleted when its replacement is written, nodes and all, so what remains of it is the `RawReconstructionUpload`
-    rows and their events. The attempt's status is written outside the data transaction so it always says what is
-    happening; the cost is that a process dying mid-upload leaves its attempt at `Uploading`, and nothing reconciles
-    it. Raw events are excluded from neuron version history (1.8).
+    rows and their events. A process dying during quality control leaves its attempt at `PendingQualityControl`; the
+    next start resumes it when its hand-off file exists, and otherwise the next upload closes it once it is an hour
+    old. Raw events are excluded from neuron version history (1.8).
 
 ---
 

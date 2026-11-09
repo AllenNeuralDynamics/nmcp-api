@@ -25,6 +25,11 @@ const restServices = {
         port: 5000,
         endpoint: "/performqc"
     },
+    precomputed: {
+        host: "precomputed-worker",
+        port: 5000,
+        endpoint: "/generateskeleton"
+    },
     doiGeneration: {
         url: "https://morphology.allenneuraldynamics-test.org/",
         host: "api.test.datacite.org",
@@ -43,10 +48,19 @@ const notificationServices = {
     }
 };
 
+const qualityControlServices = {
+    // Raw-upload skeletons are generated under <skeletonOutput>/precomputed/nmcp-qc-<qc-tag>.  It must lie outside the
+    // precomputed worker's own output, which the precomputed service refuses as a ProtectedLocation.
+    skeletonOutput: "",
+    blobOutput: "",
+    aindMetadataUrl: ""
+};
+
 const services = {
     database: databaseServices,
     rest: restServices,
-    notification: notificationServices
+    notification: notificationServices,
+    qualityControl: qualityControlServices
 };
 
 function loadDatabaseOptions(options): any {
@@ -70,6 +84,10 @@ function loadRestOptions(options): any {
     options.qualityCheck.port = parseInt(process.env.NMCP_QUALITY_API_PORT) || options.qualityCheck.port;
     options.qualityCheck.endpoint = process.env.NMCP_QUALITY_API_ENDPOINT || options.qualityCheck.endpoint;
 
+    options.precomputed.host = process.env.NMCP_PRECOMPUTED_API_HOST || options.precomputed.host;
+    options.precomputed.port = parseInt(process.env.NMCP_PRECOMPUTED_API_PORT) || options.precomputed.port;
+    options.precomputed.endpoint = process.env.NMCP_PRECOMPUTED_API_ENDPOINT || options.precomputed.endpoint;
+
     options.doiGeneration.url = process.env.NMCP_DOI_API_URL || options.doiGeneration.url;
     options.doiGeneration.host = process.env.NMCP_DOI_API_HOST || options.doiGeneration.host;
     options.doiGeneration.endpoint = process.env.NMCP_DOI_API_ENDPOINT || options.doiGeneration.endpoint;
@@ -87,12 +105,21 @@ function loadNotificationOptions(options): any {
     return options;
 }
 
+function loadQualityControlOptions(options): any {
+    options.skeletonOutput = process.env.NMCP_QC_SKELETON_OUTPUT || options.skeletonOutput;
+    options.blobOutput = process.env.NMCP_QC_BLOB_OUTPUT || options.blobOutput;
+    options.aindMetadataUrl = process.env.NMCP_AIND_METADATA_URL || options.aindMetadataUrl;
+
+    return options;
+}
+
 function loadConfiguration() {
     const c = Object.assign({}, services);
 
     c.database = loadDatabaseOptions(c.database);
     c.rest = loadRestOptions(c.rest)
     c.notification = loadNotificationOptions(c.notification);
+    c.qualityControl = loadQualityControlOptions(c.qualityControl);
 
     return c;
 }

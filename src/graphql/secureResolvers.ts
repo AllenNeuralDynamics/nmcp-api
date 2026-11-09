@@ -32,6 +32,7 @@ import {EventLogItem} from "../models/eventLogItem";
 import {ApiKey} from "../models/apiKey";
 import {AccessRequest, AccessRequestQueryInput, AccessRequestStatus} from "../models/accessRequest";
 import {FieldResolvers, RequestContext} from "./requestContext";
+import {rawUploadQualityControlUrl} from "../io/rawQualityControlFiles";
 
 export class UnauthorizedError extends GraphQLError {
     public constructor() {
@@ -392,6 +393,9 @@ export const secureResolvers = {
     RawReconstructionUpload: {
         user(upload: RawReconstructionUpload): Promise<User> {
             return upload.getUser({attributes: ["id", "firstName", "lastName"]});
+        },
+        qualityControlUrl(upload: RawReconstructionUpload): string | null {
+            return rawUploadQualityControlUrl(upload.qcTag);
         },
     } satisfies FieldResolvers,
     SpecimenSpaceReconstruction: {

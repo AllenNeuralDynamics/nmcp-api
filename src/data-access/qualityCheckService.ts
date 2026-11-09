@@ -1,5 +1,6 @@
 import {CoreServiceOptions} from "../options/coreServicesOptions";
 import {PortalNode} from "../io/portalFormat";
+import {describeReceived, isPlainObject, primitiveText} from "../util/untrustedJson";
 
 const debug = require("debug")("nmcp:nmcp-api:quality-service");
 
@@ -75,43 +76,6 @@ export type QualityCheckServiceResult = {
 export const QualityControlResponseErrorStage = "response";
 
 const MetricStatuses = ["Pass", "Fail", "Pending"];
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-    return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-// The only way a response value becomes text.  JSON.parse can produce {"toString": null, "valueOf": null}, which makes
-// String(), template literals and join throw, and a throw while converting a parsed response would be retried forever
-// as an unavailable service.
-function primitiveText(value: unknown): string | null {
-    if (typeof value === "string") {
-        return value;
-    }
-
-    if (typeof value === "number" || typeof value === "boolean") {
-        return String(value);
-    }
-
-    return null;
-}
-
-function describeReceived(value: unknown): string {
-    const text = primitiveText(value);
-
-    if (text !== null) {
-        return text;
-    }
-
-    if (value === undefined) {
-        return "<missing>";
-    }
-
-    if (value === null) {
-        return "<null>";
-    }
-
-    return Array.isArray(value) ? "<array>" : "<object>";
-}
 
 function latestStatus(metric: unknown): unknown {
     if (!isPlainObject(metric)) {
@@ -226,6 +190,23 @@ export function failedMetricNames(output: QualityControlOutput): string[] {
 
         return [typeof name === "string" ? name : `metric ${index}`];
     });
+}
+
+/**
+ * The error's info is left out on purpose: it can carry raw exception text, and this reason is stored and returned
+ * publicly.
+ */
+export function qualityControlFailureReason(output: QualityControlOutput): string | null {
+    switch (output.score) {
+        case QualityControlScore.Error:
+            return `quality control service error (${output.error?.stage ?? "unknown"}, ${output.error?.kind ?? "unknown"}): ${output.error?.description ?? "no description"}`;
+        case QualityControlScore.Failed: {
+            const names = failedMetricNames(output);
+            return `quality control failed ${names.length} metric(s): ${names.join(", ")}`;
+        }
+        default:
+            return null;
+    }
 }
 
 export class QualityCheckService {

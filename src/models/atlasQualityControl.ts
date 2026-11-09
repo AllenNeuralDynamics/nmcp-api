@@ -8,7 +8,7 @@ import {AtlasQualityControlStatus} from "./atlasQualityControlStatus";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {User} from "./user";
 import {
-    failedMetricNames,
+    qualityControlFailureReason,
     QualityCheckService,
     QualityCheckServiceStatus,
     QualityControlOutput,
@@ -41,11 +41,8 @@ function statusForScore(status: QualityControlScore): AtlasQualityControlStatus 
 function failureReasonForOutput(status: AtlasQualityControlStatus, output: QualityControlOutput): string | null {
     switch (status) {
         case AtlasQualityControlStatus.Error:
-            return `quality control service error (${output.error?.stage ?? "unknown"}, ${output.error?.kind ?? "unknown"}): ${output.error?.description ?? "no description"}`;
-        case AtlasQualityControlStatus.Failed: {
-            const names = failedMetricNames(output);
-            return `quality control failed ${names.length} metric(s): ${names.join(", ")}`;
-        }
+        case AtlasQualityControlStatus.Failed:
+            return qualityControlFailureReason(output);
         default:
             return null;
     }

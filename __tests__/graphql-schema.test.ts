@@ -19,6 +19,7 @@ const {Atlas} = require("../src/models/atlas");
 const {AtlasKind} = require("../src/models/atlasKind");
 const {AtlasStructure} = require("../src/models/atlasStructure");
 const {AtlasQualityControl} = require("../src/models/atlasQualityControl");
+const {CoreServiceOptions} = require("../src/options/coreServicesOptions");
 
 afterEach(() => {
     vi.restoreAllMocks();
@@ -507,6 +508,28 @@ describe("raw reconstructions in the schema", () => {
 
         expect(fields.attemptNumber.type).toBe(GraphQLInt);
         expect(fields.user.type.name).toBe("User");
+    });
+
+    test("RawReconstructionUpload exposes its QC tag, skeleton id and quality control link", () => {
+        const fields = schema.getType("RawReconstructionUpload").getFields();
+
+        expect(fields.qcTag.type).toBe(GraphQLString);
+        expect(fields.skeletonId.type).toBe(GraphQLInt);
+        expect(fields.qualityControlUrl.type).toBe(GraphQLString);
+    });
+
+    test("qualityControlUrl links a tagged attempt and is null for an untagged one", () => {
+        const options = CoreServiceOptions.qualityControl;
+        const saved = options.aindMetadataUrl;
+        options.aindMetadataUrl = "https://metadata.example.org/";
+
+        try {
+            expect(secureResolvers.RawReconstructionUpload.qualityControlUrl({qcTag: "tag-1"}))
+                .toBe("https://metadata.example.org/quality_control?name=nmcp-qc-tag-1");
+            expect(secureResolvers.RawReconstructionUpload.qualityControlUrl({qcTag: null})).toBeNull();
+        } finally {
+            options.aindMetadataUrl = saved;
+        }
     });
 
     test("exportedRawReconstruction takes a required id and returns a PortalReconstruction", () => {
