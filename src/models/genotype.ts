@@ -1,8 +1,8 @@
-import {Sequelize, DataTypes, FindOrCreateOptions, Transaction} from "sequelize";
+import {Sequelize, DataTypes, FindOrCreateOptions, Transaction, literal} from "sequelize";
 
 import {BaseModel} from "./baseModel";
 import {Specimen} from "./specimen";
-import {GenotypeTableName} from "./tableNames";
+import {GenotypeTableName, SpecimenTableName} from "./tableNames";
 import {User} from "./user";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {UnauthorizedError} from "../graphql/secureResolvers";
@@ -16,6 +16,19 @@ export class Genotype extends BaseModel {
         }
 
         return Genotype.findByPk(id);
+    }
+
+    public static async findAllInUse(): Promise<Genotype[]> {
+        // Correlated EXISTS rather than an include so a genotype shared by many specimens comes back once.  The
+        // deletedAt test is explicit because a raw literal bypasses the Specimen paranoid scope.
+        return Genotype.findAll({
+            where: literal(`EXISTS (
+                SELECT 1
+                FROM "${SpecimenTableName}" AS genotype_specimen
+                WHERE genotype_specimen."genotypeId" = "${GenotypeTableName}"."id"
+                  AND genotype_specimen."deletedAt" IS NULL
+            )`)
+        });
     }
 
     /**

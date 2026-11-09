@@ -79,7 +79,7 @@ export const openResolvers = {
         },
 
         genotypes(_: any): Promise<Genotype[]> {
-            return Genotype.findAll();
+            return Genotype.findAllInUse();
         },
 
         fluorophores(_: any): Promise<Fluorophore[]> {

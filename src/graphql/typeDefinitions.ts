@@ -46,7 +46,7 @@ export const typeDefinitions = gql`
         """Returns details for all collections."""
         collections: [Collection!]!
 
-        """Returns details for all genotypes."""
+        """Returns details for all genotypes used by at least one specimen."""
         genotypes: [Genotype!]!
 
         """Returns details for all fluorophores."""
