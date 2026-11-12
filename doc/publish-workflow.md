@@ -14,12 +14,12 @@ Three rows track one piece of work, and each has its own status enum.
 |---|---|---|---|
 | `Annotation` | `Annotations` | `AnnotationStatus` | The workflow state the user sees, and the reconstruction DOI |
 | `SpecimenSpaceReconstruction` | `SpecimenSpaceReconstructions` | `SpecimenSpaceReconstructionStatus` | Specimen-space nodes |
-| `AtlasReconstruction` | `AtlasReconstructions` | `AtlasReconstructionStatus` | Atlas-space (registered) nodes; the processing-pipeline state |
+| `AtlasReconstruction` | `AtlasReconstructions` | `AtlasReconstructionStatus` | Atlas-space (registered) nodes; the finalization state |
 
 An `AtlasReconstruction` is created at the same moment as its parent `Annotation`
 (`Annotation.openAnnotation`, `src/models/annotation.ts:661`) and stays 1:1 with it for life, which the unique,
 non-null `AtlasReconstruction.annotationId` (`src/migrations/20261104000000-annotation-doi.ts`) enforces. The parent's
-status is the coarse, user-facing state; the child's status is the fine-grained pipeline state. The parent learns
+status is the coarse, user-facing state; the child's status is the fine-grained finalization state. The parent learns
 about the child through `onAtlasReconstructionStatusChanged` (`src/models/annotation.ts:598`), which handles
 exactly two transitions — `ReadyToPublish` and `Published`.
 
@@ -51,7 +51,7 @@ and `RawReconstructionUpload`, one row per attempt to upload it. Section 1.8 cov
 | Annotator | `AnnotateOne` / `AnnotateMany` | Open a reconstruction, pause/resume, mark incomplete or duplicate, request peer, team or publish review, discard, mark untraceable, upload a raw reconstruction to their own reconstruction while `InProgress` or `Rejected` |
 | Peer reviewer | `PeerReview` | Approve peer review, reject, upload specimen-space data, mark untraceable, upload a raw reconstruction at `InProgress` or `Rejected`, and at `PeerReview` |
 | Team reviewer | `TeamReview` | Approve team review, reject, upload specimen- **or atlas-space** data, upload a raw reconstruction at `InProgress` or `Rejected`, and at `TeamReview`. **Not** mark untraceable — see 1.3 |
-| Publish reviewer | `PublishReview` | Approve publish review, upload specimen- or atlas-space data, reject, discard past approval, publish, retry a failed phase, replay the pipeline, upload a raw reconstruction at `InProgress` or `Rejected`, and at `PublishReview` |
+| Publish reviewer | `PublishReview` | Approve publish review, upload specimen- or atlas-space data, reject, discard past approval, publish, retry a failed phase, replay finalization, upload a raw reconstruction at `InProgress` or `Rejected`, and at `PublishReview` |
 | Admin | `Admin` | Everything above, plus the discard and reject routes reserved to admins, and the retries and the replay |
 | Internal services | `InternalAccess` | Report precomputed generation results; read export data. **No admin bypass** (`src/models/user.ts:623`) |
 | Synchronization worker | runs as `User.SystemInternalUser` | Quality control, structure assignment, DOI assignment, search indexing |
@@ -64,7 +64,7 @@ Two permission predicates are worth separating, because they look interchangeabl
 
 - `canModifyAnnotation()` (`src/models/user.ts:454`) is `PublishReview`-only with **no admin bypass**, and gates
   exactly one thing: `updateMetadata`.
-- `canOperateReconstructionPipeline()` (`:464`) is admin **or** `PublishReview`, and gates every supervisory pipeline
+- `canOperateReconstructionPipeline()` (`:464`) is admin **or** `PublishReview`, and gates every supervisory finalization
   action — the five per-phase retries and the replay alike. An admin holding no review bit has these, so the replay is
   never more available than the single retry it subsumes.
 
@@ -351,7 +351,7 @@ admin discard are all available, so nothing is stranded.
 
 There is no deferred-upload path behind that refusal. `fromParsedStructures` does not admit `Approved` as an upload
 source and does not call `prepareToFinalize`, and `AtlasReconstruction.approve` and `prepareToFinalize` both return
-`void` rather than reporting whether they managed to start the pipeline — starting it is not conditional, because the
+`void` rather than reporting whether they managed to start finalization — starting it is not conditional, because the
 data it needs is a precondition of the approval that precedes it. Both import tools follow the same order: park the
 reconstruction at `PublishReview`, upload, then approve (`src/tools/smartSheetImport.ts:523`, `:534`, `:670`, `:675`;
 `src/tools/mouselightImport.ts:393`, `:398`, `:412`), catching the refusal and recording the reconstruction as failed
@@ -444,7 +444,7 @@ else in the publish path does.
 DOI and the neuron's canonical DOI are already recorded. Those are asserted, not assigned: `publish` makes no DataCite
 call at all. The guards on the eager instance (`src/models/annotation.ts:1095`) are an early refusal; the decision
 that counts is made against rows read under lock inside the transaction (`publishWithTransaction`, `:1110`), because a
-reject or a pipeline replay can have moved the pair since the request was loaded. A missing DOI is deliberately not a
+reject or a finalization replay can have moved the pair since the request was loaded. A missing DOI is deliberately not a
 refusal in the `PublishRefusalError` sense: the assignment phase registers both before `ReadyToPublish` and a replay
 keeps them, so a row without one is broken rather than racing, and a bulk call surfaces it instead of stopping
 quietly.
@@ -496,14 +496,14 @@ permission under them before anything is torn down. A raw upload at `InProgress`
 annotation's lock, so a teardown on a stale read could otherwise leave a raw reconstruction an upload committed after
 it on an untraceable annotation.
 
-The annotator is deliberately absent from the post-approval routes: a reconstruction inside the pipeline is not theirs
+The annotator is deliberately absent from the post-approval routes: a reconstruction in finalization is not theirs
 to abandon. `User.isReviewerAbandonable` (`src/models/user.ts:481`) is where that rule lives, and both
 `canRejectAnnotation` (`:528`) and `canDiscardAnnotation` (`:489`) take the child's status as an argument so
 neither can answer for the pair without it.
 
 **Reject reaches one status discard does not.** The `PublishFailed` row above is a clause of its own in
 `Annotation.isRejectable` and in `canRejectAnnotation`, rather than a widening of
-`AbandonableFailureStatuses` or of `isReviewerAbandonable` — both of those are shared with discard and the pipeline
+`AbandonableFailureStatuses` or of `isReviewerAbandonable` — both of those are shared with discard and the finalization
 replay, and widening either would hand them a route out of `PublishFailed` that section 3 rules out deliberately. What
 the reject recovers is the neuron rather than the publication: the predecessor was archived and de-indexed when the
 publish began and reject does not put that back.
@@ -512,8 +512,8 @@ publish began and reject does not put that back.
 `PublishFailed` is treated as a full reset (`AtlasReconstruction.reject`, `src/models/atlasReconstruction.ts:286`):
 the child returns to
 `ReadyToProcess` with `failureReason`, `failedAt` and `nodeStructureAssignmentAt` cleared, so a revised reconstruction
-re-enters the pipeline rather than resuming mid-way. `ReadyToProcess` is exactly the approvable state — atlas data
-uploaded, no phase started — so a later re-approval starts the pipeline as a first approval does. The child records the
+re-enters finalization rather than resuming mid-way. `ReadyToProcess` is exactly the approvable state — atlas data
+uploaded, no phase started — so a later re-approval starts finalization as a first approval does. The child records the
 rejection with an `AtlasReconstructionReject` event, and a child that never received atlas data keeps its `Initialized`
 status rather than being claimed to hold node counts it does not have.
 
@@ -832,7 +832,7 @@ pre-publish phases leaves the parent at `WaitingForAtlasReconstruction`; what su
 parent to `PublishFailed` in the same transaction, because a parent left at `Publishing` is indistinguishable from one
 indexing normally, and `Publishing` is the one pre-terminal status a person is expected to see clear on its own.
 
-### 2.2 Child status — the processing pipeline
+### 2.2 Child status — finalization
 
 ```mermaid
 stateDiagram-v2
@@ -897,7 +897,7 @@ The claim also contains a class of race that would otherwise crash the worker. A
 after the worker loaded its batch has a soft-deleted child, and the paranoid scope means the claim's conditional
 `UPDATE` matches nothing — the item is skipped rather than operated on.
 
-The reject and the replay differ only in target: a replay stops at pipeline entry (`PendingQualityControl`) because the
+The reject and the replay differ only in target: a replay stops at the start of finalization (`PendingQualityControl`) because the
 phases are meant to run again immediately; a reject goes one step further back to `ReadyToProcess` because they are not.
 
 Statuses declared and never assigned: `PendingRegistration`, `InRegistration`, `FailedRegistration` —
@@ -1055,7 +1055,7 @@ what tells them apart (`failureReasonForOutput`, `src/models/atlasQualityControl
 records a failure against an exponential backoff (60 s base, 5 min cap) and skips quality control on subsequent passes
 until it expires, while the other phases keep running.
 
-Quality control runs only as a pipeline phase. There is no pre-approval hand-run and no mutation that doubles as an
+Quality control runs only as a finalization phase. There is no pre-approval hand-run and no mutation that doubles as an
 entry point for one: the `AtlasQualityControl` row is created or reset by `prepareToFinalize` at approval, and
 `requestQualityControlReassessment` is one of the five callers of the shared `requestPhaseRetry`, admissible only
 from `FailedQualityControl`.
@@ -1086,7 +1086,7 @@ Four properties matter:
 
 - **Each step is an ensure**, so a pass that dies part-way is resumed rather than repeated: the canonical is skipped if
   `neuron.canonicalDoi` is set, the reconstruction DOI is skipped if `Annotation.doi` is set, and the
-  `HasVersion` entry is only appended if absent. This is also what makes the pipeline replay safe to run on a
+  `HasVersion` entry is only appended if absent. This is also what makes the finalization replay safe to run on a
   reconstruction that already holds a DOI — the phase re-runs and keeps the same identifiers.
 - **Each identifier is created exactly once, registered findable in that single call.** There is no draft state and no
   promotion step. A crash between the create and the local write that records it strands a registered identifier
@@ -1145,7 +1145,7 @@ Three things make a stuck reconstruction findable rather than indistinguishable 
   | `requestSearchIndexing` | `FailedSearchIndexing` | `PendingSearchIndexing` |
   | `resetReconstructionPipeline` | any of the four `AbandonableFailureStatuses`, or `ReadyToPublish` | `PendingQualityControl`, and the parent back to `WaitingForAtlasReconstruction` |
 
-  Rewinding a single phase is the right tool while a failure halts the pipeline, because the failed phase is always the
+  Rewinding a single phase is the right tool while a failure halts finalization, because the failed phase is always the
   last one that ran. From `ReadyToPublish` that does not hold — rewinding structure assignment alone would leave the
   precomputed volume and the search-index node counts describing different data — which is why the replay exists and
   why it is the only thing admissible from there. The replay delegates the rewind to `prepareToFinalize`, the same
@@ -1309,7 +1309,7 @@ raising one as a finding means disputing the decision rather than reporting a de
    the reconstruction is in. They sit outside the protocol in 2.4 deliberately, and that is where the line is drawn —
    the paths that follow the protocol are the ones a worker, an automatic phase or an upload can contend with, and
    these six cannot, because the statuses they accept (`InProgress`, `OnHold`, `Incomplete`, `Duplicate`, `Rejected`)
-   are ones nothing in the pipeline ever touches.
+   are ones nothing in finalization ever touches.
 
    `markUntraceable` (`:1315`) used to be on that list and no longer is. The raw upload (1.8) writes at `InProgress`
    and `Rejected`, both untraceable source statuses, under the annotation's lock and after a file-parsing window, and
@@ -1362,7 +1362,7 @@ raising one as a finding means disputing the decision rather than reporting a de
    The one case that is a genuine loose end is **discard and untraceable**. Both soft-delete the child the
    reconstruction DOI resolves to, and both are reachable at statuses where that DOI is already findable (1.6), so the
    identifier and the canonical's `HasVersion` entry survive a reconstruction page that no longer renders. The neuron's
-   own page and canonical DOI are unaffected. That is accepted — the ability to exit a stuck pipeline
+   own page and canonical DOI are unaffected. That is accepted — the ability to exit a stuck finalization run
    matters more, and the case is expected to be rare — but this is the one place where a later step marking the DOI's
    state at DataCite would close something real, rather than withdrawing an identifier that is doing its job.
 10. **A crash between creating a DOI and recording it leaves a duplicate DataCite record.** Each identifier is created
@@ -1417,7 +1417,7 @@ raising one as a finding means disputing the decision rather than reporting a de
     `lock_timeout` or `statement_timeout` is configured, so waiters wait as long as it takes, which is safe precisely
     because the holder is bounded. Note that the comment justifying `40P01` in `retryableSqlStates`
     (`src/util/phaseFailure.ts:19`) attributes it to sibling DOI assignments deadlocking on this lock. That is
-    overstated — they block, per the paragraph above — and there is no known deadlock cycle anywhere in the pipeline.
+    overstated — they block, per the paragraph above — and there is no known deadlock cycle anywhere in finalization.
     Keeping `40P01` in the retryable set is still right: it costs nothing and it is the correct classification for a
     state the database can report whether or not this codebase knows how to produce it.
 15. **Search indexing is treated as unfailable, so archiving the predecessor up front is safe.** `publish` archives the
@@ -1443,7 +1443,7 @@ raising one as a finding means disputing the decision rather than reporting a de
     rather than calling into a refusal (1.4). What the imports do not take is the row lock — sound for them on the
     operating rule in decision 3, and separate from decision 5, which is about two portal actors colliding.
 17. **Exactly one API instance, and therefore exactly one synchronization worker, runs at a time.** Scaling past that is
-    an architecture change, not a configuration change, and several things in the pipeline assume it:
+    an architecture change, not a configuration change, and several things in finalization assume it:
 
     - The pass-boundary sweep, `releasePhaseClaims` (`src/models/atlasReconstruction.ts:163` and
       `src/models/atlasQualityControl.ts:187`), resets *every* row at a claimed-phase status — the four in
@@ -1469,7 +1469,7 @@ raising one as a finding means disputing the decision rather than reporting a de
     it does: the four phases are awaited in sequence in `performSynchronization`, so structure assignment, DOI assignment
     and search indexing get nothing done until the call returns. Note also that undici's are *inactivity* timeouts, not a
     cap on the request — a service that answers slowly or trickles its response resets the clock and can hold the call
-    well past five minutes. Worth revisiting if the pipeline is ever expected to survive an unhealthy quality check
+    well past five minutes. Worth revisiting if finalization is ever expected to survive an unhealthy quality check
     service unattended.
 
 19. **Raw reconstruction uploads keep a history of attempts, not of data.** A superseded raw reconstruction is

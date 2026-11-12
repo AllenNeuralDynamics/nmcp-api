@@ -429,6 +429,7 @@ export const coreTypeDefinitions = gql`
         purpose: String!
         notes: String!
         status: Int!
+        requestKind: Int!
         admin: User
         assigned: User
         createdAt: Date

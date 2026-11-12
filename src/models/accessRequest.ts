@@ -3,6 +3,7 @@ import {BelongsToGetAssociationMixin, DataTypes, FindOptions, Op, Sequelize, Tra
 
 import {User} from "./user";
 import {AccessRequestTableName,} from "./tableNames";
+import {AccessRequestKind} from "./accessRequestKind";
 import {EventLogItemKind, recordEvent} from "./eventLogItem";
 import {UnauthorizedError} from "../graphql/secureResolvers";
 import {notifyAccessRequestCreated} from "../data-access/notification/accessRequestNotifications";
@@ -20,6 +21,7 @@ export enum RequestAccessResponse {
     DuplicateOpen = 200,
     DuplicateApproved = 220,
     DuplicateDenied = 240,
+    TooManyOpenFeedback = 260,
     Throttled = 300
 }
 
@@ -31,11 +33,13 @@ export type AccessRequestShape = {
     purpose?: string;
     notes?: string;
     status?: AccessRequestStatus;
+    requestKind?: AccessRequestKind;
     adminId?: string;
 }
 
 export type AccessRequestQueryInput = OffsetAndLimit & {
     status?: AccessRequestStatus[];
+    requestKind?: AccessRequestKind;
 }
 
 type ThrottleWindow = {
@@ -58,6 +62,17 @@ const maxRequestsPerWindow = 5;
 // tens at most.
 const maxTrackedAddresses = 1000;
 
+const maxOpenFeedbackRequests = 10;
+
+const openStatuses = [AccessRequestStatus.Unreviewed, AccessRequestStatus.Pending];
+
+// RFC 5321 lets the local part be case-sensitive, but no mainstream provider treats it so, and a check that let
+// "Someone@" past "someone@" is the worse failure.  Both sides are lowered in SQL so the two cannot disagree, and
+// equality rather than iLike, where the underscore common in addresses is a wildcard.
+function matchesEmailAddress(emailAddress: string) {
+    return Sequelize.where(Sequelize.fn("lower", Sequelize.col("emailAddress")), Sequelize.fn("lower", emailAddress));
+}
+
 export class AccessRequest extends BaseModel {
     public firstName: string;
     public lastName: string;
@@ -66,6 +81,7 @@ export class AccessRequest extends BaseModel {
     public purpose: string;
     public notes: string;
     public status: AccessRequestStatus;
+    public requestKind: AccessRequestKind;
     public adminId: string;
     public assignedId: string;
 
@@ -137,11 +153,48 @@ export class AccessRequest extends BaseModel {
             return RequestAccessResponse.Invalid;
         }
 
+        // GraphQL hands an explicit null through for an omitted optional field, which the column default would not
+        // replace - the insert would fail on the NOT NULL instead.
+        const requestKind = data.requestKind ?? AccessRequestKind.Access;
+
+        if (AccessRequestKind[requestKind] === undefined) {
+            return RequestAccessResponse.Invalid;
+        }
+
         if (!this.checkThrottle(user.ip)) {
             return RequestAccessResponse.Throttled;
         }
 
-        const current = await this.findOne({where: {emailAddress: data.emailAddress}});
+        const refusal = requestKind === AccessRequestKind.Feedback
+            ? await this.checkFeedbackLimit(data.emailAddress)
+            : await this.checkAccessDuplicate(data.emailAddress);
+
+        if (refusal !== null) {
+            return refusal;
+        }
+
+        const shape: AccessRequestShape = {...data, requestKind};
+
+        await this.sequelize.transaction(async (t) => {
+            const request = await this.create(shape, {transaction: t});
+
+            await request.recordEvent(EventLogItemKind.AccessRequestCreate, shape, user, t);
+
+            return request;
+        });
+
+        // After the commit, so a rolled-back request is never announced, and not awaited, so the open endpoint never
+        // waits on a notification service.
+        notifyAccessRequestCreated(requestKind);
+
+        return RequestAccessResponse.Accepted;
+    }
+
+    // One access request per address, whatever state it has reached.  Feedback from the same address does not count.
+    private static async checkAccessDuplicate(emailAddress: string): Promise<RequestAccessResponse | null> {
+        const current = await this.findOne({
+            where: {[Op.and]: [matchesEmailAddress(emailAddress), {requestKind: AccessRequestKind.Access}]}
+        });
 
         if (current) {
             switch (current.status) {
@@ -154,19 +207,21 @@ export class AccessRequest extends BaseModel {
             }
         }
 
-        await this.sequelize.transaction(async (t) => {
-            const request = await this.create(data, {transaction: t});
+        return null;
+    }
 
-            await request.recordEvent(EventLogItemKind.AccessRequestCreate, data, user, t);
-
-            return request;
+    // Closed feedback no longer counts, so an address that has had its messages dealt with can send more.
+    private static async checkFeedbackLimit(emailAddress: string): Promise<RequestAccessResponse | null> {
+        const open = await this.count({
+            where: {
+                [Op.and]: [
+                    matchesEmailAddress(emailAddress),
+                    {requestKind: AccessRequestKind.Feedback, status: {[Op.in]: openStatuses}}
+                ]
+            }
         });
 
-        // After the commit, so a rolled-back request is never announced, and not awaited, so the open endpoint never
-        // waits on a notification service.
-        notifyAccessRequestCreated();
-
-        return RequestAccessResponse.Accepted;
+        return open >= maxOpenFeedbackRequests ? RequestAccessResponse.TooManyOpenFeedback : null;
     }
 
     public static async getAll(user: User, input: AccessRequestQueryInput): Promise<EntityQueryOutput<AccessRequest>> {
@@ -178,6 +233,12 @@ export class AccessRequest extends BaseModel {
 
         if (input?.status?.length > 0) {
             options.where["status"] = {[Op.in]: input.status};
+        }
+
+        // A loose test, so the explicit null GraphQL passes for an omitted field means no filter, while Access - zero -
+        // still filters.
+        if (input?.requestKind != null) {
+            options.where["requestKind"] = input.requestKind;
         }
 
         const totalCount = await this.setSortAndLimiting(options, input);
@@ -262,6 +323,11 @@ export const modelInit = (sequelize: Sequelize) => {
         status: {
             type: DataTypes.INTEGER,
             defaultValue: 0
+        },
+        requestKind: {
+            type: DataTypes.INTEGER,
+            allowNull: false,
+            defaultValue: AccessRequestKind.Access
         }
     }, {
         tableName: AccessRequestTableName,

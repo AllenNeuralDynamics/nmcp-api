@@ -4,6 +4,7 @@ import {expect, test, vi, describe, beforeEach, afterEach} from "vitest";
 // different module instance than the CJS one the model methods call into, so the spies would not apply.
 const notifications = require("../src/data-access/notification/accessRequestNotifications");
 const {CoreServiceOptions} = require("../src/options/coreServicesOptions");
+const {AccessRequestKind} = require("../src/models/accessRequestKind");
 
 const options = CoreServiceOptions.notification.accessRequest;
 
@@ -30,9 +31,9 @@ afterEach(() => {
 
 describe("accessRequestCreatedMessage", () => {
     test("links the review page", () => {
-        expect(notifications.accessRequestCreatedMessage(reviewUrl)).toEqual({
+        expect(notifications.accessRequestCreatedMessage(reviewUrl, AccessRequestKind.Access)).toEqual({
             subject: "New NMCP Access Request",
-            body: `There is a new NMCP portal access request.  You can review access request here: ${reviewUrl}`
+            body: `There is a new NMCP portal access request.  You can review access request here: ${reviewUrl}?tab=accessrequests`
         });
     });
 
@@ -40,7 +41,30 @@ describe("accessRequestCreatedMessage", () => {
         {label: "an empty", value: ""},
         {label: "an absent", value: undefined}
     ])("stops after the first sentence for $label review URL", ({value}) => {
-        expect(notifications.accessRequestCreatedMessage(value).body).toBe("There is a new NMCP portal access request.");
+        expect(notifications.accessRequestCreatedMessage(value, AccessRequestKind.Access).body).toBe("There is a new NMCP portal access request.");
+    });
+
+    test("words a feedback request as a message", () => {
+        expect(notifications.accessRequestCreatedMessage(reviewUrl, AccessRequestKind.Feedback)).toEqual({
+            subject: "New NMCP Message",
+            body: `There is a new NMCP portal message.  You can review the message here: ${reviewUrl}?tab=feedback`
+        });
+    });
+
+    test.each([
+        {label: "an existing query", configured: "https://portal.example.org/admin?view=all", linked: "https://portal.example.org/admin?view=all&tab=feedback"},
+        {label: "a fragment", configured: "https://portal.example.org/admin#requests", linked: "https://portal.example.org/admin?tab=feedback#requests"},
+        {label: "a tab of its own", configured: "https://portal.example.org/admin?tab=other", linked: "https://portal.example.org/admin?tab=feedback"}
+    ])("keeps the link well formed when the review URL has $label", ({configured, linked}) => {
+        expect(notifications.accessRequestCreatedMessage(configured, AccessRequestKind.Feedback).body).toBe(`There is a new NMCP portal message.  You can review the message here: ${linked}`);
+    });
+
+    test("links an unparseable review URL unchanged rather than throwing", () => {
+        expect(notifications.accessRequestCreatedMessage("/admin", AccessRequestKind.Access).body).toBe("There is a new NMCP portal access request.  You can review access request here: /admin");
+    });
+
+    test("stops after the first sentence of a feedback message with no review URL", () => {
+        expect(notifications.accessRequestCreatedMessage("", AccessRequestKind.Feedback).body).toBe("There is a new NMCP portal message.");
     });
 });
 
@@ -54,9 +78,9 @@ describe("notifyAccessRequestCreated", () => {
 
         options.reviewUrl = reviewUrl;
 
-        notifications.notifyAccessRequestCreated();
+        notifications.notifyAccessRequestCreated(AccessRequestKind.Access);
 
-        const expected = notifications.accessRequestCreatedMessage(reviewUrl);
+        const expected = notifications.accessRequestCreatedMessage(reviewUrl, AccessRequestKind.Access);
 
         expect(first.send).toHaveBeenCalledTimes(1);
         expect(first.send).toHaveBeenCalledWith(expected);
@@ -65,7 +89,7 @@ describe("notifyAccessRequestCreated", () => {
     });
 
     test("does nothing with no channels registered", () => {
-        expect(() => notifications.notifyAccessRequestCreated()).not.toThrow();
+        expect(() => notifications.notifyAccessRequestCreated(AccessRequestKind.Access)).not.toThrow();
     });
 
     test("returns without waiting for a channel to settle", () => {
@@ -73,7 +97,7 @@ describe("notifyAccessRequestCreated", () => {
 
         notifications.registerChannel(hung);
 
-        expect(notifications.notifyAccessRequestCreated()).toBeUndefined();
+        expect(notifications.notifyAccessRequestCreated(AccessRequestKind.Access)).toBeUndefined();
         expect(hung.send).toHaveBeenCalledTimes(1);
     });
 
@@ -85,7 +109,7 @@ describe("notifyAccessRequestCreated", () => {
         notifications.registerChannel(failing);
         notifications.registerChannel(working);
 
-        notifications.notifyAccessRequestCreated();
+        notifications.notifyAccessRequestCreated(AccessRequestKind.Access);
 
         await settle();
 
@@ -102,7 +126,7 @@ describe("notifyAccessRequestCreated", () => {
         notifications.registerChannel(broken);
         notifications.registerChannel(working);
 
-        expect(() => notifications.notifyAccessRequestCreated()).not.toThrow();
+        expect(() => notifications.notifyAccessRequestCreated(AccessRequestKind.Access)).not.toThrow();
 
         await settle();
 

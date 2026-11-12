@@ -2,9 +2,12 @@ import {expect, test, vi, describe, beforeEach, afterEach} from "vitest";
 
 // require() rather than import: the .ts sources are compiled to .js in place, and an ESM import yields a
 // different module instance than the CJS one the model methods call into, so the spies would not apply.
-const {Op} = require("sequelize");
+const {Op, Sequelize} = require("sequelize");
 const {User, UserPermissions} = require("../src/models/user");
 const {AccessRequest, AccessRequestStatus, RequestAccessResponse} = require("../src/models/accessRequest");
+const {AccessRequestKind} = require("../src/models/accessRequestKind");
+const {GraphQLInt, GraphQLNonNull} = require("graphql");
+const {createSchema} = require("../src/graphql/schema");
 const {EventLogItem, EventLogItemKind} = require("../src/models/eventLogItem");
 const {UnauthorizedError} = require("../src/graphql/secureResolvers");
 const notifications = require("../src/data-access/notification/accessRequestNotifications");
@@ -72,6 +75,37 @@ describe("AccessRequest.getAll", () => {
         expect((stubs.findAll.mock.calls[0][0] as any).where.status[Op.in]).toBe(status);
     });
 
+    test.each([
+        {label: "Access, whose value is zero", requestKind: AccessRequestKind.Access},
+        {label: "Feedback", requestKind: AccessRequestKind.Feedback}
+    ])("filters on the requested kind for $label", async ({requestKind}) => {
+        const stubs = stub();
+
+        await AccessRequest.getAll(admin(), {requestKind});
+
+        expect((stubs.findAll.mock.calls[0][0] as any).where).toEqual({requestKind});
+    });
+
+    test("applies no kind predicate for a null kind", async () => {
+        const stubs = stub();
+
+        await AccessRequest.getAll(admin(), {requestKind: null});
+
+        expect((stubs.findAll.mock.calls[0][0] as any).where).toEqual({});
+    });
+
+    test("combines the kind and status predicates", async () => {
+        const stubs = stub();
+        const status = [AccessRequestStatus.Unreviewed];
+
+        await AccessRequest.getAll(admin(), {status, requestKind: AccessRequestKind.Feedback});
+
+        const where = (stubs.findAll.mock.calls[0][0] as any).where;
+
+        expect(where.status[Op.in]).toBe(status);
+        expect(where.requestKind).toBe(AccessRequestKind.Feedback);
+    });
+
     test("counts against the same predicate it selects with", async () => {
         const stubs = stub();
 
@@ -120,6 +154,7 @@ function stubCreation() {
     });
 
     vi.spyOn(AccessRequest, "findOne").mockResolvedValue(null);
+    vi.spyOn(AccessRequest, "count").mockResolvedValue(0);
     vi.spyOn(AccessRequest, "create").mockImplementation(async () => {
         const created = Object.create(AccessRequest.prototype);
         created.id = "request-1";
@@ -444,5 +479,142 @@ describe("AccessRequest.updateStatus", () => {
             targetId: "request-1",
             userId: "user-1"
         });
+    });
+});
+
+describe("AccessRequest.createRequest kind", () => {
+    const submit = (ip: string, request: object) => AccessRequest.createRequest(caller(ip), {emailAddress: "someone@example.com", ...request});
+
+    beforeEach(() => {
+        stubCreation();
+    });
+
+    test.each([
+        {label: "omitted", request: {}, ip: "10.0.3.1"},
+        {label: "null", request: {requestKind: null}, ip: "10.0.3.2"}
+    ])("defaults to Access when the kind is $label", async ({request, ip}) => {
+        expect(await submit(ip, request)).toBe(RequestAccessResponse.Accepted);
+
+        expect((AccessRequest.create as any).mock.calls[0][0].requestKind).toBe(AccessRequestKind.Access);
+    });
+
+    test("stores Feedback when it is requested", async () => {
+        expect(await submit("10.0.3.3", {requestKind: AccessRequestKind.Feedback})).toBe(RequestAccessResponse.Accepted);
+
+        expect((AccessRequest.create as any).mock.calls[0][0].requestKind).toBe(AccessRequestKind.Feedback);
+    });
+
+    test("records the resolved kind in the create event", async () => {
+        await submit("10.0.3.4", {});
+
+        expect((EventLogItem.create as any).mock.calls[0][0].details.requestKind).toBe(AccessRequestKind.Access);
+    });
+
+    test.each([
+        {kind: AccessRequestKind.Access, subject: "New NMCP Access Request", ip: "10.0.3.6"},
+        {kind: AccessRequestKind.Feedback, subject: "New NMCP Message", ip: "10.0.3.7"}
+    ])("notifies with the wording for kind $kind", async ({kind, subject, ip}) => {
+        const channel = {name: "fake", send: vi.fn().mockResolvedValue(undefined)};
+
+        notifications.registerChannel(channel);
+
+        await submit(ip, {requestKind: kind});
+
+        expect(channel.send.mock.calls[0][0].subject).toBe(subject);
+    });
+
+    test("rejects a kind outside the enum without creating anything", async () => {
+        expect(await submit("10.0.3.5", {requestKind: 42})).toBe(RequestAccessResponse.Invalid);
+
+        expect(AccessRequest.create).not.toHaveBeenCalled();
+    });
+});
+
+describe("AccessRequest.createRequest limits", () => {
+    const submit = (ip: string, requestKind: number, emailAddress: string = "someone@example.com") =>
+        AccessRequest.createRequest(caller(ip), {emailAddress, requestKind});
+
+    // Rendered rather than compared structurally: the case-insensitive match is a Sequelize.where whose meaning is
+    // only visible in the SQL it produces.  Constructing Sequelize does not connect.
+    const generator = new Sequelize("postgres://unused@localhost:1/unused", {logging: false}).getQueryInterface().queryGenerator;
+
+    const renderedWhere = (spy: any) => generator.whereQuery(spy.mock.calls[0][0].where);
+
+    beforeEach(() => {
+        stubCreation();
+    });
+
+    test("looks for an existing access request of the access kind only, in any state", async () => {
+        await submit("10.0.4.1", AccessRequestKind.Access);
+
+        expect(renderedWhere(AccessRequest.findOne)).toBe(
+            `WHERE (lower("emailAddress") = lower('someone@example.com') AND "requestKind" = ${AccessRequestKind.Access})`
+        );
+        expect(AccessRequest.count).not.toHaveBeenCalled();
+    });
+
+    // The underscore is the case iLike would get wrong, as a single-character wildcard.
+    test("matches addresses without regard to case, comparing the address as given", async () => {
+        await submit("10.0.4.6", AccessRequestKind.Access, "Some_One@Example.com");
+
+        expect(renderedWhere(AccessRequest.findOne)).toContain(`lower("emailAddress") = lower('Some_One@Example.com')`);
+    });
+
+    test("accepts feedback from an address that already has an access request", async () => {
+        vi.spyOn(AccessRequest, "findOne").mockResolvedValue({status: AccessRequestStatus.Accepted});
+
+        expect(await submit("10.0.4.2", AccessRequestKind.Feedback)).toBe(RequestAccessResponse.Accepted);
+    });
+
+    test("counts only open feedback from the same address", async () => {
+        await submit("10.0.4.3", AccessRequestKind.Feedback);
+
+        expect(renderedWhere(AccessRequest.count)).toBe(
+            `WHERE (lower("emailAddress") = lower('someone@example.com') AND ("requestKind" = ${AccessRequestKind.Feedback} `
+            + `AND "status" IN (${AccessRequestStatus.Unreviewed}, ${AccessRequestStatus.Pending})))`
+        );
+        expect(AccessRequest.findOne).not.toHaveBeenCalled();
+    });
+
+    test("accepts a tenth open feedback request", async () => {
+        vi.spyOn(AccessRequest, "count").mockResolvedValue(9);
+
+        expect(await submit("10.0.4.4", AccessRequestKind.Feedback)).toBe(RequestAccessResponse.Accepted);
+    });
+
+    test("refuses an eleventh open feedback request without creating or notifying", async () => {
+        const channel = {name: "fake", send: vi.fn().mockResolvedValue(undefined)};
+
+        notifications.registerChannel(channel);
+
+        vi.spyOn(AccessRequest, "count").mockResolvedValue(10);
+
+        expect(await submit("10.0.4.5", AccessRequestKind.Feedback)).toBe(RequestAccessResponse.TooManyOpenFeedback);
+
+        expect(AccessRequest.create).not.toHaveBeenCalled();
+        expect(channel.send).not.toHaveBeenCalled();
+    });
+});
+
+describe("requestKind in the schema", () => {
+    const schema = createSchema();
+
+    test("is an optional Int on the request input", () => {
+        const field = schema.getType("AccessRequestInput").getFields()["requestKind"];
+
+        expect(field.type).toBe(GraphQLInt);
+    });
+
+    test("is an optional Int on the query input", () => {
+        const field = schema.getType("AccessRequestQueryInput").getFields()["requestKind"];
+
+        expect(field.type).toBe(GraphQLInt);
+    });
+
+    test("is a non-null Int on the AccessRequest type", () => {
+        const field = schema.getType("AccessRequest").getFields()["requestKind"];
+
+        expect(field.type).toBeInstanceOf(GraphQLNonNull);
+        expect(field.type.ofType).toBe(GraphQLInt);
     });
 });

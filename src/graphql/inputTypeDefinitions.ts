@@ -250,6 +250,7 @@ export const inputTypeDefinitions = gql`
 
     input AccessRequestQueryInput {
         status: [Int!]
+        requestKind: Int
         offset: Int
         limit: Int
     }
@@ -260,5 +261,6 @@ export const inputTypeDefinitions = gql`
         emailAddress: String!
         affiliation: String!
         purpose: String!
+        requestKind: Int
     }
 `;
